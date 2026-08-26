@@ -76,6 +76,18 @@ npm run render:headline  # the five bouts with pre-rendered mp4s
 
 `scripts/render-tape.mjs --bout 15 --still 300` dumps a single frame as a PNG, which is the quickest way to iterate on the composition.
 
+## Recording the sales demo
+
+Promoter pitches happen over WhatsApp more than in person, so a recording of the flow is a deliverable in its own right. [`scripts/tour.mjs`](scripts/tour.mjs) scripts it: Chrome runs in app mode at phone dimensions so there is no tab strip or address bar in shot, and the scroll and pause timings live in the script so a take is repeatable.
+
+```bash
+node scripts/tour.mjs setup     # chrome-less phone-shaped window
+node scripts/tour.mjs tour      # run the walkthrough while recording the screen
+node scripts/tour.mjs teardown
+```
+
+Crop the capture to the window afterwards; the last run used `crop=454:985:719:106`, which depends on where the window landed.
+
 ## What is real and what is not
 
 Every fighter, gym, sponsor and event here is invented, and the portraits are generated images. Swap in real photographs before showing this to a specific promoter.
