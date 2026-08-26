@@ -5,6 +5,10 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --still 300
  *
+ * Before rendering anything it makes the cutouts that do not exist yet, because
+ * a fighter's photograph arrives through a Worker and background removal cannot
+ * run in one. See scripts/cutouts.mjs, which is also runnable on its own.
+ *
  * Needs the app running at --base (npm run dev, or `npm run preview`, or the
  * deployed site) and RENDER_KEY, which is what the capture page accepts instead
  * of a promoter session. See DEPLOY.md.
@@ -30,6 +34,7 @@ import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
+import { ensureCutouts, needsCutout } from "./cutouts.mjs";
 import { devVars } from "./dev-vars.mjs";
 
 const CHROME =
@@ -118,12 +123,22 @@ async function d1(sql) {
  * The fingerprint is why a re-run is cheap: a fifteen-bout card is a quarter of
  * an hour of compute, and after a fighter finally sends their photo only their
  * bout needs doing again.
+ *
+ * The photograph and the cutout are in it by name rather than being left to
+ * `updated_at`. A cutout appearing is the single most visible change that can
+ * happen to a bout's video — it is the difference between a rectangle and a
+ * fighter standing in front of the venue — and it happens in this script's own
+ * run, minutes after the row was last touched. Naming both columns means the
+ * staleness test states what it depends on instead of depending on every write
+ * path remembering to bump a timestamp.
  */
 async function boutsOf(eventSlug) {
   const rows = await d1(
     `SELECT b.number, b.discipline, b.weight_kg, b.class_label, b.title_label, b.billing,
             b.womens, b.rounds, b.round_minutes, b.sponsor_id, b.red_id, b.blue_id,
             r.updated_at AS red_updated, u.updated_at AS blue_updated,
+            r.photo AS red_photo, r.cutout AS red_cutout,
+            u.photo AS blue_photo, u.cutout AS blue_cutout,
             j.status AS job_status, j.input_hash AS job_hash
        FROM bouts b
        JOIN events e ON e.id = b.event_id
@@ -138,6 +153,10 @@ async function boutsOf(eventSlug) {
     const { job_status, job_hash, ...inputs } = row;
     return {
       number: row.number,
+      fighterIds: [row.red_id, row.blue_id],
+      pendingCutout:
+        needsCutout({ photo: row.red_photo, cutout: row.red_cutout }) ||
+        needsCutout({ photo: row.blue_photo, cutout: row.blue_cutout }),
       hash: createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16),
       playable: job_status === "done",
       // A finished render made before fingerprinting existed has no hash, so it
@@ -222,16 +241,32 @@ async function openBout(page, bout) {
   return page.evaluate(() => window.__duration ?? 480);
 }
 
-/** Commits the frame and waits for it to be painted before we capture it. */
+/**
+ * Commits the frame and waits for it to be painted before we capture it.
+ *
+ * The wait includes every image in the document being decoded, not just a couple
+ * of animation frames, because a scene can put an image into the DOM for the
+ * first time: a fighter's portrait does not exist until their reveal starts at
+ * frame 62. Two frames later is not long enough to fetch one, so the opening of
+ * the reveal captured as an empty venue with a name under it. It survived because
+ * the seeded portraits are static files that a warm dev server answers in a
+ * millisecond or two; an uploaded photograph comes back through /media and D1,
+ * and the first frames went out blank.
+ *
+ * `decode()` is the right question to ask — it resolves when the image can be
+ * painted without a delay, and resolves immediately for anything already
+ * painted, so asking on all 480 frames costs almost nothing.
+ */
 async function seek(page, frame) {
-  await page.evaluate(
-    (f) =>
-      new Promise((resolve) => {
-        window.__setFrame(f);
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      }),
-    frame,
-  );
+  await page.evaluate(async (f) => {
+    window.__setFrame(f);
+    // One frame for React to commit, so anything new is in the document.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => {})));
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve)),
+    );
+  }, frame);
 }
 
 async function renderStill(bout, frame) {
@@ -324,16 +359,48 @@ if (still && boutArg) {
 } else {
   if (!slug) throw new Error("Pass --slug <event-slug>");
 
-  const all = await boutsOf(slug);
+  let all = await boutsOf(slug);
   if (!all.length) throw new Error(`No bouts on "${slug}" in the ${scope.slice(2)} database`);
 
   if (arg("list")) {
+    const pending = all.filter((bout) => bout.pendingCutout).length;
     for (const bout of all) {
       const state =
         bout.rendered === bout.hash ? "current" : bout.playable ? "stale" : "missing";
-      console.log(`  bout ${String(bout.number).padStart(2)}  ${state}`);
+      console.log(
+        `  bout ${String(bout.number).padStart(2)}  ${state}${bout.pendingCutout ? "  (cutout to make)" : ""}`,
+      );
+    }
+    if (pending) {
+      // --list reads and writes nothing, so it reports the cutouts a real run
+      // would make rather than making them. Without this the bouts about to
+      // become stale look current, which is true only until something renders.
+      console.log(`\n  ${pending} bout${pending === 1 ? "" : "s"} has a photograph with no cutout yet.`);
     }
     process.exit(0);
+  }
+
+  // Cutouts before fingerprints, both because the render needs them and because
+  // a cutout appearing is what makes a bout stale. Doing it the other way round
+  // is how a fighter whose photograph has just arrived gets left out of --stale.
+  if (arg("no-cutouts")) {
+    console.log("Skipping cutouts. Any fighter without one will show their photograph.");
+  } else {
+    // One bout asked for means only its two corners need cutting out. Anything
+    // wider has to consider the whole card, because --stale is about every bout.
+    const only =
+      boutArg && boutArg !== true
+        ? (all.find((bout) => bout.number === Number(boutArg))?.fighterIds ?? [])
+        : null;
+    const cutoutTimeout = arg("cutout-timeout");
+    const summary = await ensureCutouts({
+      slug,
+      scope,
+      refresh: Boolean(arg("refresh-cutouts")),
+      only,
+      ...(cutoutTimeout && cutoutTimeout !== true ? { timeoutMs: Number(cutoutTimeout) } : {}),
+    });
+    if (summary.made || summary.failed) all = await boutsOf(slug);
   }
 
   let wanted;
@@ -348,7 +415,9 @@ if (still && boutArg) {
   } else {
     console.error(
       "Pass --slug <event-slug> and one of --list, --bout <n>, --stale, --all,\n" +
-        "or --bout <n> --still <frame>.",
+        "or --bout <n> --still <frame>.\n" +
+        "Cutouts are made first unless --no-cutouts; --refresh-cutouts remakes\n" +
+        "the ones that already exist.",
     );
     process.exit(1);
   }
