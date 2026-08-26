@@ -64,7 +64,7 @@ export default async function PromoterHome() {
           </div>
         ) : (
           <p className="text-ash mt-4 text-sm leading-relaxed">
-            Nothing yet. Put the running order in below and you have a programme.
+            No shows yet. Put a running order in below and you have a programme.
           </p>
         )}
       </section>

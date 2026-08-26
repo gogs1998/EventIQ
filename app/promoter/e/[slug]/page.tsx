@@ -273,9 +273,9 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </div>
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
           Top of the card first, because a gap in the main event costs more than a gap in
-          bout two. Copy pastes a message naming their bout, their opponent, their own
-          link, and — only where it&rsquo;s true — that the other one has already sent
-          theirs.
+          bout two. Copy puts a message on the clipboard naming their bout, their opponent
+          and their own link, and — only where it is true — that their opponent has
+          already sent theirs.
         </p>
 
         {chase.length ? (
@@ -322,7 +322,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           </div>
         ) : (
           <p className="border-hairline text-gold border p-4 text-sm">
-            Nobody. Every profile on the card is finished.
+            Every profile on the card is finished.
           </p>
         )}
       </section>
@@ -382,12 +382,12 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         <div className="border-hairline mb-3 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">This show so far</h2>
           <span className="label">
-            {card.published ? "Counting" : "Not published, so nobody can look yet"}
+            {card.published ? "Counting" : "Not published, so nobody can read it yet"}
           </span>
         </div>
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
-          Live, from the moment the first person scans the code. Zeroes here mean nobody
-          has looked yet, not that we are not counting.
+          Live, from the moment the first person scans the code. A zero here means nobody
+          has looked yet, not that nothing is being counted.
         </p>
         <Counts totals={live} sponsors={Object.keys(liveTaps).length} />
       </section>
@@ -399,8 +399,8 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           <span className="label">{last ? last.event.name : "No previous show"}</span>
         </div>
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
-          What a sponsor gets sent afterwards. Not a favour any more — a number. These are
-          counted from the programme itself, so a sponsor who checks them finds them true.
+          What a sponsor gets sent afterwards. Counted from the programme itself, so a
+          sponsor who checks them finds them true.
         </p>
 
         {last ? (

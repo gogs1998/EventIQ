@@ -18,10 +18,10 @@ export async function login(_state: string | null, form: FormData): Promise<stri
   const password = String(form.get("password") ?? "");
   const next = String(form.get("next") ?? "/promoter");
 
-  if (!slug || !password) return "Fill both boxes in.";
+  if (!slug || !password) return "Enter a promoter name and a password.";
 
   const result = await attemptLogin(await getDb(), slug, password);
-  if (!result.ok) return "That's not right. Check the promoter name and the password.";
+  if (!result.ok) return "Those details were not recognised. Check the promoter name and the password.";
 
   await signIn(result.promoterId);
   redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/promoter");

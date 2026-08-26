@@ -54,7 +54,7 @@ export async function createEvent(_state: string | null, form: FormData): Promis
   const promoter = await requirePromoter();
   const name = text(form, "name", 80);
   const date = text(form, "date", 10);
-  if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "A name and a date, both.";
+  if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "A show needs a name and a date.";
 
   const db = await getDb();
   const slug = slugify(name);

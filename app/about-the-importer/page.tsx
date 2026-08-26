@@ -71,8 +71,8 @@ export default function AboutTheImporterPage() {
         <h2 className="display text-chalk mt-4 text-xl">If you would rather it did not</h2>
         <p>
           Block the user agent, or get in touch and we will stop reading your site. There
-          is no argument to have about it: the whole feature saves a fighter two minutes
-          of typing and is not worth being unwelcome over.
+          is no argument to have about it: the whole feature saves a fighter some typing
+          and is not worth being unwelcome over.
         </p>
       </div>
 
