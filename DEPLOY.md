@@ -20,9 +20,10 @@ secret in place before anything is uploaded.
 >
 > **There are now two secrets, not one.** `RENDER_KEY` joined
 > `SESSION_SECRET` when the capture page the video renderer screenshots stopped
-> being reachable by anybody who could guess a slug. It is set in production. A
-> fresh deployment without it renders no videos — see
-> [section 4](#4-set-the-secrets).
+> being reachable by anybody who could guess a slug. A fresh deployment without
+> it renders no videos, and **no copy of the deployed value is kept anywhere**,
+> so whoever wants to render mints their own — two commands, no other
+> consequences. See [section 4](#4-set-the-secrets).
 
 ---
 
@@ -120,6 +121,32 @@ secret the render route refuses everybody who is not the signed-in promoter who
 owns the show, and `npm run render` stops working** with the error saying so.
 Keep the same value in the environment of whatever machine runs the renderer —
 see [video rendering](#video-rendering).
+
+### The operator mints their own render key
+
+**There is no copy of `RENDER_KEY` anywhere and there is not meant to be.** It
+cannot be read back out of the Worker, it is in no file in this repository, and
+nobody has it written down. If you have arrived at this project and want to
+render a video, that is not a problem to solve — **mint a new one.** It is two
+commands and it costs nothing else: nothing but the renderer reads this secret,
+so replacing it signs nobody out, invalidates no session and touches no data.
+
+```bash
+# 1. Generate it, put it on the Worker, and keep the value where you can see it.
+openssl rand -base64 36 | tee /dev/tty | npx wrangler secret put RENDER_KEY
+
+# 2. Export the same value wherever the renderer runs.
+export RENDER_KEY='<the value from step 1>'
+```
+
+`tee /dev/tty` is there because `wrangler secret put` reads stdin and prints
+nothing back, so a plain pipe puts the key somewhere you cannot see it and the
+renderer then has no way to match it. Locally the same value goes in `.dev.vars`
+instead, which is the file both the dev server and the renderer read.
+
+Rotating it is the same two commands. Do it if the renderer ever runs somewhere
+less trusted than the operator's own machine, and note what it is: anybody
+holding it can read any card on the instance, published or not.
 
 An unset `RENDER_KEY` denies rather than allows, which is the right way round
 but does mean it fails quietly from the outside: the route simply carries on
@@ -302,6 +329,39 @@ where the programme reads it from. `--stale` renders only the bouts whose
 fighters have changed since the last render; a fifteen-bout card is about a
 quarter of an hour of compute.
 
+### Cutouts happen here too
+
+Before it renders anything, the renderer cuts out any fighter who has sent a
+photograph and has no cutout of it yet — [scripts/cutouts.mjs](scripts/cutouts.mjs).
+That is deliberately not in the upload: background removal is an ONNX model and
+about three and a half seconds of CPU per image, so in the request path it would
+either hold a fighter's form open or fail on their phone, and a Worker cannot run
+the model at all. It reads the photograph out of R2, or out of `public/fighters/`
+for the seeded card, and writes a transparent WebP to `cutouts/` in the bucket
+and the key onto the fighter.
+
+It is also a command of its own, because it is the slow half and the half that
+fails for its own reasons:
+
+```bash
+npm run cutouts -- --slug cage-county-12 --remote                     # the missing ones
+npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts   # all of them again
+npm run cutouts -- --slug cage-county-12 --remote --only nadia-farrukh
+```
+
+Both accept the same flags: `--refresh-cutouts` to remake ones that exist,
+`--only <id>[,<id>]` to name fighters, `--cutout-timeout <ms>` for the ceiling on
+one removal. `npm run render` also takes `--no-cutouts`, which skips the step
+entirely.
+
+**A failure here is not a failure of the render.** A photograph the model cannot
+handle, or one it hands back empty or untouched, is logged, leaves the cutout
+null, and the video shows the photograph — soft-masked and moved less, so it
+reads as a deliberate treatment rather than a rectangle sliding about. Only a
+fighter who has sent nothing at all gets the initialled plate. `npm run render
+-- --slug <slug> --list` says which bouts have a photograph still waiting for a
+cutout.
+
 The machine running it needs three things: the same `CLOUDFLARE_API_TOKEN`, a
 `--base` pointing at somewhere the card can be rendered from — either the
 deployed site or a local dev server against the same data — and **`RENDER_KEY`,
@@ -447,12 +507,13 @@ What remains is operational rather than technical:
 5. **Render the tapes into R2.** The programme falls back to playing the
    sequence live in the browser where no mp4 exists, so this is a quality step
    rather than a fix. See [video rendering](#video-rendering).
-6. **Get `RENDER_KEY` to whoever runs the renderer, and put it somewhere it will
-   survive them.** It is set on the Worker and there is no way to read it back
-   out, so if the only copy is in one person's shell the next render is a
-   rotation. Rotating it is one `wrangler secret put` and an update wherever the
-   renderer runs — nothing else in the product reads it, so a rotation costs no
-   sessions and no data.
+6. **Decide whether `RENDER_KEY` should live somewhere shared.** Today nobody
+   holds it: it is set on the Worker, cannot be read back, and whoever wants to
+   render mints a fresh one — see
+   [the operator mints their own render key](#the-operator-mints-their-own-render-key).
+   That is fine while one person renders on their own machine and is the wrong
+   shape the moment two people or a cron job need to. A password manager entry
+   is the answer, not a file in the repository.
 
 Done since this list was last written: the `eventiq-photos` bucket has been
 deleted (it held one orphaned photograph from an end-to-end run against a

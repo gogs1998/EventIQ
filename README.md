@@ -74,7 +74,9 @@ The centrepiece. A still photograph and a row of numbers become a 16 second vert
 
 Two things make it work.
 
-**Depth from a flat photo.** At asset-prep time every portrait goes through background removal to produce a transparent cutout. The cutout and the backdrop then move at different rates, which reads as parallax rather than a photograph sliding around. If a cutout fails, the sequence falls back to an initialled plate that says "photo to follow" and still plays.
+**Depth from a flat photo.** Every portrait goes through background removal to produce a transparent cutout. The cutout and the backdrop then move at different rates, which reads as parallax rather than a photograph sliding around.
+
+That happens in the render pipeline, not in the upload: background removal is an ONNX model and several seconds of CPU per image, which a Worker cannot run at all and a fighter's phone should not be asked to. So `npm run render` cuts out anybody who has sent a photograph and has no cutout of it, and until it does the sequence shows the photograph — soft-masked, vignetted and moved a third as far, because a rectangle travelling over a drifting backdrop is the thing the parallax exists to avoid. The initialled "photo to follow" plate is only for a fighter who has sent nothing at all. The order lives in [`lib/portrait.ts`](lib/portrait.ts).
 
 **One composition, two outputs.** [`components/sequence/TaleOfTheTape.tsx`](components/sequence/TaleOfTheTape.tsx) is a pure function of its props, of which one is a frame number. There are no CSS animations and no timers; all motion is interpolated in JS from `frame` using the helpers in [`lib/anim.ts`](lib/anim.ts). That single constraint buys both playback modes:
 
@@ -129,13 +131,22 @@ It needs `RENDER_KEY` — the capture page it screenshots serves cards that are 
 
 `--bout 15 --still 300` dumps a single frame as a PNG, which is the quickest way to iterate on the composition.
 
+Cutouts are made first, and can be made on their own:
+
+```bash
+npm run cutouts -- --slug cage-county-12 --remote
+npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
+```
+
+[`scripts/cutouts.mjs`](scripts/cutouts.mjs) is idempotent, never regenerates a cutout that exists, and never fails a render: a photograph it cannot handle is logged and the video falls back to the photograph. `--list` on the renderer says which bouts have a photograph still waiting.
+
 ## Regenerating assets
 
 ```bash
-npm run assets     # cutouts + optimisation, reads assets-src/ (gitignored)
+npm run assets     # optimisation of the curated art in assets-src/ (gitignored)
 ```
 
-Only the optimised output in `public/` is committed.
+Only the optimised output in `public/` is committed. This is for the demo card's artwork; cutouts for photographs a fighter actually sends are made by the renderer, above.
 
 ## Recording the sales demo
 
