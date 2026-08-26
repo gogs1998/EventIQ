@@ -45,3 +45,21 @@ next-env.d.ts
 /assets-src/
 /.asset-tmp/
 /.stills/
+
+# Cloudflare
+/.open-next/
+/.wrangler/
+
+# Local secrets for `next dev` and `wrangler dev`. Real values live in
+# `wrangler secret put`; see DEPLOY.md.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Generated at seed time rather than committed, because it contains live invite
+# tokens and those are the only thing protecting a fighter's profile.
+/db/seed.sql
+
+# 580KB of generated runtime declarations. env.d.ts declares the bindings by
+# hand instead; regenerate this only when debugging a binding type.
+cloudflare-env.d.ts

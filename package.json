@@ -9,30 +9,44 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "node scripts/deploy.mjs",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply eventiq --local",
+    "db:migrate:remote": "wrangler d1 migrations apply eventiq --remote",
+    "db:seed": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/ts-alias-loader-register.mjs scripts/seed.ts",
+    "db:seed:remote": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/ts-alias-loader-register.mjs scripts/seed.ts -- --remote",
+    "db:reset": "npm run db:migrate && npm run db:seed",
+    "db:studio": "wrangler d1 execute eventiq --local --command",
     "assets": "node scripts/prepare-assets.mjs",
     "render": "node scripts/render-tape.mjs",
     "render:headline": "for b in 15 14 13 12 11; do node scripts/render-tape.mjs --bout $b; done",
-    "shots": "node scripts/shots.mjs",
-    "deploy": "node scripts/deploy.mjs"
+    "shots": "node scripts/shots.mjs"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "^1.20.3",
+    "drizzle-orm": "^0.45.2",
     "next": "16.3.3",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260826.1",
     "@imgly/background-removal-node": "^1.4.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "puppeteer-core": "^25.9.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.126.0"
   }
 }

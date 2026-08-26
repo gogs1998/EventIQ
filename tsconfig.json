@@ -30,5 +30,9 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // scripts/seed.ts runs under Node's type stripping rather than through the
+  // Next.js build, so it imports with explicit .ts extensions. That is invalid
+  // under this configuration and correct under Node's, and typechecking it here
+  // would only report the difference.
+  "exclude": ["node_modules", "scripts/seed.ts"]
 }

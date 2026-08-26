@@ -1,0 +1,13 @@
+# Copy to .dev.vars for local development. Never commit the copy.
+#
+# SESSION_SECRET signs the promoter's login cookie. Any long random string will
+# do locally; generate a real one for deployment with:
+#   openssl rand -base64 48
+SESSION_SECRET=local-development-only-not-a-real-secret
+
+# The password the seed script sets on the seeded promoter. Change it before
+# seeding anything that is reachable from the internet.
+SEED_PROMOTER_PASSWORD=letmein
+
+# Loads .env files as development rather than production.
+NEXTJS_ENV=development

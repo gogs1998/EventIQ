@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eventiq",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-01",
+  // nodejs_compat is required by the Next.js adapter. global_fetch_strictly_public
+  // makes outbound fetch behave like a browser's, which matters because the record
+  // importer fetches a third-party page from inside the Worker.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "eventiq"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "eventiq",
+      // Replaced by the id printed by `wrangler d1 create eventiq`. Local
+      // development ignores this and uses the Miniflare database under
+      // .wrangler/state, so the placeholder does not stop anything working.
+      "database_id": "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE",
+      "migrations_dir": "db/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      // Fighter photographs and rendered mp4s. Not the Next.js cache: that is a
+      // separate concern and gets its own bucket if it is ever wanted.
+      "binding": "MEDIA",
+      "bucket_name": "eventiq-media"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
