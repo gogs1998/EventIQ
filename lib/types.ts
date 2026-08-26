@@ -82,3 +82,39 @@ export type FightEvent = {
 };
 
 export type Corner = "red" | "blue";
+
+/**
+ * A fighter's way in. There is no account and no password: the token in the URL
+ * is the credential, because a fighter will not create a login to fill in a
+ * programme entry and pretending otherwise just means an empty card.
+ *
+ * The three timestamps are the promoter's chase signal. Never sent is the
+ * promoter's own job. Sent and not opened is a wrong number or an ignored
+ * message. Opened and not submitted is the warmest lead on the list, and it is
+ * only worth anything because it is recorded when it happens rather than
+ * inferred from how full the profile looks. Unix milliseconds.
+ */
+export type Invite = {
+  fighterId: string;
+  token: string;
+  sentAt?: number;
+  lastOpenedAt?: number;
+  submittedAt?: number;
+};
+
+export type InviteStatus =
+  /** No way of reaching them yet, so nothing has gone out. */
+  | "not-sent"
+  /** Link sent, never opened. */
+  | "sent"
+  /** Opened it and walked away. */
+  | "opened"
+  /** Finished. */
+  | "submitted";
+
+export type AnalyticsKind =
+  | "programme_open"
+  | "bout_expand"
+  | "tape_play"
+  | "sponsor_tap"
+  | "profile_view";

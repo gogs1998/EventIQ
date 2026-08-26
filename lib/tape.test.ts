@@ -13,24 +13,23 @@ import {
   totalFights,
 } from "@/lib/tape";
 
-// The real fixture is imported by tape.ts, so tests that need bespoke fighters
-// register them into the same map the module reads from.
-import { fighters } from "@/data/event";
+let nextId = 0;
 
-function register(f: Fighter): string {
-  fighters[f.id] = f;
-  return f.id;
+/** Nothing here reads a fixture: every function under test takes its fighters. */
+function fighter(f: Omit<Fighter, "id" | "gym"> & { gym?: string }): Fighter {
+  nextId += 1;
+  return { id: `f${nextId}`, gym: "Some Gym", ...f };
 }
 
-function bout(redId: string, blueId: string, extra: Partial<Bout> = {}): Bout {
+function bout(extra: Partial<Bout> = {}): Bout {
   return {
     number: 99,
     discipline: "MMA",
     weightKg: 70,
     rounds: 3,
     roundMinutes: 3,
-    redId,
-    blueId,
+    redId: "red",
+    blueId: "blue",
     ...extra,
   };
 }
@@ -77,11 +76,10 @@ describe("record formatting", () => {
 
 describe("buildTape", () => {
   it("drops a row only when neither corner can fill it", () => {
-    const red = register({ id: "tr1", name: "Red One", gym: "Ironworks", heightCm: 180 });
-    const blue = register({ id: "tb1", name: "Blue One", gym: "Vanguard" });
+    const red = fighter({ name: "Red One", gym: "Ironworks", heightCm: 180 });
+    const blue = fighter({ name: "Blue One", gym: "Vanguard" });
 
-    const rows = buildTape(bout(red, blue));
-    const keys = rows.map((r) => r.key);
+    const keys = buildTape(red, blue).map((r) => r.key);
 
     expect(keys).toContain("height");
     expect(keys).toContain("gym");
@@ -91,108 +89,123 @@ describe("buildTape", () => {
   });
 
   it("keeps a half-filled row and marks no leader", () => {
-    const red = register({ id: "tr2", name: "Red Two", gym: "A", heightCm: 180 });
-    const blue = register({ id: "tb2", name: "Blue Two", gym: "B" });
+    const red = fighter({ name: "Red Two", heightCm: 180 });
+    const blue = fighter({ name: "Blue Two" });
 
-    const row = buildTape(bout(red, blue)).find((r) => r.key === "height");
+    const row = buildTape(red, blue).find((r) => r.key === "height");
     expect(row?.red).toBe("180cm");
     expect(row?.blue).toBeUndefined();
     expect(row?.leader).toBeUndefined();
   });
 
   it("awards the leader and the gap on contested rows", () => {
-    const red = register({ id: "tr3", name: "Red Three", gym: "A", reachCm: 191 });
-    const blue = register({ id: "tb3", name: "Blue Three", gym: "B", reachCm: 180 });
+    const red = fighter({ name: "Red Three", reachCm: 191 });
+    const blue = fighter({ name: "Blue Three", reachCm: 180 });
 
-    const row = buildTape(bout(red, blue)).find((r) => r.key === "reach");
+    const row = buildTape(red, blue).find((r) => r.key === "reach");
     expect(row?.leader).toBe("red");
     expect(row?.edge).toBe("+11cm");
   });
 
   it("declares no leader when a contested row is tied", () => {
-    const red = register({ id: "tr4", name: "R", gym: "A", reachCm: 180 });
-    const blue = register({ id: "tb4", name: "B", gym: "B", reachCm: 180 });
+    const row = buildTape(
+      fighter({ name: "R", reachCm: 180 }),
+      fighter({ name: "B", reachCm: 180 }),
+    ).find((r) => r.key === "reach");
 
-    const row = buildTape(bout(red, blue)).find((r) => r.key === "reach");
     expect(row?.leader).toBeUndefined();
     expect(row?.edge).toBeUndefined();
   });
 
   it("never picks a leader on age, which is not a contest", () => {
-    const red = register({ id: "tr5", name: "R", gym: "A", age: 22 });
-    const blue = register({ id: "tb5", name: "B", gym: "B", age: 34 });
+    const row = buildTape(fighter({ name: "R", age: 22 }), fighter({ name: "B", age: 34 })).find(
+      (r) => r.key === "age",
+    );
 
-    const row = buildTape(bout(red, blue)).find((r) => r.key === "age");
     expect(row?.leader).toBeUndefined();
   });
 });
 
 describe("buildHooks", () => {
   it("leads with the belt when there is one", () => {
-    const red = register({ id: "hr1", name: "R One", gym: "A", record: { w: 3, l: 1, d: 0 } });
-    const blue = register({ id: "hb1", name: "B One", gym: "B", record: { w: 2, l: 2, d: 0 } });
+    const hooks = buildHooks(
+      bout({ titleLabel: "Middleweight Title" }),
+      fighter({ name: "R One", record: { w: 3, l: 1, d: 0 } }),
+      fighter({ name: "B One", record: { w: 2, l: 2, d: 0 } }),
+    );
 
-    const hooks = buildHooks(bout(red, blue, { titleLabel: "Middleweight Title" }));
     expect(hooks[0]).toContain("Middleweight Title");
   });
 
   it("spots two debutants", () => {
-    const red = register({ id: "hr2", name: "R Two", gym: "A", record: { w: 0, l: 0, d: 0 } });
-    const blue = register({ id: "hb2", name: "B Two", gym: "B", record: { w: 0, l: 0, d: 0 } });
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R Two", record: { w: 0, l: 0, d: 0 } }),
+      fighter({ name: "B Two", record: { w: 0, l: 0, d: 0 } }),
+    );
 
-    expect(buildHooks(bout(red, blue)).join(" ")).toContain("Two debutants");
+    expect(hooks.join(" ")).toContain("Two debutants");
   });
 
   it("names the reach advantage and its size", () => {
-    const red = register({ id: "hr3", name: "Ada Long", gym: "A", reachCm: 195 });
-    const blue = register({ id: "hb3", name: "Bo Short", gym: "B", reachCm: 180 });
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "Ada Long", reachCm: 195 }),
+      fighter({ name: "Bo Short", reachCm: 180 }),
+    );
 
-    expect(buildHooks(bout(red, blue))).toContain("Long carries 15cm more reach.");
+    expect(hooks).toContain("Long carries 15cm more reach.");
   });
 
   it("ignores a trivial reach difference", () => {
-    const red = register({ id: "hr4", name: "R", gym: "A", reachCm: 182 });
-    const blue = register({ id: "hb4", name: "B", gym: "B", reachCm: 180 });
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", reachCm: 182 }),
+      fighter({ name: "B", reachCm: 180 }),
+    );
 
-    expect(buildHooks(bout(red, blue)).join(" ")).not.toContain("reach");
+    expect(hooks.join(" ")).not.toContain("reach");
   });
 
   it("calls out a gym clash", () => {
-    const red = register({ id: "hr5", name: "R", gym: "Ironworks MMA" });
-    const blue = register({ id: "hb5", name: "B", gym: "Ironworks MMA" });
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", gym: "Ironworks MMA" }),
+      fighter({ name: "B", gym: "Ironworks MMA" }),
+    );
 
-    expect(buildHooks(bout(red, blue)).join(" ")).toContain("Same gym");
+    expect(hooks.join(" ")).toContain("Same gym");
   });
 
   it("returns nothing rather than inventing a story from an empty pair", () => {
-    const red = register({ id: "hr6", name: "R", gym: "A" });
-    const blue = register({ id: "hb6", name: "B", gym: "B" });
-
-    expect(buildHooks(bout(red, blue))).toEqual([]);
+    expect(
+      buildHooks(bout(), fighter({ name: "R", gym: "A" }), fighter({ name: "B", gym: "B" })),
+    ).toEqual([]);
   });
 
   it("never returns more than three", () => {
-    const red = register({
-      id: "hr7",
-      name: "Ada Long",
-      gym: "A",
-      reachCm: 200,
-      heightCm: 200,
-      stance: "Southpaw",
-      record: { w: 9, l: 0, d: 0 },
-      finishes: { ko: 8, sub: 1 },
-    });
-    const blue = register({
-      id: "hb7",
-      name: "Bo Short",
-      gym: "B",
-      reachCm: 170,
-      heightCm: 170,
-      stance: "Orthodox",
-      record: { w: 0, l: 0, d: 0 },
-    });
+    const hooks = buildHooks(
+      bout({ titleLabel: "Belt" }),
+      fighter({
+        name: "Ada Long",
+        gym: "A",
+        reachCm: 200,
+        heightCm: 200,
+        stance: "Southpaw",
+        record: { w: 9, l: 0, d: 0 },
+        finishes: { ko: 8, sub: 1 },
+      }),
+      fighter({
+        name: "Bo Short",
+        gym: "B",
+        reachCm: 170,
+        heightCm: 170,
+        stance: "Orthodox",
+        record: { w: 0, l: 0, d: 0 },
+      }),
+    );
 
-    expect(buildHooks(bout(red, blue, { titleLabel: "Belt" })).length).toBe(3);
+    expect(hooks.length).toBe(3);
   });
 });
 
@@ -261,17 +274,13 @@ describe("completeness", () => {
 
 describe("boutClassLine", () => {
   it("reads like a promoter wrote it", () => {
-    const red = register({ id: "l1", name: "R", gym: "A" });
-    const blue = register({ id: "l2", name: "B", gym: "B" });
     expect(
-      boutClassLine(bout(red, blue, { weightKg: 83, classLabel: "C Class", discipline: "MUAY_THAI" })),
+      boutClassLine(bout({ weightKg: 83, classLabel: "C Class", discipline: "MUAY_THAI" })),
     ).toBe("83kg · C Class · Muay Thai");
   });
 
   it("marks a women's bout", () => {
-    const red = register({ id: "l3", name: "R", gym: "A" });
-    const blue = register({ id: "l4", name: "B", gym: "B" });
-    expect(boutClassLine(bout(red, blue, { weightKg: 57, womens: true, classLabel: "Amateur" }))).toBe(
+    expect(boutClassLine(bout({ weightKg: 57, womens: true, classLabel: "Amateur" }))).toBe(
       "57kg · Women's · Amateur · MMA",
     );
   });

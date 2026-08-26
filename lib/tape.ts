@@ -1,25 +1,13 @@
-import { event, fighters, sponsors } from "@/data/event";
-import type { Bout, Corner, Discipline, Fighter, Sponsor } from "@/lib/types";
+import type { Bout, Corner, Discipline, Fighter } from "@/lib/types";
 
-export function getFighter(id: string): Fighter {
-  const fighter = fighters[id];
-  if (!fighter) throw new Error(`Unknown fighter: ${id}`);
-  return fighter;
-}
-
-export function getSponsor(id: string | undefined): Sponsor | undefined {
-  return id ? sponsors[id] : undefined;
-}
-
-export function getBout(numberOrSlug: number | string): Bout | undefined {
-  const n = Number(numberOrSlug);
-  return event.bouts.find((b) => b.number === n);
-}
-
-/** Running order runs openers first; the programme lists the main event first. */
-export function boutsTopDown(): Bout[] {
-  return [...event.bouts].sort((a, b) => b.number - a.number);
-}
+/**
+ * Turning fields into a story.
+ *
+ * Nothing in this file reads the database or any fixture. Every function takes
+ * the fighters it works on, which is what lets the same code serve a page
+ * rendered from D1, the video exporter, and a unit test, without any of the
+ * three needing the other two. Lookups against a loaded show live in lib/card.ts.
+ */
 
 export const DISCIPLINE_LABEL: Record<Discipline, string> = {
   MMA: "MMA",
@@ -183,12 +171,7 @@ const ROW_SPECS: RowSpec[] = [
  * a half-answered questionnaire still produces a card that looks deliberate
  * rather than broken.
  */
-export function buildTape(bout: Bout): TapeRow[] {
-  return buildTapeFrom(getFighter(bout.redId), getFighter(bout.blueId));
-}
-
-/** Same rows, but for a pair of fighters that need not be on the card yet. */
-export function buildTapeFrom(red: Fighter, blue: Fighter): TapeRow[] {
+export function buildTape(red: Fighter, blue: Fighter): TapeRow[] {
   return ROW_SPECS.flatMap((spec) => {
     const redDisplay = spec.display(red);
     const blueDisplay = spec.display(blue);
@@ -249,11 +232,7 @@ export type Hook = {
  * The reason to care about bout four on a Tuesday. Built from whatever the
  * fighters actually told us, best first.
  */
-export function buildHooks(bout: Bout): string[] {
-  return buildHooksFrom(bout, getFighter(bout.redId), getFighter(bout.blueId));
-}
-
-export function buildHooksFrom(bout: Bout, red: Fighter, blue: Fighter): string[] {
+export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
   const hooks: Hook[] = [];
 
   if (bout.titleLabel) {
@@ -377,17 +356,6 @@ export function completeness(f: Fighter): Completeness {
   return {
     score: Math.round((earned / total) * 100),
     missing: COMPLETENESS_FIELDS.filter((field) => !field.has(f)).map((field) => field.label),
-  };
-}
-
-export function eventCompleteness(): { score: number; done: number; total: number } {
-  const ids = event.bouts.flatMap((b) => [b.redId, b.blueId]);
-  const scores = ids.map((id) => completeness(getFighter(id)).score);
-  const done = scores.filter((s) => s >= 70).length;
-  return {
-    score: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
-    done,
-    total: ids.length,
   };
 }
 
