@@ -1,116 +1,77 @@
 "use client";
 
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
-import { event, sponsors as allSponsors } from "@/data/event";
 import { FPS } from "@/lib/anim";
 import { cx } from "@/lib/cx";
+import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
-  type ImportedTape,
-  SOURCE_LABEL,
-  lookupTape,
-} from "@/lib/fighter-import";
-import {
-  buildTapeFrom,
-  completeness,
-  firstName,
-  getBout,
-  getFighter,
-  lastName,
-  tapeGapsBehind,
-} from "@/lib/tape";
-import type { Fighter, Stance } from "@/lib/types";
+  STANCES,
+  STYLE_OPTIONS,
+  type Draft,
+  draftFromFighter,
+  fighterFromDraft,
+} from "@/lib/questionnaire";
+import type { Card } from "@/lib/card";
+import { buildTape, completeness, firstName, lastName, tapeGapsBehind } from "@/lib/tape";
+import type { Bout, Fighter, Stance } from "@/lib/types";
 
 /**
- * The fighter's side of the product, as a walkthrough.
+ * The fighter's side of the product.
  *
- * Nothing is saved: this exists so a promoter can see exactly what lands in
- * their fighters' hands. The order of the questions is the argument — the parts
- * that flatter a fighter come first, and the tape measurements last, because a
- * form that opens with "reach in centimetres" does not get finished.
+ * The order of the questions is the argument: the parts that flatter a fighter
+ * come first and the tape measurements come last, because a form that opens with
+ * "reach in centimetres" does not get finished. Everything is saved as it is
+ * typed, so leaving halfway through and coming back a week later picks up where
+ * it stopped, which is how these actually get filled in.
  */
 
-const STYLE_OPTIONS = [
-  "Boxing",
-  "Wrestling",
-  "Jiu jitsu",
-  "Muay Thai",
-  "Judo",
-  "Karate range",
-  "Pressure",
-  "Counter striking",
-  "Ground and pound",
-  "Leg locks",
-];
-
-const STANCES: Stance[] = ["Orthodox", "Southpaw", "Switch"];
-
-// Bout 10 on the demo card, where this fighter is the blue corner and has so far
-// sent in nothing at all.
-const BOUT_NUMBER = 10;
-const FIGHTER_ID = "owen-pryce";
-const SAMPLE_PHOTO = "/fighters/owen-pryce.webp";
-const SAMPLE_CUTOUT = "/fighters/owen-pryce-cutout.webp";
-
-type Draft = {
-  nickname: string;
-  instagram: string;
-  photo?: string;
-  cutout?: string;
-  bio: string;
-  walkoutTitle: string;
-  walkoutArtist: string;
-  hometown: string;
-  age: string;
-  heightCm: string;
-  reachCm: string;
-  stance: string;
-  w: string;
-  l: string;
-  d: string;
-  ko: string;
-  sub: string;
-  styleTags: string[];
-  sponsorIds: string[];
+export type QuestionnaireProps = {
+  /** The show, so the preview card is the real one rather than an approximation. */
+  card: Card;
+  bout: Bout;
+  opponent: Fighter;
+  fighter: Fighter;
+  /**
+   * A preview saves nothing. It exists so a promoter can see exactly what lands
+   * in their fighters' hands without editing a real fighter's profile, and it
+   * says so on the page rather than quietly discarding the typing.
+   */
+  mode: "live" | "preview";
+  /**
+   * Server actions, already bound to the invite token by the page. The token
+   * never reaches this component, so nothing here can be persuaded to write to
+   * a different fighter.
+   */
+  save?: (draft: Draft) => Promise<{ savedAt: number }>;
+  submit?: (draft: Draft) => Promise<void>;
+  upload?: (form: FormData) => Promise<{ path: string }>;
+  alreadySubmitted?: boolean;
 };
 
-const EMPTY: Draft = {
-  nickname: "",
-  instagram: "",
-  bio: "",
-  walkoutTitle: "",
-  walkoutArtist: "",
-  hometown: "Wrexham",
-  age: "",
-  heightCm: "",
-  reachCm: "",
-  stance: "",
-  w: "",
-  l: "",
-  d: "",
-  ko: "",
-  sub: "",
-  styleTags: [],
-  sponsorIds: [],
-};
+/** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
+const AUTOSAVE_DELAY_MS = 1200;
 
-function num(value: string): number | undefined {
-  const n = Number(value);
-  return value.trim() !== "" && Number.isFinite(n) ? n : undefined;
-}
-
-async function downscale(file: File, max = 1000): Promise<string> {
+async function downscale(file: File, max = 1000): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
   canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.86);
+  // Done in the browser so a fighter on a phone uploads a few hundred kilobytes
+  // rather than the eight megapixels their camera produced.
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Could not read that image"))),
+      "image/jpeg",
+      0.86,
+    ),
+  );
 }
 
 function Field({
@@ -168,6 +129,7 @@ function Section({
 }
 
 type PreviewMode = "card" | "tape";
+type SaveState = "idle" | "saving" | "saved" | "failed";
 type ImportStatus = "idle" | "loading" | "error" | "done";
 
 /** Which import group each form field belongs to, for clearing the badge. */
@@ -181,20 +143,82 @@ const IMPORT_FIELD_OF: Partial<Record<keyof Draft, string>> = {
   sub: "finishes",
 };
 
-export function Questionnaire() {
-  const [draft, setDraft] = useState<Draft>(EMPTY);
-  const [submitted, setSubmitted] = useState(false);
-  const [mode, setMode] = useState<PreviewMode>("card");
+export function Questionnaire({
+  card,
+  bout,
+  opponent,
+  fighter: base,
+  mode,
+  save,
+  submit,
+  upload,
+  alreadySubmitted = false,
+}: QuestionnaireProps) {
+  const eventName = card.event.name;
+  const sponsors = Object.values(card.sponsors);
+  const [draft, setDraft] = useState<Draft>(() => draftFromFighter(base));
+  const [submitted, setSubmitted] = useState(alreadySubmitted);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("card");
   const [frame, setFrame] = useState(SCENES.blue.start + 84);
   const [importUrl, setImportUrl] = useState("");
   const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
-  const [imported, setImported] = useState<ImportedTape | null>(null);
+  const [importOutcome, setImportOutcome] = useState<ImportOutcome | null>(null);
   const [importedKeys, setImportedKeys] = useState<Set<string>>(new Set());
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<Draft | null>(null);
+
+  const flush = useCallback(async () => {
+    if (!save || !pending.current) return;
+    const toSave = pending.current;
+    pending.current = null;
+    setSaveState("saving");
+    try {
+      await save(toSave);
+      setSaveState("saved");
+    } catch {
+      // Kept in the box either way. Telling somebody their typing did not save
+      // is far better than a silent loss they discover on the night.
+      setSaveState("failed");
+    }
+  }, [save]);
+
+  const queueSave = useCallback(
+    (next: Draft) => {
+      if (!save) return;
+      pending.current = next;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
+    },
+    [flush, save],
+  );
+
+  // A fighter who fills in one box and closes the tab has still told us
+  // something, so the pending save goes out rather than being dropped.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [flush]);
+
+  const update = useCallback(
+    (change: (current: Draft) => Draft) => {
+      setDraft((current) => {
+        const next = change(current);
+        queueSave(next);
+        return next;
+      });
+    },
+    [queueSave],
+  );
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
-    setDraft((d) => ({ ...d, [key]: value }));
+    update((current) => ({ ...current, [key]: value }));
     // Once they touch a field it is theirs, so the import badge comes off.
     setImportedKeys((keys) => {
       if (!keys.size) return keys;
@@ -204,19 +228,27 @@ export function Questionnaire() {
     });
   };
 
+  const toggle = (key: "styleTags" | "sponsorIds", value: string, limit = 99) =>
+    update((current) => {
+      const list = current[key];
+      if (list.includes(value)) return { ...current, [key]: list.filter((v) => v !== value) };
+      if (list.length >= limit) return current;
+      return { ...current, [key]: [...list, value] };
+    });
+
   const runImport = async () => {
     setImportStatus("loading");
-    const found = await lookupTape(importUrl);
+    const outcome = await lookupTape(importUrl);
+    setImportOutcome(outcome);
 
-    if (!found) {
+    if (!outcome.ok) {
       setImportStatus("error");
-      setImported(null);
       return;
     }
 
     const filled = new Set<string>();
-    setDraft((d) => {
-      const next = { ...d };
+    update((current) => {
+      const next = { ...current };
       // Only fills blanks. Anything they have already answered themselves wins.
       const put = (key: keyof Draft, value: string | undefined, group: string) => {
         if (value === undefined || next[key] !== "") return;
@@ -224,65 +256,51 @@ export function Questionnaire() {
         filled.add(group);
       };
 
-      put("age", found.age?.toString(), "age");
-      put("heightCm", found.heightCm?.toString(), "height");
-      put("w", found.record?.w.toString(), "record");
-      put("l", found.record?.l.toString(), "record");
-      put("d", found.record?.d.toString(), "record");
-      put("ko", found.finishes?.ko.toString(), "finishes");
-      put("sub", found.finishes?.sub.toString(), "finishes");
+      const { tape } = outcome;
+      put("nickname", tape.nickname, "nickname");
+      put("age", tape.age?.toString(), "age");
+      put("heightCm", tape.heightCm?.toString(), "height");
+      put("w", tape.record?.w.toString(), "record");
+      put("l", tape.record?.l.toString(), "record");
+      put("d", tape.record?.d.toString(), "record");
+      put("ko", tape.finishes?.ko.toString(), "finishes");
+      put("sub", tape.finishes?.sub.toString(), "finishes");
       return next;
     });
 
     setImportedKeys(filled);
-    setImported(found);
     setImportStatus("done");
   };
 
-  const bout = getBout(BOUT_NUMBER)!;
-  const opponent = getFighter(bout.redId);
-  const base = getFighter(FIGHTER_ID);
+  const onPhoto = async (file: File) => {
+    setPhotoError(null);
+    try {
+      const blob = await downscale(file);
+      if (!upload) {
+        // Preview mode: show it locally so the card fills in, but nothing leaves
+        // the browser and nothing is stored.
+        update((current) => ({ ...current, photo: URL.createObjectURL(blob), cutout: undefined }));
+        return;
+      }
+      const form = new FormData();
+      form.set("photo", new File([blob], "photo.jpg", { type: "image/jpeg" }));
+      const { path } = await upload(form);
+      update((current) => ({ ...current, photo: path, cutout: undefined }));
+    } catch {
+      setPhotoError("That photo wouldn't upload. Try a different one, or come back to it later.");
+    }
+  };
 
   // Repainting the full 1080x1920 preview on every keystroke makes typing feel
   // sticky, so the preview trails the input by a frame or two instead.
   const settled = useDeferredValue(draft);
-
-  const fighter: Fighter = useMemo(() => {
-    const draft = settled;
-    const w = num(draft.w);
-    const l = num(draft.l);
-    const d = num(draft.d);
-    const ko = num(draft.ko);
-    const sub = num(draft.sub);
-
-    return {
-      ...base,
-      nickname: draft.nickname || undefined,
-      instagram: draft.instagram.replace(/^@/, "") || undefined,
-      photo: draft.photo,
-      cutout: draft.cutout ?? draft.photo,
-      bio: draft.bio || undefined,
-      hometown: draft.hometown || undefined,
-      age: num(draft.age),
-      heightCm: num(draft.heightCm),
-      reachCm: num(draft.reachCm),
-      stance: (draft.stance || undefined) as Stance | undefined,
-      record: w !== undefined || l !== undefined ? { w: w ?? 0, l: l ?? 0, d: d ?? 0 } : undefined,
-      finishes: ko !== undefined || sub !== undefined ? { ko: ko ?? 0, sub: sub ?? 0 } : undefined,
-      walkoutSong: draft.walkoutTitle
-        ? { title: draft.walkoutTitle, artist: draft.walkoutArtist || "Unknown" }
-        : undefined,
-      styleTags: draft.styleTags.length ? draft.styleTags : undefined,
-      sponsorIds: draft.sponsorIds.length ? draft.sponsorIds : undefined,
-    };
-  }, [base, settled]);
+  const fighter = useMemo(() => fighterFromDraft(base, settled), [base, settled]);
 
   const { score, missing } = completeness(fighter);
-
-  // The opponent is a real fighter on the card who has already sent his in, so
-  // this is a genuine comparison rather than a scare tactic.
   const behind = tapeGapsBehind(fighter, opponent);
-  const tapeRows = buildTapeFrom(opponent, fighter);
+  const tapeRows = buildTape(opponent, fighter);
+  const importedTape = importOutcome?.ok ? importOutcome.tape : null;
+  const sourceLabel = importedTape ? SOURCE_LABEL[importedTape.source] : undefined;
 
   const playReveal = () => {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
@@ -293,10 +311,10 @@ export function Questionnaire() {
 
     const step = (now: number) => {
       // Capped catch-up, so a slow device plays this slowly rather than jumping.
-      const behind = Math.floor((now - last) / frameMs);
-      if (behind > 0) {
-        last += behind * frameMs;
-        current += Math.min(behind, 3);
+      const dropped = Math.floor((now - last) / frameMs);
+      if (dropped > 0) {
+        last += dropped * frameMs;
+        current += Math.min(dropped, 3);
         if (current >= end) {
           setFrame(start + 84);
           raf.current = null;
@@ -310,13 +328,17 @@ export function Questionnaire() {
     raf.current = requestAnimationFrame(step);
   };
 
-  const toggle = (key: "styleTags" | "sponsorIds", value: string, limit = 99) =>
-    setDraft((d) => {
-      const list = d[key];
-      if (list.includes(value)) return { ...d, [key]: list.filter((v) => v !== value) };
-      if (list.length >= limit) return d;
-      return { ...d, [key]: [...list, value] };
-    });
+  const onSubmit = async () => {
+    if (!submit) {
+      setSubmitted(true);
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    pending.current = draft;
+    await flush();
+    await submit(draft);
+    setSubmitted(true);
+  };
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12">
@@ -334,10 +356,10 @@ export function Questionnaire() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setMode(value)}
+                onClick={() => setPreviewMode(value)}
                 className={cx(
                   "border px-2 py-1 font-mono text-[0.55rem] uppercase tracking-[0.14em] transition-colors",
-                  mode === value
+                  previewMode === value
                     ? "border-chalk bg-chalk text-ink"
                     : "border-hairline text-ash hover:border-chalk/30",
                 )}
@@ -348,11 +370,12 @@ export function Questionnaire() {
           </div>
         </div>
 
-        {mode === "card" ? (
+        {previewMode === "card" ? (
           <>
             <div className="border-hairline mx-auto max-w-[300px] border lg:max-w-none">
               <Stage>
                 <TaleOfTheTape
+                  card={card}
                   bout={bout}
                   frame={Math.round(frame)}
                   red={opponent}
@@ -422,15 +445,31 @@ export function Questionnaire() {
       {/* ---------------------------------------------------------- form */}
       <div>
         <header>
-          <span className="label">{event.name}</span>
+          <span className="label">{eventName}</span>
           <h1 className="display mt-2 text-4xl">
-            {base.name}, you&rsquo;re on bout {BOUT_NUMBER}
+            {base.name}, you&rsquo;re on bout {bout.number}
           </h1>
           <p className="text-ash mt-3 text-sm leading-relaxed">
             You&rsquo;re fighting {opponent.name} out of {opponent.gym}. Fill this in and
             you get the card above, on the screen of everyone in the building, plus the
             video to post. Takes about four minutes. It saves as you go.
           </p>
+          {mode === "live" ? (
+            <p
+              className={cx(
+                "mt-3 font-mono text-[0.55rem] uppercase tracking-[0.16em]",
+                saveState === "failed" ? "text-red-corner-hot" : "text-ash-dim",
+              )}
+            >
+              {saveState === "saving"
+                ? "Saving…"
+                : saveState === "saved"
+                  ? "Saved"
+                  : saveState === "failed"
+                    ? "Couldn't save that — check your signal, it'll try again as you type"
+                    : "Saves as you go"}
+            </p>
+          ) : null}
         </header>
 
         <div className="mt-8 grid gap-8">
@@ -453,43 +492,31 @@ export function Questionnaire() {
               hint="We cut the background out for you. A plain wall and decent light is all it takes."
             >
               <div className="flex flex-wrap items-center gap-3">
-                <label
-                  className={cx(
-                    "border-hairline hover:border-chalk/40 cursor-pointer border px-3 py-2 text-xs transition-colors",
-                  )}
-                >
+                <label className="border-hairline hover:border-chalk/40 cursor-pointer border px-3 py-2 text-xs transition-colors">
                   Choose a photo
                   <input
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (!file) return;
-                      const url = await downscale(file);
-                      setDraft((d) => ({ ...d, photo: url, cutout: undefined }));
+                      if (file) void onPhoto(file);
                     }}
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft((d) => ({ ...d, photo: SAMPLE_PHOTO, cutout: SAMPLE_CUTOUT }))
-                  }
-                  className="border-hairline hover:border-chalk/40 border px-3 py-2 text-xs transition-colors"
-                >
-                  Use the one from the gym
-                </button>
                 {draft.photo ? (
                   <button
                     type="button"
-                    onClick={() => setDraft((d) => ({ ...d, photo: undefined, cutout: undefined }))}
+                    onClick={() => update((d) => ({ ...d, photo: undefined, cutout: undefined }))}
                     className="text-ash-dim hover:text-chalk text-xs transition-colors"
                   >
                     Remove
                   </button>
                 ) : null}
               </div>
+              {photoError ? (
+                <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
+              ) : null}
             </Field>
 
             <Field label="Instagram" hint="Tapped straight from your card. Free followers.">
@@ -506,7 +533,7 @@ export function Questionnaire() {
               hint="Anyone putting money behind you gets their logo on your card and in your video."
             >
               <div className="grid gap-2 sm:grid-cols-2">
-                {Object.values(allSponsors).map((sponsor) => {
+                {sponsors.map((sponsor) => {
                   const on = draft.sponsorIds.includes(sponsor.id);
                   return (
                     <button
@@ -592,13 +619,13 @@ export function Questionnaire() {
           <Section
             step="03"
             title="The tape"
-            blurb="The boring bit, last on purpose. If you're already on Sherdog or Tapology, paste the link and most of it fills itself in."
+            blurb="The boring bit, last on purpose. If you're already on Sherdog, paste the link and most of it fills itself in."
           >
             <div className="border-hairline bg-panel/40 border p-4">
               <div className="label mb-2">Fought before?</div>
               <p className="text-ash mb-3 text-xs leading-relaxed">
-                Paste your Sherdog or Tapology page and we&rsquo;ll pull your record
-                across so you don&rsquo;t have to type it.
+                Paste your Sherdog page and we&rsquo;ll pull your record across so you
+                don&rsquo;t have to type it.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
@@ -622,39 +649,34 @@ export function Questionnaire() {
                 </button>
               </div>
 
-              {importStatus === "error" ? (
+              {importStatus === "error" && importOutcome && !importOutcome.ok ? (
                 <p className="text-red-corner-hot mt-3 text-xs leading-relaxed">
-                  That doesn&rsquo;t look like a Sherdog or Tapology fighter page. It
-                  should look like sherdog.com/fighter/Your-Name-12345. No record online?
-                  Just fill the boxes in below.
+                  {importOutcome.kind === "not-a-profile"
+                    ? "That doesn't look like a Sherdog or Tapology fighter page. It should look like sherdog.com/fighter/Your-Name-12345. No record online? Just fill the boxes in below."
+                    : importOutcome.reason}
                 </p>
               ) : null}
 
-              {importStatus === "done" && imported ? (
+              {importStatus === "done" && importedTape ? (
                 <div className="border-gold/40 bg-gold/5 mt-3 border p-3">
                   <p className="text-chalk text-xs leading-relaxed">
-                    Pulled from {SOURCE_LABEL[imported.source]}.{" "}
-                    <span className="text-gold">Check it before you submit</span> —
-                    amateur records on there go out of date, and yours is the version
-                    that goes in front of the room.
+                    Found {importedTape.name ?? "a profile"} on {sourceLabel}
+                    {importedTape.recordKind === "professional"
+                      ? ", and that's the professional record, not the amateur one"
+                      : null}
+                    . <span className="text-gold">Check it before you submit</span> —
+                    records on there go out of date, and yours is the version that goes in
+                    front of the room.
                   </p>
                   <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
-                    Still yours to answer:{" "}
-                    {imported.notCovered.join(", ").toLowerCase()}.
+                    Still yours to answer: {importedTape.notCovered.join(", ").toLowerCase()}.
                   </p>
                 </div>
               ) : null}
-
-              <p className="text-ash-dim mt-3 text-[0.65rem] leading-relaxed">
-                Demo: any valid Sherdog or Tapology link returns sample data.
-              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Field
-                label="Age"
-                from={importedKeys.has("age") && imported ? SOURCE_LABEL[imported.source] : undefined}
-              >
+              <Field label="Age" from={importedKeys.has("age") ? sourceLabel : undefined}>
                 <input
                   className={inputClass}
                   inputMode="numeric"
@@ -663,14 +685,7 @@ export function Questionnaire() {
                   placeholder="22"
                 />
               </Field>
-              <Field
-                label="Height cm"
-                from={
-                  importedKeys.has("height") && imported
-                    ? SOURCE_LABEL[imported.source]
-                    : undefined
-                }
-              >
+              <Field label="Height cm" from={importedKeys.has("height") ? sourceLabel : undefined}>
                 <input
                   className={inputClass}
                   inputMode="numeric"
@@ -693,13 +708,14 @@ export function Questionnaire() {
                   className={inputClass}
                   value={draft.hometown}
                   onChange={(e) => set("hometown", e.target.value)}
+                  placeholder="Wrexham"
                 />
               </Field>
             </div>
 
             <Field label="Stance">
               <div className="flex gap-2">
-                {STANCES.map((stance) => (
+                {STANCES.map((stance: Stance) => (
                   <button
                     key={stance}
                     type="button"
@@ -720,11 +736,7 @@ export function Questionnaire() {
             <Field
               label="Record"
               hint="Amateur fights only. Nought and nought is fine, everyone starts there."
-              from={
-                importedKeys.has("record") && imported
-                  ? SOURCE_LABEL[imported.source]
-                  : undefined
-              }
+              from={importedKeys.has("record") ? sourceLabel : undefined}
             >
               <div className="grid grid-cols-3 gap-3">
                 {(["w", "l", "d"] as const).map((key) => (
@@ -746,11 +758,7 @@ export function Questionnaire() {
 
             <Field
               label="Of those wins, how many finished early?"
-              from={
-                importedKeys.has("finishes") && imported
-                  ? SOURCE_LABEL[imported.source]
-                  : undefined
-              }
+              from={importedKeys.has("finishes") ? sourceLabel : undefined}
             >
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -785,9 +793,7 @@ export function Questionnaire() {
             <div className="border-gold/40 bg-gold/5 anim-rise border p-5">
               <h3 className="display text-gold text-2xl">You&rsquo;re on the card</h3>
               <p className="text-chalk/90 mt-2 text-sm leading-relaxed">
-                Your profile is live on the {event.name} programme and your reveal video is
-                rendering now. We&rsquo;ll text you the link to post the moment it&rsquo;s
-                done.
+                Your profile is live on the {eventName} programme.
               </p>
               <p className="text-ash-dim mt-3 text-xs">
                 Change anything up until first bell by opening this link again.
@@ -796,16 +802,23 @@ export function Questionnaire() {
           ) : (
             <button
               type="button"
-              onClick={() => setSubmitted(true)}
+              onClick={() => void onSubmit()}
               className="bg-chalk text-ink display hover:bg-gold w-full py-4 text-xl transition-colors"
             >
               Put me on the card
             </button>
           )}
 
-          <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
-            Demonstration only. Nothing typed here is stored or sent anywhere.
-          </p>
+          {mode === "preview" ? (
+            <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
+              Preview of what a fighter gets. Nothing typed here is saved.
+            </p>
+          ) : (
+            <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
+              Your details go on the programme for this show and in your tale of the tape
+              video. Nothing else, and nowhere else.
+            </p>
+          )}
         </div>
       </div>
 
