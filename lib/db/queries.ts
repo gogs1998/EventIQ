@@ -231,15 +231,26 @@ export async function loadCard(db: Db, slug: string): Promise<LoadedCard | null>
  * The published show with the furthest-out date, because that is the one a
  * promoter is currently selling. Returns null when nothing is published, and
  * every caller says so rather than inventing a card to fill the space.
+ *
+ * A show with no bouts on it is skipped where there is any alternative. A
+ * promoter can create next month's show and publish it before typing the running
+ * order in, and that show has the furthest-out date by definition — so without
+ * this the shop window would swap a full card for an empty one the moment a draft
+ * went live. It is a preference rather than a filter: if the only published show
+ * is empty, that is still the show, and the pages leave out the parts that need a
+ * bout.
  */
 export async function loadShowcase(db: Db): Promise<LoadedCard | null> {
-  const [row] = await db
-    .select({ slug: schema.events.slug })
+  const rows = await db
+    .select({ slug: schema.events.slug, bouts: sql<number>`count(${schema.bouts.id})` })
     .from(schema.events)
+    .leftJoin(schema.bouts, eq(schema.bouts.eventId, schema.events.id))
     .where(eq(schema.events.published, true))
-    .orderBy(desc(schema.events.date))
-    .limit(1);
-  return row ? loadCard(db, row.slug) : null;
+    .groupBy(schema.events.id)
+    .orderBy(desc(schema.events.date));
+
+  const pick = rows.find((row) => row.bouts > 0) ?? rows[0];
+  return pick ? loadCard(db, pick.slug) : null;
 }
 
 export async function loadInvites(db: Db, eventId: string): Promise<Record<string, Invite>> {

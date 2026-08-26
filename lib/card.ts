@@ -42,6 +42,20 @@ export function boutsTopDown(card: Card): Bout[] {
   return [...card.event.bouts].sort((a, b) => b.number - a.number);
 }
 
+/**
+ * The bout the top of a page leads on, or nothing.
+ *
+ * A promoter can publish a show the minute they have created it and add the
+ * running order afterwards, so a published card with no bouts on it is ordinary
+ * use rather than a broken database. Anything leading on the main event has to
+ * cope with there not being one yet: this returns undefined and the caller
+ * leaves the space out, rather than handing an absent bout to something that
+ * will read a number off it.
+ */
+export function featuredBout(card: Card): Bout | undefined {
+  return boutsTopDown(card)[0];
+}
+
 export function cornersOf(card: Card, bout: Bout): { red: Fighter; blue: Fighter } {
   return { red: fighterOf(card, bout.redId), blue: fighterOf(card, bout.blueId) };
 }
@@ -54,6 +68,33 @@ export function tapeFor(card: Card, bout: Bout): TapeRow[] {
 export function hooksFor(card: Card, bout: Bout): string[] {
   const { red, blue } = cornersOf(card, bout);
   return buildHooks(bout, red, blue);
+}
+
+/**
+ * The emptiest profile on the card, with the bout and the opponent around it.
+ *
+ * The questionnaire preview opens on this so that it opens on a blank form, the
+ * way a fighter's own link does, rather than on somebody else's finished one.
+ * Undefined where there is no bout to pick from.
+ */
+export function emptiestEntry(
+  card: Card,
+): { bout: Bout; fighter: Fighter; opponent: Fighter } | undefined {
+  const entries = boutsTopDown(card).flatMap((bout) => {
+    const { red, blue } = cornersOf(card, bout);
+    return [
+      { bout, fighter: red, opponent: blue },
+      { bout, fighter: blue, opponent: red },
+    ];
+  });
+
+  return entries.reduce<{ bout: Bout; fighter: Fighter; opponent: Fighter } | undefined>(
+    (emptiest, entry) =>
+      !emptiest || completeness(entry.fighter).score < completeness(emptiest.fighter).score
+        ? entry
+        : emptiest,
+    undefined,
+  );
 }
 
 export function showSponsors(card: Card): Sponsor[] {

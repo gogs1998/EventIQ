@@ -2,7 +2,7 @@ import Link from "next/link";
 import { DemoReel } from "@/components/DemoReel";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
-import { boutsTopDown, cardCompleteness } from "@/lib/card";
+import { cardCompleteness, featuredBout } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
 import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
@@ -79,7 +79,7 @@ export default async function PitchPage() {
   const { event } = card;
   const invites = await loadInvites(db, card.eventId);
   const renders = await loadRenders(db, card.eventId);
-  const main = boutsTopDown(card)[0];
+  const main = featuredBout(card);
   const { score, done, total } = cardCompleteness(card, DONE_AT);
   const outstanding = chaseList(card, invites).length;
   const inventory = sponsorInventory(card);
@@ -117,28 +117,33 @@ export default async function PitchPage() {
       </section>
 
       {/* --------------------------------------------------------- the video */}
-      <section className="border-hairline border-t">
-        <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
-          <div>
-            <TapePlayer card={card} bout={main} mp4={renders[main.number]} />
+      {/* A show that has been published before its running order was entered has
+          no main event to play, so the section comes out rather than framing an
+          empty player with the argument for one beside it. */}
+      {main ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
+            <div>
+              <TapePlayer card={card} bout={main} mp4={renders[main.number]} />
+            </div>
+            <div>
+              <span className="label">Every bout becomes this</span>
+              <h2 className="display mt-4 text-4xl leading-none">
+                Sixteen seconds that make a debutant look like a main event
+              </h2>
+              <p className="text-ash mt-5 text-sm leading-relaxed">
+                Built from one photograph and a filled-in form. No film crew, no editor, no
+                graphics package. We cut the fighter out of their photo so they move
+                independently of the background, then the stats count up over the top.
+              </p>
+              <p className="text-ash mt-4 text-sm leading-relaxed">
+                It plays in the programme, and it downloads as a vertical video the fighter
+                posts to their own following. Your event and your sponsors travel with it.
+              </p>
+            </div>
           </div>
-          <div>
-            <span className="label">Every bout becomes this</span>
-            <h2 className="display mt-4 text-4xl leading-none">
-              Sixteen seconds that make a debutant look like a main event
-            </h2>
-            <p className="text-ash mt-5 text-sm leading-relaxed">
-              Built from one photograph and a filled-in form. No film crew, no editor, no
-              graphics package. We cut the fighter out of their photo so they move
-              independently of the background, then the stats count up over the top.
-            </p>
-            <p className="text-ash mt-4 text-sm leading-relaxed">
-              It plays in the programme, and it downloads as a vertical video the fighter
-              posts to their own following. Your event and your sponsors travel with it.
-            </p>
-          </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       {/* ------------------------------------------------------------- steps */}
       <section className="border-hairline border-t">

@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Questionnaire } from "@/components/Questionnaire";
-import { boutsTopDown, cornersOf } from "@/lib/card";
+import { emptiestEntry } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadShowcase } from "@/lib/db/queries";
-import { completeness } from "@/lib/tape";
 
 export const metadata: Metadata = {
   title: "Your fighter profile — EventIQ",
@@ -28,34 +27,20 @@ export const dynamic = "force-dynamic";
  */
 export default async function FighterDemoPage() {
   const card = await loadShowcase(await getDb());
-  if (!card) {
-    return (
-      <main className="mx-auto w-full max-w-xl px-5 py-24">
-        <h1 className="display text-3xl">Nothing to preview yet</h1>
-        <p className="text-ash mt-4 text-sm leading-relaxed">
-          This shows the form a fighter gets, filled in against a real bout. There is no
-          published show on this instance.
-        </p>
-        <Link href="/" className="label hover:text-chalk mt-6 inline-block">
-          Back to EventIQ
-        </Link>
-      </main>
-    );
-  }
+  if (!card) return <NothingToPreview because="There is no published show on this instance." />;
 
   // The emptiest fighter on the card, so the preview opens on a blank form the
   // way a fighter's own link does rather than on somebody else's finished one.
-  const bouts = boutsTopDown(card);
-  const candidates = bouts.flatMap((bout) => {
-    const { red, blue } = cornersOf(card, bout);
-    return [
-      { bout, fighter: red, opponent: blue },
-      { bout, fighter: blue, opponent: red },
-    ];
-  });
-  const pick = candidates.reduce((emptiest, row) =>
-    completeness(row.fighter).score < completeness(emptiest.fighter).score ? row : emptiest,
-  );
+  // A show can be published before its running order is entered, in which case
+  // there is no bout to build a form around and the page says so.
+  const pick = emptiestEntry(card);
+  if (!pick) {
+    return (
+      <NothingToPreview
+        because={`${card.event.name} has no bouts on it yet, so there is no fighter to open the form as.`}
+      />
+    );
+  }
 
   return (
     <Questionnaire
@@ -65,5 +50,20 @@ export default async function FighterDemoPage() {
       opponent={pick.opponent}
       mode="preview"
     />
+  );
+}
+
+/** The preview needs a real bout behind it, so it says which part is missing. */
+function NothingToPreview({ because }: { because: string }) {
+  return (
+    <main className="mx-auto w-full max-w-xl px-5 py-24">
+      <h1 className="display text-3xl">Nothing to preview yet</h1>
+      <p className="text-ash mt-4 text-sm leading-relaxed">
+        This shows the form a fighter gets, filled in against a real bout. {because}
+      </p>
+      <Link href="/" className="label hover:text-chalk mt-6 inline-block">
+        Back to EventIQ
+      </Link>
+    </main>
   );
 }
