@@ -12,10 +12,13 @@ export function QrCode({
   path,
   size = 260,
   className,
+  showUrl = false,
 }: {
   path: string;
   size?: number;
   className?: string;
+  /** Off by default: a printed table card should carry the code, not a URL. */
+  showUrl?: boolean;
 }) {
   const [code, setCode] = useState<{ svg: string; url: string } | null>(null);
 
@@ -54,10 +57,8 @@ export function QrCode({
           <div className="bg-panel h-full w-full animate-pulse" />
         )}
       </div>
-      {code ? (
-        <p className="text-ash-dim mt-2 break-all font-mono text-[0.55rem] print:text-black">
-          {code.url}
-        </p>
+      {showUrl && code ? (
+        <p className="text-ash-dim mt-2 break-all font-mono text-[0.55rem]">{code.url}</p>
       ) : null}
     </div>
   );

@@ -31,8 +31,8 @@ export default function QrPage() {
           </p>
         </div>
         <p className="text-ash-dim max-w-xs text-xs leading-relaxed">
-          The code points at whatever address this is running on, so it works off a
-          screen in a meeting and off paper at the venue.
+          The code points at whatever address this is being served from, so it works off
+          a screen in a meeting and off paper at the venue.
         </p>
       </div>
 
