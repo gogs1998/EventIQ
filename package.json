@@ -12,7 +12,8 @@
     "assets": "node scripts/prepare-assets.mjs",
     "render": "node scripts/render-tape.mjs",
     "render:headline": "for b in 15 14 13 12 11; do node scripts/render-tape.mjs --bout $b; done",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "deploy": "node scripts/deploy.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
