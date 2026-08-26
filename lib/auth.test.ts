@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ABSENT_PROMOTER_HASH,
   hashPassword,
   newToken,
   readSession,
@@ -34,6 +35,30 @@ describe("passwords", () => {
   it("treats a malformed stored value as a failure rather than a pass", async () => {
     expect(await verifyPassword("anything", "")).toBe(false);
     expect(await verifyPassword("anything", "not-a-hash")).toBe(false);
+  });
+
+  /**
+   * These tests run under Node, which derives at any iteration count it is
+   * given, and so does the local `wrangler dev`. Only the deployed runtime
+   * refuses above 100,000, so a hash minted over the cap passes everything here
+   * and throws NotSupportedError on the first real sign-in. Asserting the number
+   * is the only way this file can see a ceiling it cannot reach.
+   */
+  it("stays inside the iteration count the deployed runtime will run", async () => {
+    const [minted] = (await hashPassword("anything")).split(":");
+    expect(Number(minted)).toBeLessThanOrEqual(100_000);
+
+    // The unknown-promoter path derives against this rather than a stored hash,
+    // so it needs the same ceiling or it becomes a 500 of its own.
+    const [decoy] = ABSENT_PROMOTER_HASH.split(":");
+    expect(Number(decoy)).toBeLessThanOrEqual(100_000);
+  });
+
+  it("spends real work on an unknown promoter rather than failing fast", async () => {
+    // A decoy that parses is what makes the timing match; one that does not
+    // would return early and time the absence of a promoter for the caller.
+    expect(await verifyPassword("anything", ABSENT_PROMOTER_HASH)).toBe(false);
+    expect(ABSENT_PROMOTER_HASH.split(":")).toHaveLength(3);
   });
 });
 

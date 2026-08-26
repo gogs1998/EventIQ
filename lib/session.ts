@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import {
+  ABSENT_PROMOTER_HASH,
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
   readSession,
@@ -89,7 +90,7 @@ export async function attemptLogin(db: Db, slug: string, password: string): Prom
 
   if (!promoter?.passwordHash) {
     // Still do the work, so an unknown promoter is not distinguishable by timing.
-    await verifyPassword(password, "600000:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    await verifyPassword(password, ABSENT_PROMOTER_HASH);
     return { ok: false };
   }
 
