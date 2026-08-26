@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { getDb, getMedia } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
+import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
 
 /**
@@ -125,6 +126,14 @@ const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
  * which is what keeps the upload small enough to work on a phone in a car park.
  * The size check here is the backstop for a caller that did not.
  *
+ * **The bytes decide what this is, never the declared type.** Anything reaching
+ * here can have been sent directly to the action, so the browser's re-encode is
+ * not a control and `file.type` is only a claim. The object is stored under the
+ * type detected from its own first few bytes, because /media serves it back at
+ * our own origin: an SVG stored as image/svg+xml would be a document with our
+ * origin's privileges, which is a stored cross-site scripting hole for anybody
+ * holding an invite link. See lib/image-type.ts.
+ *
  * The key carries a random suffix so a replaced photo gets a new URL. Photos are
  * served with a one-year cache, and without that suffix a fighter who changed
  * their picture would keep seeing the old one until the cache gave up.
@@ -135,15 +144,16 @@ export async function uploadPhoto(token: string, form: FormData): Promise<{ path
   const file = form.get("photo");
   if (!(file instanceof File)) throw new Error("No photo");
   if (file.size > MAX_PHOTO_BYTES) throw new Error("Photo too large");
-  if (!file.type.startsWith("image/")) throw new Error("Not an image");
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const contentType = sniffImageType(bytes);
+  if (!contentType) throw new Error("That file is not a JPEG, PNG or WebP photograph");
 
   const suffix = crypto.randomUUID().slice(0, 8);
-  const key = `fighters/${fighter.id}-${suffix}.jpg`;
+  const key = `fighters/${fighter.id}-${suffix}.${IMAGE_EXTENSION[contentType]}`;
 
   const media = await getMedia();
-  await media.put(key, await file.arrayBuffer(), {
-    httpMetadata: { contentType: file.type },
-  });
+  await media.put(key, bytes, { httpMetadata: { contentType } });
 
   return { path: `/media/${key}` };
 }
