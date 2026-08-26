@@ -11,6 +11,12 @@ secret in place before anything is uploaded.
 > custom domain attached. Every step below has been run against the real
 > account, and the whole product has been walked end to end in production with
 > `npm run e2e -- --base https://eventiq.win` (22 checks, all passing).
+>
+> One thing is still outstanding and it is not something code can fix: **"Always
+> Use HTTPS" is off for the zone**, so static files are reachable over plain
+> http. See [HTTPS at the edge](#https-at-the-edge). Before changing anything in
+> `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
+> — the runtime enforces a limit that no local test can observe.
 
 ---
 
@@ -32,9 +38,17 @@ The two zone permissions are only needed for `--attach-domain`. Without them the
 site still deploys and is reachable at `eventiq.<subdomain>.workers.dev`.
 
 The old token had **Cloudflare Pages · Edit** and that permission is no longer
-used by anything. Pages is a separate product from Workers and this app is not
-on it: `@cloudflare/next-on-pages` is deprecated, and a Next.js app with server
-actions and a database wants the Workers runtime.
+used by anything: nothing in this repository calls a Pages endpoint, and the
+deploy has been run end to end on a token without it. Pages is a separate
+product from Workers and this app is not on it — `@cloudflare/next-on-pages` is
+deprecated, and a Next.js app with server actions and a database wants the
+Workers runtime. **Remove it when the token is next rotated.**
+
+Worth knowing before you narrow anything else: the token in use during this
+build could *read* the `eventiq.win` zone and had no zone-level write permission
+at all. `zones/<id>/settings`, `/pagerules`, `/rulesets`, `/dns_records` and
+`/workers/routes` all answered 403. That is why "Always Use HTTPS" below is a
+manual step rather than something a script does.
 
 Check what a token can actually do before using it:
 
@@ -106,6 +120,14 @@ It prints the invite links once. They are not recoverable afterwards — they ar
 generated fresh each time and nothing stores the plaintext anywhere else — but
 the promoter dashboard shows every one of them once you are signed in.
 
+The seeded show is dated a fortnight after the seed runs, snapped to the nearest
+Saturday, rather than taking the fixture's date. The dashboard is only worth
+looking at when the show is close, and a demo card announcing eighty days to go
+argues against the product. It follows that **the demo ages**: seed it and leave
+it long enough and it drifts past its own date. Re-seeding is the fix, and it is
+the same command that refreshes the invite timestamps beside it. Real events keep
+their own dates and the real clock — nothing fakes the clock any more.
+
 Skip this if the first show is going to be created through the UI instead. In
 that case you still need a promoter row to sign in as, which today only the seed
 creates. Adding a second promoter is a `wrangler d1 execute` away and there is
@@ -175,6 +197,18 @@ npm run e2e -- --base https://eventiq.win --password '...'
 Be careful with that against a live show: it adds a bout, removes it again, and
 writes to a fighter's profile.
 
+**Re-seed afterwards, and clear what it left in R2.** The suite finishes with
+Chloe Baines submitted and photographed, and the demo card is only persuasive
+while it is uneven — she is meant to be the fighter who opened the link, had a
+look and did nothing, because that is the one the chase list exists to catch.
+`npm run db:seed:remote` puts the rows back but does not touch the bucket, so
+the uploaded photograph has to go separately:
+
+```bash
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote
+npx wrangler r2 object delete eventiq-media/fighters/chloe-baines-<hash>.jpg --remote
+```
+
 ---
 
 ## Video rendering
@@ -197,6 +231,84 @@ The machine running it needs the same `CLOUDFLARE_API_TOKEN` and a `--base`
 pointing at somewhere the card can be rendered from — either the deployed site
 or a local dev server against the same data.
 
+## The PBKDF2 ceiling, and why local tests cannot see it
+
+**The deployed Workers runtime refuses PBKDF2 above 100,000 iterations.** Ask
+for more and `crypto.subtle.deriveBits` throws:
+
+```
+NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported (requested 600000).
+```
+
+`PBKDF2_ITERATIONS` in [lib/auth.ts](lib/auth.ts) is therefore a ceiling
+imposed from outside rather than a number anybody chose. OWASP's floor for
+PBKDF2-SHA256 is six times higher and simply cannot be reached here. Do not
+raise it back.
+
+What makes this worth a section of its own is that **nothing you can run
+locally will tell you.** Measured, not assumed:
+
+| Where | 100,000 | 100,001 | 600,000 |
+| --- | --- | --- | --- |
+| Node — `vitest`, `next dev` | fine | fine | fine |
+| `npx wrangler dev` (local workerd) | fine | fine | fine |
+| `npx wrangler dev --remote` (real edge) | fine | **throws** | **throws** |
+| Deployed Worker | fine | **throws** | **throws** |
+
+The open-source workerd build that `wrangler dev` runs does not enforce the cap.
+Only the deployed runtime does, and it does so exactly at 100,000. So a hash
+minted above the cap passes every local check and then locks the promoter out
+of the live site on their first sign-in.
+
+Two things follow, both of which have already bitten this project once:
+
+- **Verification reads the iteration count out of the stored hash**, not out of
+  the constant. So an existing hash written below the cap keeps working even if
+  the constant is wrong, which is exactly how the repository and production came
+  to disagree without anybody noticing: the constant said 600,000 while the
+  stored hash said 100,000, sign-in worked, and the next re-seed would have
+  minted an unverifiable hash and locked the account out.
+- **The unknown-promoter path derives against a decoy hash**, so it fails
+  independently of anything stored. That one *was* live: signing in with a
+  promoter name that does not exist returned a 500 in production while the real
+  login worked fine. The decoy is now built from the same constant so the two
+  cannot drift again.
+
+`lib/auth.test.ts` asserts the number outright, because asserting the number is
+the only way a suite running under Node can see a limit that Node does not have.
+To check the runtime itself rather than trusting this document, put a
+`crypto.subtle.deriveBits` call in a throwaway Worker and run it under
+`wrangler dev --remote` — the local `wrangler dev` will tell you it is fine.
+
+## HTTPS at the edge
+
+**Someone with dashboard access needs to turn on SSL/TLS → Edge Certificates →
+"Always Use HTTPS" for `eventiq.win`.** It is one toggle and it is the correct
+fix. The API call, for a token that has Zone Settings · Edit:
+
+```bash
+curl -X PATCH "https://api.cloudflare.com/client/v4/zones/<zone-id>/settings/always_use_https" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" --data '{"value":"on"}'
+```
+
+The deploy token cannot do this — it gets 403 on every zone setting — so
+[proxy.ts](proxy.ts) redirects plain http to https itself, keyed on
+`x-forwarded-proto`. That covers pages and **does not cover static files**:
+
+```
+http://eventiq.win/                             308 → https://eventiq.win/
+http://eventiq.win/promoter/login               308 → https://eventiq.win/promoter/login
+http://eventiq.win/fighters/callum-reeves.webp  200          (still plain http)
+http://eventiq.win/_next/static/chunks/....js   200          (still plain http)
+```
+
+Anything under `public/` or `_next/` is answered by the Workers assets binding
+*before the Worker runs at all*, so no middleware can reach it. Forcing the
+Worker to run first would close the gap at the cost of an invocation on every
+image on the site, to do a job the zone setting already does properly and for
+free. Hence the toggle.
+
 ## The site URL
 
 `NEXT_PUBLIC_SITE_URL` sets the canonical address at build time and defaults to
@@ -213,17 +325,25 @@ and `https://eventiq.win` serves the card out of D1.
 
 What remains is operational rather than technical:
 
-1. **Rotate the API token and the promoter password.** Both were handled in
-   chat during this build, so treat them as known. Rotating `SESSION_SECRET`
-   at the same time signs out any existing session, which is the whole of the
-   revocation story.
-2. **Reprint the table card from the live URL.** The QR encodes the origin it
+1. **Turn on "Always Use HTTPS" for the zone.** Static files are still served
+   over plain http and no application code can fix that. See
+   [HTTPS at the edge](#https-at-the-edge). This is the only outstanding item
+   that affects what a visitor gets.
+2. **Rotate the API token.** It was handled in chat during this build, so treat
+   it as known. The promoter password and `SESSION_SECRET` have both been
+   rotated since; the token has not.
+3. **Narrow the token.** Drop **Cloudflare Pages · Edit**, which nothing uses.
+4. **Reprint the table card from the live URL.** The QR encodes the origin it
    was served from, so one printed from a laptop is useless at a venue.
-3. **Render the tapes into R2.** The programme falls back to playing the
+5. **Render the tapes into R2.** The programme falls back to playing the
    sequence live in the browser where no mp4 exists, so this is a quality step
    rather than a fix. See [video rendering](#video-rendering).
-4. **Delete the empty `eventiq-photos` bucket.** It is left over from an
-   earlier attempt and nothing references it.
+
+Done since this list was last written: the `eventiq-photos` bucket has been
+deleted (it held one orphaned photograph from an end-to-end run against a
+deployment that briefly bound it; `eventiq-media` is the only bucket now), the
+promoter password and `SESSION_SECRET` have been rotated, and the PBKDF2
+iteration count has been brought down to something the runtime will run.
 
 ## Rolling back
 

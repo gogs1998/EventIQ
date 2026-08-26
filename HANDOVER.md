@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 97 unit tests and a 22-step browser walkthrough passing against local Cloudflare bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 102 unit tests and a 22-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 **It is a working application, not a demo of one.** The five things that were faked are real:
 
@@ -186,11 +186,18 @@ The SQL is generated at seed time and **never committed**. Invite tokens are the
 
 Two kinds of caller, and neither justifies an identity provider.
 
-**The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at 600,000 iterations (OWASP's floor at the time of writing) and the session is a **signed cookie**, not a row: `{promoterId, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. The expiry is inside the signature so the holder cannot extend it. Comparison is constant-time.
+**The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at **100,000 iterations**, and the session is a **signed cookie**, not a row: `{promoterId, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. The expiry is inside the signature so the holder cannot extend it. Comparison is constant-time.
+
+That iteration count is **imposed by the runtime, not chosen**, and it is below OWASP's floor of 600,000 because the deployed Workers runtime will not go above 100,000 — it throws `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`. Do not raise it back. The full account, including a measured table of what each environment enforces, is in [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it); the short version is that Node and the local `wrangler dev` both accept any count, so only the real edge or `wrangler dev --remote` can see the limit at all. Two consequences worth carrying in your head:
+
+- Verification reads the iteration count **out of the stored hash**, not out of the constant, so a wrong constant does not break an existing login. It breaks the *next* one that gets minted. This is precisely how the repository and production came to disagree without anyone noticing.
+- The unknown-promoter path derives against a decoy hash, which depends on nothing stored, so it fails on its own. It is now built from the same constant rather than written out separately, because writing it out is what let the two drift apart.
 
 There is deliberately **no server-side revocation**. With one operator it would be ceremony rather than security, and rotating `SESSION_SECRET` invalidates every session at once, which is the entire threat model handled in one command.
 
 [proxy.ts](proxy.ts) redirects cookieless requests to the login form. **That is not the authorisation check** and must never be mistaken for one: it runs before the database is reachable. The real check is `currentPromoter()` in every page and `requirePromoter()` in every action, and every promoter action re-reads the event and confirms the signed-in promoter owns it. A forged cookie gets past the proxy and fails there.
+
+The same file also sends plain http to https. That is there because the zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, and it is a stopgap rather than the fix: files under `public/` and `_next/` are served by the assets binding without the Worker running, so they stay reachable over plain http no matter what the middleware does. Because the redirect has to see every request, the matcher is now everything except `_next/`, and the promoter gate that used to *be* the matcher is a pattern inside the function covering the same paths.
 
 Asking for a show that belongs to somebody else returns the same 404 as asking for one that does not exist, so the promoter area cannot be used to find out who runs what.
 
@@ -206,15 +213,17 @@ This is a real trade-off and it should be stated plainly: anyone who gets hold o
 
 ### The demo card
 
-**Cage County 12**, Winter Gardens Blackpool, Sat 14 Nov 2026. Promoter: Cage County Promotions. 15 bouts, 30 fighters.
+**Cage County 12**, Winter Gardens Blackpool. Promoter: Cage County Promotions. 15 bouts, 30 fighters.
+
+The date is **not** the one in the fixture. The seed dates the show a fortnight after it runs, snapped to the nearest Saturday, because the dashboard only argues for itself while the show is close — see bug 18 in section 14. So the demo ages, and re-seeding is what resets it.
 
 Completeness is **deliberately uneven**, and this is a feature of the pitch rather than unfinished work:
 
 - **Main event, co-main, bouts 12 and 13** — fully filled in, with photos. This is what it looks like when fighters send their details.
-- **Bouts 10 and 11** — one fighter complete, the other sent nothing. Bout 11 (Farrukh vs Baines) is the showcase for this: her column is full, his is a row of dashes.
+- **Bouts 10 and 11** — one fighter complete, the other sent nothing. Bout 11 is the showcase for it: Nadia Farrukh has a photograph and a full column, Chloe Baines is a row of dashes. She has opened her link and done nothing since, which makes her the warmest name on the chase list and the single clearest illustration of what the dashboard is for.
 - **Bouts 1–9** — a name and a gym, exactly like the paper programme.
 
-**The gap between the top and bottom of the card is the pitch.** Do not "fix" it by filling everyone in.
+**The gap between the top and bottom of the card is the pitch.** Do not "fix" it by filling everyone in — and in particular, if you have just run the end-to-end suite against production, put Chloe Baines back. See bug 19.
 
 ### Real vs invented
 
@@ -343,13 +352,14 @@ The five mp4s committed under `public/renders/` predate the bucket. The seed rec
 
 The build was held up for a while on **Account · D1 · Edit** being missing from the token, which is worth knowing about because the failure is unhelpful: D1 answers **401**, not 403, so it reads like a bad token rather than a token that is fine but scoped for something else. `--check` exists to say which of the four it actually is. The full permission list is in [DEPLOY.md](DEPLOY.md).
 
-Three things that bit, and will bite again on a fresh account:
+Four things that bit, and will bite again on a fresh account:
 
 1. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
 2. **`SESSION_SECRET` has to exist before the first deploy** or the promoter area refuses to serve. There is no fallback, deliberately.
 3. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
+4. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
 
-`npm run e2e -- --base https://eventiq.win` runs the whole walk against production. It is honest about what it does to the data — it adds a bout, removes it again, and fills in a fighter's profile — so anything it touches needs putting back afterwards. Running it against a card a promoter is actually using would be rude.
+`npm run e2e -- --base https://eventiq.win` runs the whole walk against production. It is honest about what it does to the data — it adds a bout, removes it again, and fills in a fighter's profile — so anything it touches needs putting back afterwards, with a re-seed **and** a delete of the photograph it pushed to R2, which the seed does not clear. Running it against a card a promoter is actually using would be rude.
 
 ---
 
@@ -406,6 +416,10 @@ Two things it taught, both worth knowing before writing another one: the design 
 13. **Seeding twice in a row failed** on a primary key collision and left the database half rebuilt. The seed cleared everything scoped to the promoter but not the fighters, because a fighter is not owned by one. There is now a test asserting that every table the seed writes to is cleared first, and cleared in an order the foreign keys allow — the specific row will not be the one that breaks next time.
 14. **The seed and the login page disagreed about the password.** Section 13.
 15. **The importer's user agent linked to a page that did not exist.** It does now.
+16. **Signing in as a promoter who does not exist returned a 500 in production.** To keep an unknown promoter from being distinguishable by timing, the login derives against a decoy hash — and the decoy asked for 600,000 PBKDF2 iterations, which the deployed runtime refuses. So the work meant to hide an unknown promoter was the one thing that announced one. It survived because no local environment enforces the cap: Node does not, and neither does the local `wrangler dev`. The decoy is now generated from `PBKDF2_ITERATIONS` instead of being written out, and the test asserts the number, which is all a Node test can do about a limit Node does not have. Section 6a.
+17. **The repository and production disagreed about the iteration count.** The constant said 600,000, the stored hash said 100,000, and because verification reads the count out of the hash, sign-in worked and the mismatch was invisible. The next re-seed would have minted a hash nothing could verify and locked the owner out of the live site. Whenever `PBKDF2_ITERATIONS` changes, **re-seed**, or the account is left holding a hash from the old regime.
+18. **The demo dashboard lost its urgency.** `daysUntilShow()` had been pinned to a fixed date, which had to go once the database held real shows — but that left the demo card reading "80 DAYS TO GO", and a chase list for a show eighty days out is filing rather than urgency. Fixed by moving the show rather than the clock: the seed dates the demo event a fortnight ahead of seed time. Do not reintroduce a pinned clock; real events must always be measured against the real one.
+19. **An end-to-end run against production left the demo card filled in.** The suite finishes with Chloe Baines submitted and photographed, and she is meant to be the fighter who opened the link and did nothing — that is the case the chase list exists to make. Re-seed after any production run, and delete the photograph it uploaded, which the seed does not touch. See DEPLOY.md.
 
 ---
 
@@ -522,3 +536,6 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Remotion licensing** if the render harness is ever swapped. Section 4.
 - **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
 - **No backups.** D1 has time travel for 30 days, which is not the same as a backup strategy and should be said out loud before there is real data in it.
+- **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
+- **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
+- **The demo card is a live database, not a fixture.** Anything run against production — the end-to-end suite especially — edits the card the pitch depends on. Re-seed afterwards, every time.
