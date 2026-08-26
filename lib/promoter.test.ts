@@ -190,4 +190,25 @@ describe("nudgeMessage", () => {
     expect(ahead).toBeDefined();
     expect(nudgeMessage(ahead!, event, "https://x")).toContain("has already sent");
   });
+
+  /**
+   * The competitive fact is what gets the form filled in, so it stays. What is
+   * not allowed is framing it as a telling-off: the fighter is offered a place
+   * alongside their opponent, not handed a list of what they have failed to do.
+   */
+  it("invites the fighter on rather than listing what they have not done", () => {
+    for (const row of rows) {
+      expect(nudgeMessage(row, event, "https://eventiq.win")).not.toMatch(
+        /you haven'?t|hasn'?t|you have not|failed|still light/i,
+      );
+    }
+  });
+
+  it("promises no time to complete, because that is not ours to promise", () => {
+    for (const row of rows) {
+      expect(nudgeMessage(row, event, "https://eventiq.win")).not.toMatch(
+        /\b(seconds?|minutes?|hours?)\b/i,
+      );
+    }
+  });
 });

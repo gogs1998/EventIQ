@@ -109,7 +109,7 @@ await step("a wrong password is refused", async () => {
   await fill(page, 'input[name="password"]', "definitely-not-the-password");
   await clickText(page, "Sign in");
   await sleep(3000);
-  if (!(await textOf(page)).includes("not right")) throw new Error("no error shown");
+  if (!(await textOf(page)).includes("not recognised")) throw new Error("no error shown");
   if (!page.url().includes("/login")) throw new Error("signed in with a wrong password");
 });
 

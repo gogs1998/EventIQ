@@ -335,7 +335,9 @@ const COMPLETENESS_FIELDS: { key: string; label: string; weight: number; has: (f
     { key: "reach", label: "Reach", weight: 8, has: (f) => !!f.reachCm },
     { key: "stance", label: "Stance", weight: 4, has: (f) => !!f.stance },
     { key: "nickname", label: "Nickname", weight: 6, has: (f) => !!f.nickname },
-    { key: "bio", label: "Their story", weight: 8, has: (f) => !!f.bio },
+    // "Story" rather than "Their story", because this list is read back both to
+    // the promoter about a fighter and to the fighter about themselves.
+    { key: "bio", label: "Story", weight: 8, has: (f) => !!f.bio },
     { key: "instagram", label: "Instagram", weight: 6, has: (f) => !!f.instagram },
     { key: "walkout", label: "Walkout song", weight: 3, has: (f) => !!f.walkoutSong },
     { key: "sponsors", label: "Sponsors", weight: 3, has: (f) => !!f.sponsorIds?.length },

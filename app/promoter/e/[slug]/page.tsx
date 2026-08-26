@@ -407,9 +407,9 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           <Counts totals={last.totals} sponsors={Object.keys(last.taps).length} />
         ) : (
           <p className="border-hairline text-ash border p-4 text-sm leading-relaxed">
-            {event.name} is your first show on here, so there is nothing to report yet.
-            Counting starts the moment the first person scans the code, and this panel
-            fills in on its own.
+            {event.name} is your first show on EventIQ, so there is nothing to report
+            yet. Counting starts the moment the first person scans the code, and this
+            panel fills in on its own.
           </p>
         )}
       </section>

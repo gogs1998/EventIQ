@@ -186,7 +186,7 @@ export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string):
 
   if (behind.length >= 2) {
     lines.push(
-      `${firstName(opponent)} has already sent their programme profile over. Send yours and the two of you go up side by side, line for line — everyone in the room reads this on the night.`,
+      `${firstName(opponent)} has already sent their programme profile in. Send yours and the two of you go up side by side, line for line — everyone in the room reads this on the night.`,
     );
   } else {
     lines.push(

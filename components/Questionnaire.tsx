@@ -411,11 +411,11 @@ export function Questionnaire({
         {behind.length ? (
           <div className="border-red-corner/40 bg-red-corner/5 mt-4 border p-3">
             <p className="text-chalk text-xs leading-relaxed">
-              {firstName(opponent)} has already sent{" "}
+              {firstName(opponent)} has already answered{" "}
               <span className="tnum display text-base">{behind.length}</span>{" "}
-              {behind.length === 1 ? "line" : "lines"} of the tape in:{" "}
-              {behind.join(", ").toLowerCase()}. Add yours and you go up alongside them,
-              line for line.
+              {behind.length === 1 ? "line" : "lines"} of the tape:{" "}
+              {behind.join(", ").toLowerCase()}. Add yours and the two of you go up side
+              by side, line for line.
             </p>
           </div>
         ) : null}

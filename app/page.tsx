@@ -91,13 +91,13 @@ export default async function PitchPage() {
       <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
         <span className="label">EventIQ</span>
         <h1 className="display anim-slam mt-5 text-5xl leading-[0.9] sm:text-6xl">
-          Every fighter&rsquo;s story, one tap away, on every phone in the building.
+          Every fighter&rsquo;s story, one tap away.
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
-          One code on the table and the room has the whole card: every fighter&rsquo;s
-          record, photo and story, a tale of the tape for all {event.bouts.length} bouts,
-          and a broadcast video for the ones that matter. The room knows exactly who is
-          walking out.
+          One code on the table puts the whole card on every phone in the building: every
+          fighter&rsquo;s record, photo and story, a tale of the tape for all{" "}
+          {event.bouts.length} bouts, and a broadcast video for the ones that matter. The
+          room knows exactly who is walking out.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -222,7 +222,7 @@ export default async function PitchPage() {
             have holes in their profile, listed top of the bill first, because a gap in
             the main event costs more than a gap in bout two. Each one comes with a
             message you can copy straight into WhatsApp that names their bout and their
-            opponent. It tells a fighter the other one has already sent theirs only when
+            opponent. It tells a fighter their opponent has already sent theirs only when
             that is true.
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
