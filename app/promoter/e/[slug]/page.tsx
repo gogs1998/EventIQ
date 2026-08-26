@@ -14,6 +14,7 @@ import {
   loadRenders,
   previousShow,
   sponsorTaps,
+  type AnalyticsTotals,
 } from "@/lib/db/queries";
 import { cx } from "@/lib/cx";
 import {
@@ -106,6 +107,54 @@ const INVITE_STYLE: Record<InviteStatus, string> = {
   submitted: "border-hairline text-ash-dim",
 };
 
+/**
+ * The same five counts wherever they are shown, so the panel a promoter reads on
+ * the night and the one they send a sponsor afterwards cannot use different
+ * definitions of an open.
+ */
+function Counts({
+  totals,
+  sponsors,
+}: {
+  totals: AnalyticsTotals;
+  sponsors: number;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Stat
+        label="Programme opens"
+        value={totals.programme_open.toLocaleString("en-GB")}
+        sub={`${totals.spectators.toLocaleString("en-GB")} separate spectators`}
+      />
+      <Stat
+        label="Bouts expanded"
+        value={totals.bout_expand.toLocaleString("en-GB")}
+        sub="People reading the tape, not just the running order"
+      />
+      <Stat
+        label="Tapes played"
+        value={totals.tape_play.toLocaleString("en-GB")}
+        sub="The head-to-head video, started"
+      />
+      <Stat
+        label="Sponsor taps"
+        value={totals.sponsor_tap.toLocaleString("en-GB")}
+        sub={`Across ${sponsors} ${sponsors === 1 ? "sponsor" : "sponsors"}`}
+      />
+      <Stat
+        label="Profiles opened"
+        value={totals.profile_view.toLocaleString("en-GB")}
+        sub="A fighter's own page, deep-linked"
+      />
+      <Stat
+        label="Cost to print"
+        value="£0"
+        sub="No programmes, no reprints when the card changes"
+      />
+    </div>
+  );
+}
+
 const STATE_STYLE = {
   ready: { label: "Ready", className: "text-gold border-gold/40" },
   lopsided: { label: "One side missing", className: "text-red-corner-hot border-red-corner/40" },
@@ -132,6 +181,9 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   const inventory = sponsorInventory(card);
   const days = daysUntilShow(event.date);
   const rendered = event.bouts.filter((bout) => renders[bout.number]).length;
+
+  const live = await analyticsTotals(db, card.eventId);
+  const liveTaps = await sponsorTaps(db, card.eventId);
 
   const previous = await previousShow(db, promoter.id, event.date);
   const last = previous
@@ -325,6 +377,21 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </div>
       </section>
 
+      {/* --------------------------------------------------------- this show */}
+      <section className="mt-10">
+        <div className="border-hairline mb-3 flex items-end justify-between border-b pb-2">
+          <h2 className="display text-2xl">This show so far</h2>
+          <span className="label">
+            {card.published ? "Counting" : "Not published, so nobody can look yet"}
+          </span>
+        </div>
+        <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
+          Live, from the moment the first person scans the code. Zeroes here mean nobody
+          has looked yet, not that we are not counting.
+        </p>
+        <Counts totals={live} sponsors={Object.keys(liveTaps).length} />
+      </section>
+
       {/* --------------------------------------------------------- last show */}
       <section className="mt-10">
         <div className="border-hairline mb-3 flex items-end justify-between border-b pb-2">
@@ -337,38 +404,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </p>
 
         {last ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Stat
-              label="Programme opens"
-              value={last.totals.programme_open.toLocaleString("en-GB")}
-              sub={`${last.totals.spectators.toLocaleString("en-GB")} separate spectators`}
-            />
-            <Stat
-              label="Bouts expanded"
-              value={last.totals.bout_expand.toLocaleString("en-GB")}
-              sub="People reading the tape, not just the running order"
-            />
-            <Stat
-              label="Tapes played"
-              value={last.totals.tape_play.toLocaleString("en-GB")}
-              sub="The head-to-head video, started"
-            />
-            <Stat
-              label="Sponsor taps"
-              value={last.totals.sponsor_tap.toLocaleString("en-GB")}
-              sub={`Across ${Object.keys(last.taps).length} sponsors`}
-            />
-            <Stat
-              label="Profiles opened"
-              value={last.totals.profile_view.toLocaleString("en-GB")}
-              sub="A fighter's own page, deep-linked"
-            />
-            <Stat
-              label="Cost to print"
-              value="£0"
-              sub="No programmes, no reprints when the card changes"
-            />
-          </div>
+          <Counts totals={last.totals} sponsors={Object.keys(last.taps).length} />
         ) : (
           <p className="border-hairline text-ash border p-4 text-sm leading-relaxed">
             {event.name} is your first show on here, so there is nothing to report yet.
