@@ -82,6 +82,22 @@ Fonts are Anton (display), Oswald (body), Roboto Mono (labels), loaded via `next
 
 **Design direction: broadcast graphics, not a website.** Near-black ground, hard red-corner/blue-corner colour coding, condensed uppercase display type, tabular numerals (so stat counters do not reflow while ticking), film grain overlay. Full sentences are set in Oswald, never in Anton — an early version set hook lines in the condensed display face and they were unreadable and collided.
 
+### The mark
+
+The logo is the red corner / blue corner split with a white play triangle straddling the seam, the same seam the two fighters square up across in the head-to-head. It was chosen because a tab strip contains no other icon that is half red and half blue, so the product's own colour coding is doing the identifying.
+
+It is hand-authored vector, 332 bytes, and every coordinate lives in `GEOMETRY` in [scripts/make-icons.mjs](scripts/make-icons.mjs), which emits both `app/icon.svg` and every raster from that one definition — so the maskable Android icon cannot drift away from what the favicon shows. Run `npm run icons` after changing it.
+
+Three things about it are load-bearing and easy to undo by accident:
+
+- **It is designed on a 16-unit grid and 16x16 is the binding size.** The triangle's base sits at x=6 and its tip at x=12, both whole numbers, so at 16px they land on whole pixels and stay sharp. Moving them to fractional coordinates blurs the mark in a tab and the damage is invisible at any larger size.
+- **The seam carries no line of its own.** A near-black seam disappears into a dark tab strip and a white one disappears into a light one; either way the icon reads as two detached blocks instead of one square. Red meeting blue directly is the only treatment that survives both.
+- **The red half is drawn half a unit past the seam and the blue half is painted over it.** Abutting shapes are antialiased independently, so without that hidden overlap the seam pixel gets two half-covered edges and comes out translucent at any size where the centre line does not fall on a whole pixel.
+
+The triangle's centroid, not its bounding box, is centred on the seam, which is why the shape looks balanced rather than parked on the red side.
+
+The sponsor-strip emblem at `public/sponsors/sponsor-mark-eventiq.webp` is **deliberately left alone**. It is one of ten monoline white marks that read as a set, and a solid two-tone block would have EventIQ shouting over the sponsors it sits beside, which is backwards for the one logo in that row that is not paying. The two share the play triangle, which is enough to relate them without asking one drawing to work both at 320px in a strip and at 16px in a tab.
+
 ---
 
 ## 4. The tale of the tape — the important part
@@ -453,6 +469,7 @@ npx wrangler dev --port 8788 --local     # the real Workers runtime
 npm run e2e -- --base http://localhost:8788
 
 npm run assets                                       # cutouts, from assets-src/
+npm run icons                                        # favicon, apple icon, manifest icons
 npm run render -- --slug cage-county-12 --list
 npm run render -- --slug cage-county-12 --bout 15 --still 300   # one PNG, fastest iteration
 npm run render -- --slug cage-county-12 --stale --publish
