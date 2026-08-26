@@ -15,6 +15,7 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
+import { devVars } from "./dev-vars.mjs";
 import { brandOpenGraph } from "./make-icons.mjs";
 
 const run = promisify(execFile);
@@ -64,12 +65,18 @@ const SHOTS = [
     caption: "What the fighter fills in",
     alt: "The fighter's questionnaire with their card building live above it",
     async act(page) {
-      // An empty card is honest but it is not the thing being sold. Fill in the
-      // two fields that change the picture, exactly as the sales tour does.
-      await clickText(page, "Use the one from the gym");
-      await sleep(1400);
+      // An empty card is honest but it is not the thing being sold, so the
+      // fields that change the picture get filled in. Nothing is saved: /f/demo
+      // runs the form with no write path behind it.
       await type(page, 'input[placeholder="The Welsh Dragon"]', "The Welsh Dragon");
+      await sleep(400);
+      await type(page, 'input[placeholder="Wrexham"]', "Wrexham");
       await sleep(900);
+      // Typing scrolls the page to whichever box has focus, so the frame is set
+      // afterwards rather than before: the card and the prompt above the form
+      // are the part worth showing.
+      await scrollToText(page, "Profile", 420);
+      await sleep(600);
     },
   },
   {
@@ -77,6 +84,10 @@ const SHOTS = [
     path: "/promoter",
     caption: "The promoter's view",
     alt: "The promoter dashboard showing who still has to fill their profile in",
+    // The dashboard is behind a password, so the capture signs in first. It went
+    // stale here once: the shot in the gallery was taken while /promoter was
+    // still public, and kept showing a dashboard from before invite links.
+    signIn: true,
     async act(page) {
       // The counters at the top are the least interesting part of that page;
       // the list of names is the bit a promoter recognises.
@@ -129,6 +140,10 @@ async function type(page, selector, text) {
 async function open(browser, { width, height }) {
   const page = await browser.newPage();
   await page.setViewport({ width, height, deviceScaleFactor: 2 });
+  // The middleware sends plain http to https, and `next dev` sets
+  // x-forwarded-proto itself, so a local capture is bounced to an address
+  // nothing is listening on unless it claims to have come through already.
+  await page.setExtraHTTPHeaders({ "x-forwarded-proto": "https" });
   return page;
 }
 
@@ -168,8 +183,30 @@ async function toWebp(png, webp, width) {
   ]);
 }
 
+/**
+ * Signs in as the seeded promoter so the dashboard can be captured.
+ *
+ * The password comes from .dev.vars rather than the shell, because that is what
+ * wrangler hands the Worker and the seed; reading the shell instead is how the
+ * two came to disagree once already. Nothing about the session reaches the
+ * committed image.
+ */
+async function signIn(page) {
+  const password = devVars().SEED_PROMOTER_PASSWORD;
+  if (!password) throw new Error("no SEED_PROMOTER_PASSWORD in .dev.vars");
+
+  await page.goto(`${BASE}/promoter/login`, { waitUntil: "networkidle0" });
+  await sleep(600);
+  await type(page, 'input[name="slug"]', "cage-county");
+  await type(page, 'input[name="password"]', password);
+  await clickText(page, "Sign in");
+  await sleep(4000);
+  if (page.url().includes("/login")) throw new Error("could not sign in");
+}
+
 async function capture(browser, shot) {
   const page = await open(browser, { width: WIDTH, height: HEIGHT });
+  if (shot.signIn) await signIn(page);
   await page.goto(`${BASE}${shot.path}`, { waitUntil: "networkidle0" });
   await settle(page);
   if (shot.act) await shot.act(page);
