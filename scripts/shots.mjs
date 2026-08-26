@@ -15,6 +15,7 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
+import { brandOpenGraph } from "./make-icons.mjs";
 
 const run = promisify(execFile);
 
@@ -218,6 +219,11 @@ async function ogImage(browser) {
     "4",
     out,
   ]);
+  // The hero has no logo on it, so the mark is added here rather than being lost
+  // every time this card is recaptured.
+  const bugPage = await browser.newPage();
+  await brandOpenGraph(bugPage, out);
+  await bugPage.close();
   const { size } = await stat(out);
   console.log(`${"og".padEnd(14)} ${(size / 1024).toFixed(0)}KB  ${out}`);
 }
