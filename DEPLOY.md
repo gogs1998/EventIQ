@@ -135,7 +135,11 @@ no self-service signup; with one operator that is the right amount of ceremony.
 
 ## 6. Deploy
 
+Apply any migrations first, because the Worker that goes up expects the schema
+that comes with it:
+
 ```bash
+npx wrangler d1 migrations apply eventiq --remote
 npm run deploy
 ```
 
@@ -220,6 +224,17 @@ npx wrangler d1 execute eventiq --remote --command \
   "DELETE FROM invites WHERE fighter_id IN ('test-redcorner','test-bluecorner');
    DELETE FROM fighter_sponsors WHERE fighter_id IN ('test-redcorner','test-bluecorner');
    DELETE FROM fighters WHERE id IN ('test-redcorner','test-bluecorner');"
+```
+
+The suite also reads a real Sherdog page, which leaves a row in `import_cache`.
+That one is harmless and the point of it — one row per fighter, a week's life —
+but the seed does not clear the table, because it is not scoped to a promoter.
+It only matters if the importer's hourly ceiling has been exercised: with 120
+rows fetched inside the hour the Sherdog step is refused, which reads as a broken
+parser rather than as a limit working. Clear it and run again:
+
+```bash
+npx wrangler d1 execute eventiq --remote --command "DELETE FROM import_cache;"
 ```
 
 The check that catches all three is that `fighters` and `invites` should both be

@@ -27,7 +27,9 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 102 unit tests and a 22-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 143 unit tests and a 22-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+
+It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
 **It is a working application, not a demo of one.** The five things that were faked are real:
 
@@ -50,7 +52,7 @@ Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs
 | `/` | Pitch page and shop window: the recorded walkthrough, the main event video, a screenshot gallery | public |
 | `/e/[slug]` | The programme. Flagship screen | public if published |
 | `/e/[slug]/f/[fighter]` | Fighter profile, deep-linkable for an Instagram bio | public if published |
-| `/e/[slug]/qr` | Printable table card | public |
+| `/e/[slug]/qr` | Printable table card | public if published |
 | `/qr` | Redirects to the current show's table card | public |
 | `/f/[token]` | The fighter's questionnaire | the token is the credential |
 | `/f/demo` | The questionnaire as a walkthrough, saving nothing | public |
@@ -223,6 +225,30 @@ This is a real trade-off and it should be stated plainly: anyone who gets hold o
 
 ---
 
+## 6b. What gets uploaded, and what `/media` will serve
+
+**Validate the bytes, never the declaration.** This is the one lesson in this document most likely to be undone by somebody being helpful, so it gets its own section.
+
+The questionnaire's photo upload used to accept anything whose `file.type` began with `image/`, put it in R2 under that same client-supplied content type, and `/media/[...key]` handed it back verbatim. `image/svg+xml` satisfies every one of those steps. An SVG is a document, not a picture: it can carry `<script>`, and a browser fetching it from `https://eventiq.win/media/...` runs that script **at our own origin**, with our cookies in scope. Anyone holding an invite link — a bearer token that gets printed, forwarded and pasted into group chats — could have put one there.
+
+Three things about how that went wrong are worth carrying forward:
+
+- **The browser's re-encode was mistaken for a control.** The questionnaire downscales the photograph to 1000px and re-encodes it as JPEG before uploading, which is why the payload is small enough to send from a car park. It is not a check. `uploadPhoto` is a server action, so it is reachable directly, and the canvas is on the far side of the trust boundary. Anything a client does to a payload is a convenience for honest callers and nothing at all to a hostile one. The proof of this was written by patching `HTMLCanvasElement.prototype.toBlob` in a real browser — twenty lines, and the re-encode was gone.
+- **`file.type` is a claim the caller writes.** It is a string in a multipart header. It is not derived from the file.
+- **A content type is an instruction, not a label.** Storing one on an R2 object decides what the browser will *do* with the bytes later. Getting it from the caller means letting the caller choose how their upload is executed.
+
+So [lib/image-type.ts](lib/image-type.ts) reads the first few bytes and decides for itself: `FF D8 FF` is a JPEG, `89 50 4E 47 0D 0A 1A 0A` a PNG, `RIFF....WEBP` a WebP, and anything else is refused outright. The detected type is what gets stored, what names the file extension, and what `/media` sets — `file.type` is never read at all.
+
+`/media/[...key]` is hardened as well, because the bucket already contained objects written under the old rule and a second line is cheap:
+
+- **Only the types we serve are served as themselves.** JPEG, PNG, WebP and mp4 go out with their own content type; anything else, including an SVG already in the bucket, comes out as `application/octet-stream`.
+- **`Content-Disposition`** is `inline` for those and `attachment` for everything else, so an unexpected object downloads rather than renders.
+- **`Content-Security-Policy: default-src 'none'; sandbox`** and **`X-Content-Type-Options: nosniff`** on every response. So even a document that reached the bucket and got past the disposition has no origin to act in and cannot fetch anything.
+
+Proved rather than reasoned about: an SVG carrying `alert(document.domain)` was pushed at the live server action twice, once declared `image/jpeg` and once declared `image/svg+xml`, and refused both times with nothing written to R2; a real photograph still uploads and comes back `image/jpeg`, `inline`; and an SVG planted directly in the bucket is served `application/octet-stream` as an attachment.
+
+---
+
 ## 7. Where the content lives
 
 `data/event.ts` holds three exports: `sponsors`, `fighters`, `event`. Types in [lib/types.ts](lib/types.ts). It is now **only** the seed; nothing at runtime reads it.
@@ -296,6 +322,26 @@ Idea from the originator: *"they could just send their Sherdog link and autopopu
 - **URL parsing is strict.** [lib/fighter-import.test.ts](lib/fighter-import.test.ts) covers lookalike domains — `sherdog.com.evil.test` must not match — plus missing scheme, missing `www`, query strings, and right-site-wrong-page.
 
 Sherdog's `robots.txt` permits crawling, but robots.txt is not a licence. Check terms of service before relying on this commercially.
+
+### What stops it being a proxy for anybody who finds it
+
+The endpoint takes no token, and that is deliberate: the valuable half of the importer is the promoter filling in the fighters who never reply (below), and an invite would remove it. So it has to be bounded some other way, and the security review found the bounds were not as tight as they looked.
+
+Four things hold it, and each answers something the others do not:
+
+1. **A strict host and path allowlist.** Two hosts, one path shape each, so the reachable set is Sherdog and Tapology fighter pages and nothing else. Lookalike domains are covered by test: `sherdog.com.evil.test` must not match.
+2. **One canonical address per fighter.** `parseProfileUrl` used to keep the pasted string, and the endpoint writes a cache row per distinct URL — so `?bust=1`, `?bust=2` and onwards were an unbounded number of D1 rows and an unbounded number of requests to somebody else's website, from one fighter's page. The URL is now **rebuilt** from the allowlisted host and the matched slug, so the query string, the fragment and any trailing path are gone before anything is looked up, and the cache key is that lowercased. Fourteen decorated variants of one link now produce one row and one outbound fetch; before, fourteen of each.
+3. **A per-address rate limit**, ten a minute, on Cloudflare's own limiting binding rather than a counter of ours — because the counter is the thing being protected, and answering an unauthenticated flood with a database write per request is the shape of the problem rather than the fix. It **fails closed**: no limiter to ask means no.
+4. **An hourly ceiling on fetches, across everybody.** A hundred and twenty an hour, counted off `import_cache` itself and only consulted on the way to a fetch, so a cached lookup never meets it.
+
+**Why the fourth exists, given the third.** Two reasons, both found by testing rather than reading:
+
+- **Cloudflare's rate limiter counts per location, not globally.** Proved with a throwaway Worker at a deliberately tiny limit of three a minute: six sequential requests from here all succeeded, because each landed in a different colo, and bursting forty produced exactly one refusal. It is documented as best-effort and it behaves that way. It will stop a single machine hammering one colo; it will not hold a global number. Do not read a passing local test as proof of the live bound — locally it enforces at exactly ten, because there is only one of it.
+- **The allowlist bounds the shape of a URL, not how many there are.** `/fighter/anything` matches the pattern, and a page that 404s is cached like any other, so the reachable slug space is unbounded even with the allowlist and the canonical key both in place.
+
+The ceiling is the only one of the four that does not depend on being able to tell callers apart. Two full fifteen-bout cards an hour is far more than a promoter working down an undercard needs, and far less than anything that reads as a scrape from the other end. When it is reached, everybody gets the same calm message and the boxes below — which is the right failure, because the alternative is a bill and a blocked user agent.
+
+One operational note: **the seed does not clear `import_cache`**, since it is not scoped to a promoter. If you have been exercising the ceiling, clear it before running the end-to-end suite or the Sherdog step will be refused and it looks like a broken parser.
 
 ### The bigger prize: the promoter does it
 
@@ -399,6 +445,8 @@ npx wrangler dev --port 8788 --local
 
 **Do not run both at once.** They open the same Miniflare SQLite file and the second writer takes the first one down mid-request, which presents as an unexplained connection refused. That cost half an hour.
 
+**`wrangler d1 execute --local` is a second writer too, and it loses.** Setting up a state to test against — unpublishing a show, planting rows — while `wrangler dev` is running appears to work: the statement reports success and the next read agrees with it. Then the running server flushes its own view of the table back over the top, and the row is as it was. What this looks like from the outside is a page that has started ignoring the database, or worse, a promoter action that silently republished a draft. Stop the server, make the change, start it again. The same goes for `wrangler r2 object put --local`.
+
 `.dev.vars` is the source of truth for local secrets and **wrangler ignores the shell**, so anything outside the Worker that reads the same names has to read that file the same way. [scripts/dev-vars.mjs](scripts/dev-vars.mjs) exists because Node's `process.loadEnvFile` is the wrong way round — it leaves an already-exported variable in place — so with `SEED_PROMOTER_PASSWORD` exported in the shell the seed set one password and the login page expected another. That presents as "the password is wrong" and is not fun to diagnose.
 
 ### The browser walkthrough
@@ -438,6 +486,17 @@ Two things it taught, both worth knowing before writing another one: the design 
 19. **An end-to-end run against production left the demo card filled in.** The suite finishes with Chloe Baines submitted and photographed, and she is meant to be the fighter who opened the link and did nothing — that is the case the chase list exists to make. Re-seed after any production run, and delete the photograph it uploaded, which the seed does not touch. See DEPLOY.md.
 20. **Removing a bout orphans its fighters.** A fighter is not owned by a bout, so deleting the bout leaves the two rows behind, and the seed only clears fighters that are on the card — which means the suite's `Test Redcorner` and `Test Bluecorner` survive a re-seed. Nothing displays them, because every screen derives from the running order, so this is untidiness rather than a visible bug. It is listed here because "invisible in the app" and "not in the database" are different states and only one of them is true. The clean-up query, and the count that detects it, are in [DEPLOY.md](DEPLOY.md).
 
+### From the code review and the security review
+
+Six more, found by reviewing the finished thing rather than by using it. Worth reading as a set, because five of the six are the same mistake in different clothes: a check that existed in one place and was assumed to exist everywhere.
+
+21. **An SVG upload was stored cross-site scripting at our own origin.** The upload accepted any declared `image/*`, stored the object under the client's own content type, and `/media` served it back verbatim. Section 6b, which is the fullest account of anything here, because "validate the bytes, not the declaration" is exactly the kind of rule that gets quietly relaxed by somebody adding a format.
+22. **Publishing a show before entering its running order took the front door down for everybody.** The pitch page read `boutsTopDown(card)[0]` and handed it to `TapePlayer`, which reads `bout.number` off it; `/f/demo` reduced the list of corners with no initial value. Both 500ed. Creating a show and publishing it are two clicks apart and typing fifteen bouts in is an afternoon, so this was ordinary use rather than an edge case. **The lesson is not "add a null check".** Both pages now degrade the way the rest of the product does for missing data: the pitch page leaves the video section out entirely, because an empty player next to the argument for one is worse than neither, and the preview says which show it is and that it has no bouts yet. `loadShowcase` also prefers a published show that has bouts, since a promoter entering next month's card gives it the furthest-out date by definition — it stays a preference and not a filter, because if the only published show is empty then that is still the show.
+23. **The printable table card had no publish check at all.** `/e/[slug]/qr` carries the show's name, date, venue and a code straight into it, and anybody holding the slug could print an unpublished one. Both `generateMetadata` functions were worse in a quieter way: they built titles and descriptions off any card that loaded, so a crawler or a link unfurler was handed draft event and fighter names even where the body correctly answered 404. The gate is now one function — [lib/visibility.ts](lib/visibility.ts), `loadVisibleCard` — and getting a card that way is the only way a public page gets one, so the next route cannot leave the check out by omission. **A rule written inline in the one place somebody thought of is a rule three other places are free to forget.**
+24. **A save could leave a fighter with no sponsors.** `saveDraft` deleted the join rows and inserted the new set as two separate statements, and it passed the requested ids straight through. A payload naming a sponsor that does not exist therefore deleted the fighter's real sponsors, failed the foreign key on the insert, and left the profile saved and the sponsor row empty — and the order those placements appear in is the order they were sold in. It is one `db.batch()` now, which D1 runs as a single transaction, and the ids are checked against the promoter's own book first. Letting the foreign key do the checking is what turned an impossible payload into a half-written profile instead of into nothing happening.
+25. **A promoter could blank a fighter's name.** `updateFighter` wrote whatever was in the box, so clearing the field persisted an empty string, which renders as a gap on the public programme and in the video. `updateEvent` had had the answer next to it the whole time — it falls back to the stored value on a blank — which is worth noticing, because the fix was already in the file.
+26. **The open importer could be made to write unbounded rows into D1.** Section 8a, "What stops it being a proxy for anybody who finds it". The part worth remembering beyond this project: Cloudflare's rate limiting binding is per-location and best-effort, and a local test cannot show you that, because locally there is only one location.
+
 ---
 
 ## 15. Environment notes
@@ -454,7 +513,7 @@ Two things it taught, both worth knowing before writing another one: the design 
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 102 unit tests
+npm test                     # 143 unit tests
 npm run lint
 npm run typecheck
 
@@ -547,6 +606,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 
 ## 20. Risks worth tracking
 
+- **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
 - **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It needs consent wording, a privacy notice, a retention policy and a basis for publishing. The questionnaire is the natural consent point — design it in rather than bolting it on. This is now more urgent than it was, because the data is stored rather than living in a browser tab.
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
 - **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. Same consent point.
