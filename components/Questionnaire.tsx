@@ -279,13 +279,13 @@ export function Questionnaire({
       if (!upload) {
         // Preview mode: show it locally so the card fills in, but nothing leaves
         // the browser and nothing is stored.
-        update((current) => ({ ...current, photo: URL.createObjectURL(blob), cutout: undefined }));
+        update((current) => ({ ...current, photo: URL.createObjectURL(blob) }));
         return;
       }
       const form = new FormData();
       form.set("photo", new File([blob], "photo.jpg", { type: "image/jpeg" }));
       const { path } = await upload(form);
-      update((current) => ({ ...current, photo: path, cutout: undefined }));
+      update((current) => ({ ...current, photo: path }));
     } catch {
       setPhotoError("That photo wouldn't upload. Try a different one, or come back to it later.");
     }
@@ -508,7 +508,7 @@ export function Questionnaire({
                 {draft.photo ? (
                   <button
                     type="button"
-                    onClick={() => update((d) => ({ ...d, photo: undefined, cutout: undefined }))}
+                    onClick={() => update((d) => ({ ...d, photo: undefined }))}
                     className="text-ash-dim hover:text-chalk text-xs transition-colors"
                   >
                     Remove

@@ -21,6 +21,7 @@ import {
   lastName,
   type TapeRow,
 } from "@/lib/tape";
+import { parallaxTravel, plateInitials, portraitOf, type Portrait } from "@/lib/portrait";
 import type { Bout, Corner, FightEvent, Fighter, Sponsor } from "@/lib/types";
 import { emberX, emberY, embers } from "./atmosphere";
 import { SCENES, SEQ } from "./timeline";
@@ -38,6 +39,62 @@ const BLUE = "#1668f0";
 const GOLD = "#f0c04a";
 
 const EMBERS = embers(20);
+
+/**
+ * How a photograph is shown where a cutout would have been.
+ *
+ * A cutout's edge is the fighter's own silhouette, so it can sit anywhere over
+ * the backdrop and read as a person standing in front of something. A photograph
+ * has four straight edges, and a rectangle floating over a drifting backdrop
+ * reads as a photograph being dragged across a picture — the one thing the whole
+ * sequence is built to avoid.
+ *
+ * So the photograph is given no edge of its own, in two passes that do different
+ * jobs and are both needed:
+ *
+ * - **Alpha**, from two linear fades on nested elements: one vertical, one
+ *   horizontal. Nested rather than composited onto one element, because nesting
+ *   is the same result in every browser and `mask-composite` is not. Each fade
+ *   reaches zero exactly at the edge of the frame it is fading, which a single
+ *   ellipse cannot do on a box whose centre of interest is not its middle — an
+ *   ellipse centred where a face is left the top edge of the photograph at
+ *   two-thirds opacity, which on a bright background was a visible straight line
+ *   across the frame.
+ * - **Colour**, from a vignette that pulls the photograph's own background
+ *   towards the ground colour of the composition rather than towards grey. Alpha
+ *   alone is enough on a portrait shot against a dark wall and nothing like
+ *   enough on one shot in a bright gym: the fade removes the edge but leaves a
+ *   pale mass sitting over the backdrop and under the type.
+ */
+const REVEAL_PHOTO_MASK_Y =
+  "linear-gradient(to bottom, transparent 0%, #000 13%, #000 54%, rgba(0,0,0,0.4) 82%, transparent 100%)";
+const REVEAL_PHOTO_MASK_X =
+  "linear-gradient(to right, transparent 0%, #000 17%, #000 83%, transparent 100%)";
+const REVEAL_PHOTO_VIGNETTE =
+  "radial-gradient(54% 44% at 50% 31%, transparent 12%, rgba(7,8,10,0.62) 56%, #07080a 94%)";
+
+/**
+ * Vertical fade for the head-to-head, where the frame is a tall clipped column
+ * bled off the side of the picture.
+ */
+const FACEOFF_PHOTO_MASK_Y =
+  "linear-gradient(to bottom, transparent 0%, #000 9%, #000 54%, transparent 92%)";
+
+/**
+ * Fade on the side facing the centre seam. The outer side runs off the frame
+ * edge, which is a bleed rather than a floating edge, so it is left alone.
+ */
+function faceOffPhotoMaskX(corner: Corner): string {
+  return `linear-gradient(to ${corner === "red" ? "right" : "left"}, #000 0%, #000 52%, transparent 100%)`;
+}
+
+/** Darkens the photograph towards the seam and the top of the column. */
+function faceOffPhotoVignette(corner: Corner): string {
+  return (
+    `linear-gradient(to ${corner === "red" ? "right" : "left"}, transparent 30%, rgba(7,8,10,0.62) 100%),` +
+    "linear-gradient(to bottom, rgba(7,8,10,0.55) 0%, transparent 26%)"
+  );
+}
 
 export function TaleOfTheTape({
   card,
@@ -363,10 +420,18 @@ function Reveal({
   const dir = corner === "red" ? -1 : 1;
   const accent = corner === "red" ? RED : BLUE;
 
-  // The cutout travels further and faster than the backdrop behind it, which is
-  // what sells depth from what is only ever a flat photograph.
-  const cutoutX = interpolate(f, [0, 46], [dir * 150, 0], easeOutCubic);
-  const cutoutScale = interpolate(f, [0, 100], [1.16, 1.02]);
+  // Cutout, then photograph, then the plate. The plate is only for a fighter who
+  // genuinely sent nothing.
+  const portrait = portraitOf(fighter);
+
+  // The subject travels further and faster than the backdrop behind it, which is
+  // what sells depth from what is only ever a flat photograph. A photograph gets
+  // a fraction of that travel and half the push-in: the further a rectangle
+  // moves the more plainly it is a rectangle. It still moves, because a static
+  // layer inside a moving frame looks like a stalled render.
+  const travel = parallaxTravel(portrait);
+  const cutoutX = interpolate(f, [0, 46], [dir * 150 * travel, 0], easeOutCubic);
+  const cutoutScale = interpolate(f, [0, 100], [portrait.kind === "photo" ? 1.08 : 1.16, 1.02]);
   const glowX = interpolate(f, [0, 46], [dir * 60, 0], easeOutCubic);
 
   const nameLift = interpolate(f, [12, 34], [64, 0], easeOutBack);
@@ -405,22 +470,7 @@ function Reveal({
           transformOrigin: "50% 30%",
         }}
       >
-        {fighter.cutout ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={fighter.cutout}
-            alt=""
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              objectPosition: "top center",
-              filter: "drop-shadow(0 40px 60px rgba(0,0,0,0.75)) contrast(1.06)",
-            }}
-          />
-        ) : (
-          <NoPhotoPlate fighter={fighter} accent={accent} />
-        )}
+        <RevealSubject portrait={portrait} fighter={fighter} accent={accent} />
 
         {/* Light sweep across the subject. */}
         <div
@@ -554,12 +604,81 @@ function Reveal({
   );
 }
 
+/** The reveal's portrait layer, in whichever of the three states applies. */
+function RevealSubject({
+  portrait,
+  fighter,
+  accent,
+}: {
+  portrait: Portrait;
+  fighter: Fighter;
+  accent: string;
+}) {
+  if (portrait.kind === "plate") return <NoPhotoPlate fighter={fighter} accent={accent} />;
+
+  if (portrait.kind === "cutout") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={portrait.src}
+        alt=""
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          objectPosition: "top center",
+          filter: "drop-shadow(0 40px 60px rgba(0,0,0,0.75)) contrast(1.06)",
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        maskImage: REVEAL_PHOTO_MASK_Y,
+        WebkitMaskImage: REVEAL_PHOTO_MASK_Y,
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={portrait.src}
+        alt=""
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          // Heads are near the top of a portrait snapshot, so the crop favours
+          // the top of the frame rather than its middle, and comes in a little
+          // closer than a cutout does: the less of the photograph's own
+          // background is on screen, the less there is to give away that it is a
+          // photograph. Fixed, not interpolated — the frame-driven push-in is on
+          // the wrapper above.
+          objectPosition: "50% 14%",
+          transform: "scale(1.08)",
+          transformOrigin: "50% 30%",
+          maskImage: REVEAL_PHOTO_MASK_X,
+          WebkitMaskImage: REVEAL_PHOTO_MASK_X,
+          filter: "saturate(0.86) contrast(1.06) brightness(0.94)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: REVEAL_PHOTO_VIGNETTE,
+          maskImage: REVEAL_PHOTO_MASK_X,
+          WebkitMaskImage: REVEAL_PHOTO_MASK_X,
+        }}
+      />
+    </div>
+  );
+}
+
 function NoPhotoPlate({ fighter, accent }: { fighter: Fighter; accent: string }) {
-  const initials = fighter.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join("");
+  const initials = plateInitials(fighter.name);
 
   return (
     <div
@@ -832,6 +951,7 @@ function FaceOff({
   height: number;
 }) {
   const accent = corner === "red" ? RED : BLUE;
+  const portrait = portraitOf(fighter);
 
   return (
     <div
@@ -845,10 +965,10 @@ function FaceOff({
         transform: `translateX(${offset}px)`,
       }}
     >
-      {fighter.cutout ? (
+      {portrait.kind === "cutout" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={fighter.cutout}
+          src={portrait.src}
           alt=""
           style={{
             width: "100%",
@@ -860,11 +980,67 @@ function FaceOff({
             maskImage: "linear-gradient(to bottom, #000 62%, transparent 96%)",
           }}
         />
+      ) : portrait.kind === "photo" ? (
+        <FaceOffPhoto src={portrait.src} corner={corner} />
       ) : (
         <div style={{ position: "relative", width: "100%", height: "100%" }}>
           <NoPhotoPlate fighter={fighter} accent={accent} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A photograph in the head-to-head.
+ *
+ * Two masks, on nested elements rather than composited on one, because nesting
+ * is the same result in every browser and mask-composite is not: the outer takes
+ * the top and bottom, the inner takes the side facing the centre seam. Between
+ * them there is no straight edge anywhere the backdrop shows through.
+ *
+ * The photograph is deliberately **not** mirrored, where the cutout is. Mirroring
+ * is how the two corners come to square up across the seam, and it costs nothing
+ * on a subject with no background — but a photograph is a picture of a real room,
+ * and reversing it reverses the lettering on a gym vest and a sponsor's banner on
+ * the wall behind. A fighter facing the wrong way is a smaller error than a
+ * sponsor's name printed backwards.
+ */
+function FaceOffPhoto({ src, corner }: { src: string; corner: Corner }) {
+  const maskX = faceOffPhotoMaskX(corner);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        maskImage: FACEOFF_PHOTO_MASK_Y,
+        WebkitMaskImage: FACEOFF_PHOTO_MASK_Y,
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "50% 12%",
+          maskImage: maskX,
+          WebkitMaskImage: maskX,
+          filter: "saturate(0.86) contrast(1.06) brightness(0.94)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: faceOffPhotoVignette(corner),
+          maskImage: maskX,
+          WebkitMaskImage: maskX,
+        }}
+      />
     </div>
   );
 }

@@ -10,12 +10,16 @@ import type { Fighter, Stance } from "@/lib/types";
  *
  * This is shared between the client and the server actions so that the thing
  * being autosaved is exactly the thing being previewed.
+ *
+ * The cutout is deliberately **not** in here. It is derived from the photograph
+ * by the renderer, on a machine that has the model, rather than being anything a
+ * fighter fills in — so the form has no business carrying it, and a draft round
+ * trip cannot be the thing that wipes one. See scripts/cutouts.mjs.
  */
 export type Draft = {
   nickname: string;
   instagram: string;
   photo?: string;
-  cutout?: string;
   bio: string;
   walkoutTitle: string;
   walkoutArtist: string;
@@ -87,7 +91,6 @@ export function draftFromFighter(fighter: Fighter): Draft {
     nickname: str(fighter.nickname),
     instagram: str(fighter.instagram),
     photo: fighter.photo,
-    cutout: fighter.cutout,
     bio: str(fighter.bio),
     walkoutTitle: str(fighter.walkoutSong?.title),
     walkoutArtist: str(fighter.walkoutSong?.artist),
@@ -112,6 +115,12 @@ export function draftFromFighter(fighter: Fighter): Draft {
  * A record appears only when at least one of the three boxes has something in
  * it. Defaulting an untouched form to 0-0-0 would announce every fighter who
  * never answered as making their debut, which is the bug isDebut exists to stop.
+ *
+ * The cutout comes off the stored fighter and survives only while the photograph
+ * it was cut from is still the one on the form. A fighter who uploads a new
+ * picture sees the new picture immediately, in the treatment the video will give
+ * it until the next render — rather than their previous cut-out self, which is
+ * what a cutout carried through the form would have shown them.
  */
 export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
   const w = num(draft.w);
@@ -125,7 +134,7 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
     nickname: draft.nickname || undefined,
     instagram: draft.instagram.replace(/^@/, "") || undefined,
     photo: draft.photo,
-    cutout: draft.cutout ?? draft.photo,
+    cutout: draft.photo === base.photo ? base.cutout : undefined,
     bio: draft.bio || undefined,
     hometown: draft.hometown || undefined,
     age: num(draft.age),
@@ -202,8 +211,6 @@ export function sanitiseDraft(input: unknown): Draft {
     // Only ever a key we wrote ourselves. A caller supplying an arbitrary URL
     // here would otherwise get an image of their choosing onto a promoter's card.
     photo: photo?.startsWith("/media/") || photo?.startsWith("/fighters/") ? photo : undefined,
-    cutout:
-      typeof raw.cutout === "string" && raw.cutout.startsWith("/fighters/") ? raw.cutout : undefined,
     bio: text("bio", 600),
     walkoutTitle: text("walkoutTitle", 80),
     walkoutArtist: text("walkoutArtist", 80),

@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
+import { cutoutSurvives } from "@/lib/portrait";
 import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
 
 /**
@@ -25,7 +26,16 @@ async function inviteOr404(token: string) {
   return { db, ...row };
 }
 
-/** Columns written from a draft. Kept in one place so save and submit agree. */
+/**
+ * Columns written from a draft. Kept in one place so save and submit agree.
+ *
+ * `cutout` is deliberately absent. Nothing a fighter types produces a cutout —
+ * the renderer makes it from the photograph on a machine that has the model, and
+ * putting it in the form's column set meant every autosave wrote back whatever
+ * the browser happened to be holding, which for a cutout is nothing. Leaving the
+ * column out of the update leaves the stored value alone; `saveDraft` clears it
+ * in the one case where it has to.
+ */
 function columnsFrom(draft: Draft) {
   const w = num(draft.w);
   const l = num(draft.l);
@@ -38,7 +48,6 @@ function columnsFrom(draft: Draft) {
     nickname: draft.nickname || null,
     instagram: draft.instagram || null,
     photo: draft.photo ?? null,
-    cutout: draft.cutout ?? null,
     bio: draft.bio || null,
     hometown: draft.hometown || null,
     age: num(draft.age) ?? null,
@@ -75,8 +84,16 @@ export async function saveDraft(token: string, input: unknown): Promise<{ savedA
   const draft = sanitiseDraft(input);
   const sponsorIds = await claimableSponsors(db, event.promoterId, draft.sponsorIds);
 
+  // Everything else about the cutout is the renderer's, but this is the one thing
+  // only the request path knows: that the photograph the cutout was made from has
+  // just been replaced. Left in place it would put the fighter's old picture in
+  // the video for as long as nobody noticed.
+  const columns = cutoutSurvives(fighter.photo, draft.photo)
+    ? columnsFrom(draft)
+    : { ...columnsFrom(draft), cutout: null };
+
   const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
-    db.update(schema.fighters).set(columnsFrom(draft)).where(eq(schema.fighters.id, fighter.id)),
+    db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
     db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id)),
   ];
 
