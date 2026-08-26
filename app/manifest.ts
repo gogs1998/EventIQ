@@ -15,7 +15,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "EventIQ — digital fight programmes",
     short_name: "EventIQ",
     description:
-      "Scan the code, get the whole card. Every bout with a tale of the tape, every fighter with a story, every sponsor in the room.",
+      "One code on the table puts the whole card on every phone in the building: every bout with a tale of the tape, every fighter with a story, every sponsor seen.",
     start_url: "/",
     display: "standalone",
     orientation: "portrait",

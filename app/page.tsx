@@ -21,13 +21,13 @@ const steps = [
   },
   {
     n: "03",
-    title: "They actually fill it in",
+    title: "Why they fill it in",
     body: "Because it puts their photo, their Instagram and their sponsors in front of the whole room, and because they get a broadcast video of their own tale of the tape to post. If they are already on Sherdog or Tapology they paste the link and their record fills itself in.",
   },
   {
     n: "04",
     title: "One code on the tables",
-    body: "Everyone scans. Nobody prints anything. You can still change the card at half seven.",
+    body: "Everyone scans. Nothing goes to print, so the card can still change an hour before doors.",
   },
 ];
 
@@ -43,8 +43,8 @@ const reel = [
 
 const audiences = [
   {
-    who: "The punter in row four",
-    gets: "A reason to care about bout four on a wet Tuesday, instead of polite clapping for a name he cannot read.",
+    who: "The spectator in row four",
+    gets: "A reason to care about bout four, and a story to put to the name of whoever is walking out.",
   },
   {
     who: "The fighter",
@@ -52,7 +52,7 @@ const audiences = [
   },
   {
     who: "You",
-    gets: "A show that looks like a professional operation, and sponsor slots you can actually charge properly for.",
+    gets: "A show that looks like a professional operation, and sponsor slots you can price properly.",
   },
 ];
 
@@ -91,13 +91,13 @@ export default async function PitchPage() {
       <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
         <span className="label">EventIQ</span>
         <h1 className="display anim-slam mt-5 text-5xl leading-[0.9] sm:text-6xl">
-          Your programme is one sheet of A4 with thirty names on it.
+          Every fighter&rsquo;s story, one tap away, on every phone in the building.
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
-          Name, gym, weight class. That is everything the room knows about the lad
-          walking to the cage. We put the same card on every phone in the building, with
-          every fighter&rsquo;s record, photo and story, a tale of the tape for all{" "}
-          {event.bouts.length} bouts, and a broadcast video for the ones that matter.
+          One code on the table and the room has the whole card: every fighter&rsquo;s
+          record, photo and story, a tale of the tape for all {event.bouts.length} bouts,
+          and a broadcast video for the ones that matter. The room knows exactly who is
+          walking out.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -134,8 +134,7 @@ export default async function PitchPage() {
             </p>
             <p className="text-ash mt-4 text-sm leading-relaxed">
               It plays in the programme, and it downloads as a vertical video the fighter
-              posts to their own following — with your event and your sponsors on it. Your
-              card markets itself.
+              posts to their own following. Your event and your sponsors travel with it.
             </p>
           </div>
         </div>
@@ -163,7 +162,7 @@ export default async function PitchPage() {
           <div className="lg:order-1">
             <span className="label">End to end</span>
             <h2 className="display mt-4 text-4xl leading-none">
-              The whole thing, in a minute and a bit
+              The whole product, end to end
             </h2>
             <p className="text-ash mt-5 text-sm leading-relaxed">
               Recorded off the demo as it stands, on a phone-shaped screen. The card on
@@ -171,8 +170,8 @@ export default async function PitchPage() {
               the form a fighter gets sent. No narration and no sound.
             </p>
             <p className="text-ash mt-4 text-sm leading-relaxed">
-              This is the version to forward to somebody on WhatsApp, which is where most
-              of these conversations happen.
+              This is the version to forward on WhatsApp, which is where most of these
+              conversations happen.
             </p>
 
             <dl className="border-hairline mt-8 divide-y divide-white/5 border-t">
@@ -200,7 +199,7 @@ export default async function PitchPage() {
       <section className="border-hairline border-t">
         <div className="mx-auto max-w-5xl px-5 py-14">
           <span className="label">Every screen in it</span>
-          <h2 className="display mt-4 text-3xl">What it actually looks like</h2>
+          <h2 className="display mt-4 text-3xl">What it looks like</h2>
           <p className="text-ash mt-4 max-w-2xl text-sm leading-relaxed">
             Screenshots of the working demo, not mockups. Tap any of them to open the
             real page.
@@ -227,10 +226,10 @@ export default async function PitchPage() {
             that is true.
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
-            And your sponsor sheet: {inventory.sold.length} of the {event.bouts.length}{" "}
-            bout slots sold, {inventory.unsold.length} still going. Those are slots you
-            are already selling. This is the first time you can see the lot in one place,
-            with something to send the sponsor afterwards.
+            Your sponsor sheet sits alongside it: {inventory.sold.length} of the{" "}
+            {event.bouts.length} bout slots sold, {inventory.unsold.length} still
+            available. Those are slots you are already selling, now in one place, with a
+            report to send the sponsor afterwards.
           </p>
           <Link
             href="/promoter"
@@ -246,17 +245,17 @@ export default async function PitchPage() {
         <div className="mx-auto max-w-3xl px-5 py-14">
           <span className="label">The bit that pays for it</span>
           <h2 className="display mt-4 text-4xl leading-none">
-            On paper a bout sponsor gets a logo the size of a stamp
+            A bout sponsor gets the whole bout
           </h2>
           <p className="text-ash mt-5 text-sm leading-relaxed">
-            Here they get the bout. Their name sits on that fight in the programme, and
-            they close out the video for it — the one the fighter posts to their own
-            following the week of the show. That is a thing you can put a real number
-            against, and it is the same fifteen slots you are already selling.
+            Their name sits on that fight in the programme, and they close out the video
+            for it — the one the fighter posts to their own following the week of the
+            show. That is a thing you can put a real number against, and it is the same
+            fifteen slots you are already selling.
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
-            Your house sponsors sit on the programme itself, not just on a banner behind
-            the cage that nobody photographs.
+            Your house sponsors sit on the programme itself, in front of every spectator
+            who scans the code.
           </p>
         </div>
       </section>
@@ -281,7 +280,7 @@ export default async function PitchPage() {
         <div className="mx-auto max-w-3xl px-5 py-14">
           <span className="label">About the demo card</span>
           <h2 className="display mt-4 text-3xl leading-none">
-            Half of them have not filled it in, on purpose
+            The demo card is deliberately uneven
           </h2>
           <p className="text-ash mt-5 text-sm leading-relaxed">
             The demo runs on {event.name}, an invented show with {event.bouts.length}{" "}
@@ -290,11 +289,10 @@ export default async function PitchPage() {
             weeks out.
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
-            That is deliberate. Scroll to the bottom of the running order and the openers
-            are a name and a gym, exactly like the paper programme. The top of the bill is
-            what it looks like when fighters do send their details in. The gap between
-            those two things is the whole argument, and it is why the fighter&rsquo;s form
-            is built to be finished rather than merely sent.
+            Scroll to the bottom of the running order and the openers carry a name and a
+            gym and nothing else. The top of the bill is what it looks like when fighters
+            send their details in. Closing the gap between those two is what the
+            fighter&rsquo;s form is built to do.
           </p>
         </div>
       </section>

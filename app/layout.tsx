@@ -23,7 +23,7 @@ const robotoMono = Roboto_Mono({
 });
 
 const description =
-  "Scan the code, get the whole card. Every bout with a tale of the tape, every fighter with a story, every sponsor in the room.";
+  "One code on the table puts the whole card on every phone in the building: every bout with a tale of the tape, every fighter with a story, every sponsor seen.";
 
 export const metadata: Metadata = {
   // Absolute in the built output, so shared links and og:image resolve wherever
