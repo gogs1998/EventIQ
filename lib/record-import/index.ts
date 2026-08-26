@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, gt, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import { parseProfileUrl, type ImportOutcome } from "@/lib/fighter-import";
@@ -20,6 +20,31 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Long enough that a slow page does not hold a request open indefinitely. */
 const FETCH_TIMEOUT_MS = 8000;
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * How many pages the importer will fetch in an hour, across everybody.
+ *
+ * The per-address limiter in lib/rate-limit.ts is the first answer to somebody
+ * asking too often, but it is not the whole one. Cloudflare's limiter counts per
+ * location, so a caller whose requests land in several does get more than their
+ * ten a minute; and the allowlist bounds the *shape* of a reachable URL without
+ * bounding the *number* of them, because /fighter/anything matches and a page
+ * that 404s is still cached. So the two things worth protecting — rows in D1 and
+ * requests to somebody else's website — get a ceiling that does not depend on
+ * being able to tell callers apart.
+ *
+ * A fifteen-bout card is thirty fighters. Two full cards an hour is far more
+ * than a promoter filling in an undercard will ever need and far less than
+ * anything that would read as a scrape from the other end.
+ */
+export const FETCHES_PER_HOUR = 120;
+
+/** Whether another page may be fetched, given how many went out in the last hour. */
+export function withinFetchBudget(fetchesInLastHour: number): boolean {
+  return fetchesInLastHour < FETCHES_PER_HOUR;
+}
+
 /**
  * Identifies the request honestly and gives them somewhere to complain to.
  * Pretending to be Chrome to get past a block would be both dishonest and a
@@ -40,6 +65,18 @@ export const TOO_MANY_LOOKUPS: ImportOutcome = {
   kind: "too-many",
   reason:
     "That's a lot of lookups from one connection, so we've paused them for a minute. Try again shortly, or fill the boxes in below.",
+};
+
+/**
+ * What a caller is told when the importer as a whole is at its ceiling. Their
+ * own link is fine and a cached one would still have worked, so it says what is
+ * actually happening rather than implying they did something.
+ */
+const IMPORTER_AT_CAPACITY: ImportOutcome = {
+  ok: false,
+  kind: "too-many",
+  reason:
+    "We're reading as many record pages as we're willing to just now, so new lookups are paused. Try again later, or fill the boxes in below.",
 };
 
 function isChallenge(html: string): boolean {
@@ -107,6 +144,15 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
           reason: "We couldn't read anything off that page. Fill the boxes in below instead.",
         };
   }
+
+  // Only asked on the way to a fetch, so a cached lookup stays one row read and
+  // an ordinary fighter reopening the form never meets this at all.
+  const [recent] = await db
+    .select({ fetches: sql<number>`count(*)` })
+    .from(schema.importCache)
+    .where(gt(schema.importCache.fetchedAt, now - HOUR_MS));
+
+  if (!withinFetchBudget(recent?.fetches ?? 0)) return IMPORTER_AT_CAPACITY;
 
   const fetched = await fetchPage(ref.url);
   const parsed = "html" in fetched ? parseSherdog(fetched.html) : null;

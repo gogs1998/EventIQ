@@ -252,10 +252,16 @@ export const analyticsEvents = sqliteTable(
  * defensible: one fighter's link should cost the source site one request no
  * matter how many times the form is reopened.
  */
-export const importCache = sqliteTable("import_cache", {
-  url: text("url").primaryKey(),
-  source: text("source").notNull(),
-  /** JSON ImportedTape, or null when the page parsed to nothing useful. */
-  payload: text("payload"),
-  fetchedAt: integer("fetched_at").notNull(),
-});
+export const importCache = sqliteTable(
+  "import_cache",
+  {
+    url: text("url").primaryKey(),
+    source: text("source").notNull(),
+    /** JSON ImportedTape, or null when the page parsed to nothing useful. */
+    payload: text("payload"),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  // The importer counts the last hour's fetches before it makes another one, so
+  // that question has to stay cheap however many rows have accumulated.
+  (table) => [index("import_cache_fetched_at").on(table.fetchedAt)],
+);

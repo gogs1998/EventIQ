@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { IMPORT_LOOKUPS_PER_MINUTE, callerKey } from "@/lib/rate-limit";
+import { FETCHES_PER_HOUR, withinFetchBudget } from "@/lib/record-import";
 
 const requestWith = (headers: Record<string, string>) =>
   new Request("https://eventiq.win/api/import-record", { method: "POST", headers });
@@ -52,5 +53,25 @@ describe("the allowance", () => {
 
     const limiter = config.ratelimits.find((entry) => entry.name === "IMPORT_LOOKUPS");
     expect(limiter?.simple).toEqual({ limit: IMPORT_LOOKUPS_PER_MINUTE, period: 60 });
+  });
+});
+
+/**
+ * The per-address limiter counts per Cloudflare location, so a caller spread
+ * across several gets more than their share of it. This is the bound that does
+ * not depend on telling callers apart, and it is the one that actually caps how
+ * many rows the open endpoint can put in D1.
+ */
+describe("the hourly fetch budget", () => {
+  it("lets a promoter get through two full cards' worth of fighters", () => {
+    expect(withinFetchBudget(0)).toBe(true);
+    expect(withinFetchBudget(60)).toBe(true);
+    expect(FETCHES_PER_HOUR).toBeGreaterThanOrEqual(60);
+  });
+
+  it("refuses once the hour's allowance is spent, rather than at some point after", () => {
+    expect(withinFetchBudget(FETCHES_PER_HOUR - 1)).toBe(true);
+    expect(withinFetchBudget(FETCHES_PER_HOUR)).toBe(false);
+    expect(withinFetchBudget(FETCHES_PER_HOUR + 5000)).toBe(false);
   });
 });
