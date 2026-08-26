@@ -1,11 +1,12 @@
 /**
- * Promoter sessions and fighter invite tokens.
+ * Promoter sessions, fighter invite tokens, and the renderer's key.
  *
  * There is no third-party auth here on purpose. The whole product has exactly
- * two kinds of caller — one promoter who owns a show, and a fighter who was sent
- * a link — and neither justifies an identity provider, a redirect dance or a
- * dependency that has to be kept current. Web Crypto is in the Workers runtime
- * and in Node, so the same code runs in tests, in `next dev` and on the edge.
+ * three kinds of caller — one promoter who owns a show, a fighter who was sent
+ * a link, and the mp4 renderer, which is a machine holding a shared key — and
+ * none of them justifies an identity provider, a redirect dance or a dependency
+ * that has to be kept current. Web Crypto is in the Workers runtime and in
+ * Node, so the same code runs in tests, in `next dev` and on the edge.
  *
  * The promoter's session is a signed cookie rather than a row in the database:
  * a signature can be checked without a read, and there is no session state worth
@@ -77,6 +78,45 @@ function equal(a: Uint8Array, b: Uint8Array): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
   return diff === 0;
+}
+
+/**
+ * The header the mp4 renderer presents instead of a cookie. Kept out of the
+ * `authorization` header on purpose: this is not a user, it is a machine with
+ * one key, and a name of our own cannot be confused with a bearer token by
+ * anything sitting in front of the Worker.
+ *
+ * [scripts/render-tape.mjs](../scripts/render-tape.mjs) sends it. That script is
+ * plain Node and cannot import this constant, so it carries the same string with
+ * a comment pointing here — and it fails on the first non-200 from the render
+ * page rather than screenshotting 480 frames of a 404.
+ */
+export const RENDER_KEY_HEADER = "x-eventiq-render-key";
+
+async function sha256(value: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
+}
+
+/**
+ * Whether a presented secret is the expected one.
+ *
+ * Both sides are digested first and the digests compared, rather than comparing
+ * the strings: `equal` returns early when two arrays are different lengths,
+ * which is harmless for a signature of known size and is a length oracle for a
+ * key somebody is guessing. Every comparison here is over 32 bytes.
+ *
+ * **A missing expectation matches nothing.** No default, no empty-string
+ * shortcut, and the caller cannot pass one in by accident — otherwise the one
+ * deployment that forgot to set the secret is the one open to everybody, and it
+ * would look exactly like a working deployment until somebody probed it.
+ */
+export async function secretMatches(
+  presented: string | null | undefined,
+  expected: string | null | undefined,
+): Promise<boolean> {
+  if (!presented || !expected) return false;
+  const [a, b] = await Promise.all([sha256(presented), sha256(expected)]);
+  return equal(a, b);
 }
 
 async function hmacKey(secret: string): Promise<CryptoKey> {

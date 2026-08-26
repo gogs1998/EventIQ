@@ -5,6 +5,13 @@
 #   openssl rand -base64 48
 SESSION_SECRET=local-development-only-not-a-real-secret
 
+# RENDER_KEY is what the mp4 renderer presents to reach /render/[slug]/[bout],
+# which has to serve a card before it is published and so cannot go behind the
+# publish check. Without it that page refuses everybody who is not the signed-in
+# promoter who owns the show, and `npm run render` stops working. Both the dev
+# server and scripts/render-tape.mjs read it from this file.
+RENDER_KEY=local-development-only-not-a-real-render-key
+
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.
 SEED_PROMOTER_PASSWORD=letmein

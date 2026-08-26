@@ -19,6 +19,13 @@ declare global {
     IMPORT_LOOKUPS: RateLimit;
     /** Signs the promoter's login cookie. Set with `wrangler secret put`. */
     SESSION_SECRET: string;
+    /**
+     * What the mp4 renderer presents instead of a session, to reach the capture
+     * page for a card that is not published yet. Optional in the type because an
+     * unset one has to mean deny: the route refuses everybody without a promoter
+     * session rather than falling open. See lib/visibility.ts.
+     */
+    RENDER_KEY?: string;
   }
 }
 

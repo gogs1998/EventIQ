@@ -165,6 +165,33 @@ const target = await step("the chase list carries a working invite link", async 
 });
 const invite = target?.invite;
 
+/**
+ * The capture page the mp4 renderer screenshots carries the event, the venue,
+ * the date and both fighters, and it cannot go behind the publish check because
+ * rendering a card before it is published is the point of it. It takes a key of
+ * its own instead, so a stranger gets the same 404 as for a slug that does not
+ * exist. A fresh browser context is a caller with no cookie.
+ */
+await step("the render page is shut to a stranger", async () => {
+  const context = await browser.createBrowserContext();
+  try {
+    const stranger = await context.newPage();
+    const response = await stranger.goto(`${BASE}/render/${slug}/1`, {
+      waitUntil: "domcontentloaded",
+    });
+    if (response.status() !== 404) throw new Error(`got ${response.status()}, wanted 404`);
+  } finally {
+    await context.close();
+  }
+});
+
+await step("the promoter can open their own render page", async () => {
+  const response = await page.goto(`${BASE}/render/${slug}/1`, {
+    waitUntil: "domcontentloaded",
+  });
+  if (response.status() !== 200) throw new Error(`got ${response.status()}, wanted 200`);
+});
+
 await step("the card editor lists the running order", async () => {
   await page.goto(`${BASE}/promoter/e/${slug}/card`, { waitUntil: "networkidle0" });
   const body = await textOf(page);

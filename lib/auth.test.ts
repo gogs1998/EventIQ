@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   ABSENT_PROMOTER_HASH,
+  RENDER_KEY_HEADER,
   hashPassword,
   newToken,
   readSession,
+  secretMatches,
   signSession,
   verifyPassword,
 } from "@/lib/auth";
@@ -59,6 +61,37 @@ describe("passwords", () => {
     // would return early and time the absence of a promoter for the caller.
     expect(await verifyPassword("anything", ABSENT_PROMOTER_HASH)).toBe(false);
     expect(ABSENT_PROMOTER_HASH.split(":")).toHaveLength(3);
+  });
+});
+
+describe("secretMatches", () => {
+  it("accepts the right value and refuses a wrong one", async () => {
+    expect(await secretMatches("the-render-key", "the-render-key")).toBe(true);
+    expect(await secretMatches("the-render-Key", "the-render-key")).toBe(false);
+    expect(await secretMatches("the-render-key-", "the-render-key")).toBe(false);
+  });
+
+  /**
+   * The one that matters. A deployment that has not had `wrangler secret put`
+   * run on it must refuse everybody, not accept anybody — and the caller must
+   * not be able to satisfy the check by presenting the same nothing back.
+   */
+  it("refuses everything when there is no secret to match", async () => {
+    expect(await secretMatches("anything", undefined)).toBe(false);
+    expect(await secretMatches("anything", null)).toBe(false);
+    expect(await secretMatches("anything", "")).toBe(false);
+    expect(await secretMatches(undefined, undefined)).toBe(false);
+    expect(await secretMatches("", "")).toBe(false);
+  });
+
+  it("treats an absent presented value as a refusal", async () => {
+    expect(await secretMatches(undefined, "the-render-key")).toBe(false);
+    expect(await secretMatches(null, "the-render-key")).toBe(false);
+    expect(await secretMatches("", "the-render-key")).toBe(false);
+  });
+
+  it("names the header in lower case, because that is how headers arrive", () => {
+    expect(RENDER_KEY_HEADER).toBe(RENDER_KEY_HEADER.toLowerCase());
   });
 });
 

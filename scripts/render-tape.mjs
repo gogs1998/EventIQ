@@ -6,7 +6,8 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --still 300
  *
  * Needs the app running at --base (npm run dev, or `npm run preview`, or the
- * deployed site).
+ * deployed site) and RENDER_KEY, which is what the capture page accepts instead
+ * of a promoter session. See DEPLOY.md.
  *
  * This is the one part of EventIQ that cannot run on Cloudflare. Headless Chrome
  * and ffmpeg are both far outside what a Worker can do, so rendering is an
@@ -29,6 +30,7 @@ import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
+import { devVars } from "./dev-vars.mjs";
 
 const CHROME =
   process.env.CHROME_PATH ??
@@ -39,6 +41,23 @@ const HEIGHT = 1920;
 const FPS = 30;
 const DATABASE = "eventiq";
 const BUCKET = "eventiq-media";
+
+/**
+ * The credential for the capture page.
+ *
+ * That page has to serve a card before it is published, which is exactly what
+ * the publish check exists to prevent, so it takes a key of its own instead. The
+ * header name is duplicated from RENDER_KEY_HEADER in lib/auth.ts because this
+ * script is plain Node and cannot import a TypeScript module; if the two ever
+ * drift, `openBout` throws on the first response rather than quietly capturing
+ * 480 frames of a 404 page.
+ *
+ * Read from the shell first and .dev.vars second, so a local `wrangler dev` or
+ * `next dev` needs nothing exported: both the Worker and this script take the
+ * value out of the same file.
+ */
+const RENDER_KEY_HEADER = "x-eventiq-render-key";
+const renderKey = process.env.RENDER_KEY || devVars().RENDER_KEY;
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -149,6 +168,15 @@ async function markJob(eventId, boutNumber, fields) {
 // --------------------------------------------------------------- capturing
 
 async function withPage(fn) {
+  if (!renderKey) {
+    throw new Error(
+      "RENDER_KEY is not set, so the capture page will refuse this render.\n" +
+        "  Local:  add RENDER_KEY to .dev.vars (the same file the dev server reads).\n" +
+        "  Remote: export RENDER_KEY to the value held by `wrangler secret put RENDER_KEY`.\n" +
+        "See DEPLOY.md, Video rendering.",
+    );
+  }
+
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: true,
@@ -165,6 +193,9 @@ async function withPage(fn) {
   });
   try {
     const page = await browser.newPage();
+    // Set on the page rather than per navigation, so every request the capture
+    // page makes of us carries it.
+    await page.setExtraHTTPHeaders({ [RENDER_KEY_HEADER]: renderKey });
     page.on("pageerror", (err) => console.error("  page error:", err.message));
     return await fn(page);
   } finally {
@@ -173,10 +204,20 @@ async function withPage(fn) {
 }
 
 async function openBout(page, bout) {
-  await page.goto(`${base}/render/${slug}/${bout}`, {
-    waitUntil: "networkidle0",
-    timeout: 120_000,
-  });
+  const url = `${base}/render/${slug}/${bout}`;
+  const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 120_000 });
+
+  // A refused render key comes back as 404, deliberately — the page will not say
+  // whether the show exists. Checking the status here turns that into one clear
+  // line instead of a two-minute wait for window.__ready that never arrives.
+  if (response && !response.ok()) {
+    throw new Error(
+      `${url} answered ${response.status()}. If the show and bout are right, the ` +
+        "render key is wrong: this script's RENDER_KEY must match the one the " +
+        "server has. See DEPLOY.md, Video rendering.",
+    );
+  }
+
   await page.waitForFunction(() => window.__ready === true, { timeout: 120_000 });
   return page.evaluate(() => window.__duration ?? 480);
 }
