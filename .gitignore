@@ -1,0 +1,69 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Raw generated artwork and intermediate files. Only the optimised output in
+# public/ is committed; see scripts/prepare-assets.mjs.
+/assets-src/
+/.asset-tmp/
+/.stills/
+
+# Rendered mp4s. They belong in R2 now, not in the repository; the five under
+# public/renders/ predate the bucket and are kept so the demo card still plays.
+/.renders/
+
+# Cloudflare
+/.open-next/
+/.wrangler/
+
+# Local secrets for `next dev` and `wrangler dev`. Real values live in
+# `wrangler secret put`; see DEPLOY.md.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Generated at seed time rather than committed, because it contains live invite
+# tokens and those are the only thing protecting a fighter's profile.
+/db/seed.sql
+
+# 580KB of generated runtime declarations. env.d.ts declares the bindings by
+# hand instead; regenerate this only when debugging a binding type.
+cloudflare-env.d.ts

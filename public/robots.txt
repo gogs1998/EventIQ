@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# The capture surface the video exporter screenshots. Not a page for people.
+Disallow: /render/
+
+Sitemap: https://eventiq.win/sitemap.xml

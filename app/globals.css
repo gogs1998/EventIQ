@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #07080a;
+  --color-ink-2: #0d0f13;
+  --color-panel: #12151b;
+  --color-panel-2: #191d25;
+  --color-chalk: #f4f5f7;
+  --color-ash: #9aa1ad;
+  --color-ash-dim: #5d646f;
+  --color-hairline: rgba(255, 255, 255, 0.09);
+
+  --color-red-corner: #e8121f;
+  --color-red-corner-hot: #ff3341;
+  --color-blue-corner: #1668f0;
+  --color-blue-corner-hot: #3a8dff;
+  --color-gold: #f0c04a;
+
+  --font-display: var(--font-anton), "Arial Narrow", sans-serif;
+  --font-sans: var(--font-oswald), "Helvetica Neue", sans-serif;
+  --font-mono: var(--font-mono-meta), ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-ink);
+    color: var(--color-chalk);
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--color-ink);
+  }
+
+  /* Stats must never reflow while a counter is ticking. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+}
+
+@utility label {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.625rem;
+  color: var(--color-ash);
+}
+
+/* Film grain. Fixed and pointer-transparent so it sits over the whole page
+   without affecting layout or interaction. */
+@utility grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@utility edge-fade-b {
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
+@keyframes slam-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(1.06);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes rise-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(320%) skewX(-18deg);
+  }
+}
+
+@utility anim-slam {
+  animation: slam-in 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@utility anim-rise {
+  animation: rise-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-slam,
+  .anim-rise {
+    animation: none;
+  }
+}
+
+/* The table card is designed to be printed on A5 and stood on a table. Solid
+   black would be miserable to print a hundred of, so it inverts on paper. */
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .grain {
+    display: none !important;
+  }
+}

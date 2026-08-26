@@ -1,0 +1,383 @@
+import Link from "next/link";
+import { DemoReel } from "@/components/DemoReel";
+import { ScreenGallery } from "@/components/ScreenGallery";
+import { TapePlayer } from "@/components/sequence/TapePlayer";
+import { cardCompleteness, featuredBout } from "@/lib/card";
+import { chaseNote, programmeLinkNote, sponsorNote, tapeForEveryBout } from "@/lib/copy";
+import { getDb } from "@/lib/db";
+import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
+import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
+import { formatEventDateShort } from "@/lib/tape";
+
+const steps = [
+  {
+    n: "01",
+    title: "Send us the running order",
+    body: "The same sheet you send the printer. Bouts, weights, gyms, corners. We build the programme from it.",
+  },
+  {
+    n: "02",
+    title: "Every fighter gets one link",
+    body: "No app, no account, no password. It goes out on WhatsApp and it opens straight onto their own form on their phone.",
+  },
+  {
+    n: "03",
+    title: "Why they fill it in",
+    body: "Because it puts their photo, their Instagram and their sponsors in front of the whole room, and because they get a broadcast video of their own tale of the tape to post. If they are already on Sherdog or Tapology they paste the link and their record fills itself in.",
+  },
+  {
+    n: "04",
+    title: "One code on the tables",
+    body: "Everyone scans. Nothing goes to print, so the card can still change an hour before doors.",
+  },
+];
+
+/** Timings read off the recording itself, not off the tour script. */
+const reel = [
+  { at: "0:00", what: "The code that goes on the table" },
+  { at: "0:04", what: "The running order, down through all fifteen bouts" },
+  { at: "0:20", what: "One bout opened out into the tale of the tape" },
+  { at: "0:24", what: "The video for it, start to finish" },
+  { at: "0:48", what: "The fighters' own words, and the bout sponsor" },
+  { at: "0:52", what: "The form a fighter gets sent, filled in as you watch" },
+];
+
+const audiences = [
+  {
+    who: "The spectator in row four",
+    gets: "A reason to care about bout four, and a story to put to the name of whoever is walking out.",
+  },
+  {
+    who: "The fighter",
+    gets: "A profile, a record, a photo, their gym credited, their Instagram one tap away, their sponsors seen, and a video of their own walkout card.",
+  },
+  {
+    who: "You",
+    gets: "A show that looks like a professional operation, and sponsor slots you can price properly.",
+  },
+];
+
+/**
+ * Every figure below is counted at request time, so prerendering this would
+ * freeze them at whatever they were when the Worker was last deployed. A page
+ * whose whole argument is "these numbers are real" cannot be a snapshot.
+ */
+export const dynamic = "force-dynamic";
+
+/**
+ * The pitch page runs on whatever show is currently published, not on a fixture.
+ *
+ * Every number in the prose below is counted from that card. It is the same data
+ * the programme and the dashboard read, so the sales copy cannot quietly drift
+ * away from what a promoter sees when they click through — which is exactly the
+ * kind of thing that gets noticed in a meeting.
+ */
+export default async function PitchPage() {
+  const db = await getDb();
+  const card = await loadShowcase(db);
+  if (!card) return <NothingPublished />;
+
+  const { event } = card;
+  const invites = await loadInvites(db, card.eventId);
+  const renders = await loadRenders(db, card.eventId);
+  const main = featuredBout(card);
+  const { score, done, total } = cardCompleteness(card, DONE_AT);
+  const outstanding = chaseList(card, invites).length;
+  const inventory = sponsorInventory(card);
+  const days = daysUntilShow(event.date);
+
+  return (
+    <main className="w-full">
+      {/* ------------------------------------------------------------ hero */}
+      <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
+        <h1 className="display anim-slam text-5xl leading-[0.9] sm:text-6xl">
+          Every fighter&rsquo;s story, one tap away.
+        </h1>
+        <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
+          One code on the table puts the whole card on every phone in the building: every
+          fighter&rsquo;s record, photo and story, {tapeForEveryBout(event.bouts.length)},
+          and a broadcast video for the ones that matter. The room knows exactly who is
+          walking out.
+        </p>
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link
+            href={`/e/${event.slug}`}
+            className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
+          >
+            Open the programme
+          </Link>
+          <Link
+            href="/f/demo"
+            className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+          >
+            See what a fighter gets
+          </Link>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- the video */}
+      {/* A show that has been published before its running order was entered has
+          no main event to play, so the section comes out rather than framing an
+          empty player with the argument for one beside it. */}
+      {main ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
+            <div>
+              <TapePlayer card={card} bout={main} mp4={renders[main.number]} />
+            </div>
+            <div>
+              <span className="label">Every bout becomes this</span>
+              <h2 className="display mt-4 text-4xl leading-none">
+                Sixteen seconds that make a debutant look like a main event
+              </h2>
+              <p className="text-ash mt-5 text-sm leading-relaxed">
+                Built from one photograph and a filled-in form. No film crew, no editor, no
+                graphics package. We cut the fighter out of their photo so they move
+                independently of the background, then the stats count up over the top.
+              </p>
+              <p className="text-ash mt-4 text-sm leading-relaxed">
+                It plays in the programme, and it downloads as a vertical video the fighter
+                posts to their own following. Your event and your sponsors travel with it.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {/* ------------------------------------------------------------- steps */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <h2 className="display text-3xl">How it runs</h2>
+          <div className="mt-8 grid gap-8 sm:grid-cols-2">
+            {steps.map((step) => (
+              <div key={step.n} className="border-hairline border-t pt-4">
+                <span className="display text-ash-dim text-3xl">{step.n}</span>
+                <h3 className="display text-chalk mt-2 text-xl">{step.title}</h3>
+                <p className="text-ash mt-2 text-sm leading-relaxed">{step.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- the reel */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[1fr_minmax(0,340px)] lg:items-center">
+          <div className="lg:order-1">
+            <span className="label">End to end</span>
+            <h2 className="display mt-4 text-4xl leading-none">
+              The whole product, end to end
+            </h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">
+              Recorded off the demo as it stands, on a phone-shaped screen. The card on
+              the table, the running order, a bout opening into the tape, the video, and
+              the form a fighter gets sent. No narration and no sound.
+            </p>
+            <p className="text-ash mt-4 text-sm leading-relaxed">
+              This is the version to forward on WhatsApp, which is where most of these
+              conversations happen.
+            </p>
+
+            <dl className="border-hairline mt-8 divide-y divide-white/5 border-t">
+              {reel.map((chapter) => (
+                <div key={chapter.at} className="flex gap-4 py-2.5">
+                  <dt className="tnum text-ash-dim w-12 shrink-0 font-mono text-[0.65rem] tracking-wider">
+                    {chapter.at}
+                  </dt>
+                  <dd className="text-ash text-sm leading-tight">{chapter.what}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="lg:order-2">
+            <DemoReel
+              src="/demo/eventiq-demo.mp4"
+              poster="/demo/eventiq-demo-poster.webp"
+              seconds={76}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- gallery */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <span className="label">Every screen in it</span>
+          <h2 className="display mt-4 text-3xl">What it looks like</h2>
+          <p className="text-ash mt-4 max-w-2xl text-sm leading-relaxed">
+            Screenshots of the working demo, not mockups. Tap any of them to open the
+            real page.
+          </p>
+          <div className="mt-8">
+            <ScreenGallery />
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- promoter */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-3xl px-5 py-14">
+          <span className="label">Your side of it</span>
+          <h2 className="display mt-4 text-4xl leading-none">
+            {days} days out, you know exactly who has not sent theirs
+          </h2>
+          <p className="text-ash mt-5 text-sm leading-relaxed">
+            The same card from where you sit. {chaseNote(outstanding, total)}
+          </p>
+          <p className="text-ash mt-4 text-sm leading-relaxed">
+            Your sponsor sheet sits alongside it:{" "}
+            {sponsorNote(inventory.sold.length, event.bouts.length)}. Those are slots you
+            are already selling, now in one place, with a report to send the sponsor
+            afterwards.
+          </p>
+          <Link
+            href="/promoter"
+            className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+          >
+            Open the promoter view
+          </Link>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- sponsors */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-3xl px-5 py-14">
+          <span className="label">The bit that pays for it</span>
+          <h2 className="display mt-4 text-4xl leading-none">
+            A bout sponsor gets the whole bout
+          </h2>
+          <p className="text-ash mt-5 text-sm leading-relaxed">
+            Their name sits on that fight in the programme, and they close out the video
+            for it — the one the fighter posts to their own following the week of the
+            show. That is a thing you can put a real number against, and they are the
+            same slots you are already selling.
+          </p>
+          <p className="text-ash mt-4 text-sm leading-relaxed">
+            Your house sponsors sit on the programme itself, in front of every spectator
+            who scans the code.
+          </p>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- audiences */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <h2 className="display text-3xl">Who it is for</h2>
+          <dl className="mt-8 grid gap-6 sm:grid-cols-3">
+            {audiences.map((a) => (
+              <div key={a.who} className="border-hairline border-t pt-4">
+                <dt className="display text-chalk text-lg">{a.who}</dt>
+                <dd className="text-ash mt-2 text-sm leading-relaxed">{a.gets}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------- honest note */}
+      {/* The whole section is about the unevenness of a card, so on a card with
+          nothing on it there is nothing to be honest about and it comes out —
+          the same treatment the video section gets above, and for the same
+          reason. */}
+      {event.bouts.length ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto max-w-3xl px-5 py-14">
+            <span className="label">About the demo card</span>
+            <h2 className="display mt-4 text-3xl leading-none">
+              The demo card is deliberately uneven
+            </h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">
+              The demo runs on {event.name}, an invented show with {event.bouts.length}{" "}
+              bouts. {done} of the {total} fighters have finished their profile, which is
+              about {score}% of the card between them — roughly where a real show sits two
+              weeks out.
+            </p>
+            <p className="text-ash mt-4 text-sm leading-relaxed">
+              Scroll to the bottom of the running order and the openers carry a name and a
+              gym and nothing else. The top of the bill is what it looks like when fighters
+              send their details in. Closing the gap between those two is what the
+              fighter&rsquo;s form is built to do.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {/* --------------------------------------------------------------- try */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <h2 className="display text-3xl">Have a look</h2>
+          <div className="mt-8 grid gap-3">
+            {[
+              {
+                href: `/e/${event.slug}`,
+                title: "The programme",
+                body: `${event.name}, ${formatEventDateShort(event.date)}. ${programmeLinkNote(event.bouts.length)}`,
+              },
+              {
+                href: "/f/demo",
+                title: "The fighter's form",
+                body: "What lands in a fighter's hand. Watch their card build as they type.",
+              },
+              {
+                href: "/promoter",
+                title: "The promoter's view",
+                body: "Who to chase, which bouts are ready, which sponsor slots are unsold.",
+              },
+              {
+                href: `/e/${event.slug}/qr`,
+                title: "The table card",
+                body: "The printable QR that goes on the tables and the doors.",
+              },
+            ].map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="border-hairline hover:border-chalk/40 group flex items-center justify-between gap-4 border px-5 py-4 transition-colors"
+              >
+                <div>
+                  <div className="display text-chalk text-xl">{link.title}</div>
+                  <div className="text-ash mt-1 text-sm">{link.body}</div>
+                </div>
+                <span className="text-ash-dim group-hover:text-chalk shrink-0 text-2xl transition-colors">
+                  →
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-hairline text-ash-dim border-t px-5 py-10 text-xs">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
+          <span className="label">EventIQ</span>
+          <span>
+            Every fighter, gym and sponsor on the {event.name} card is invented.
+          </span>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+/**
+ * What a fresh database looks like. Says so plainly rather than rendering a
+ * pitch with holes where the numbers should be.
+ */
+function NothingPublished() {
+  return (
+    <main className="mx-auto w-full max-w-3xl px-5 py-24">
+      <h1 className="display text-5xl leading-[0.9]">Digital programmes for fight shows</h1>
+      <p className="text-ash mt-6 text-base leading-relaxed">
+        There is no published show on this instance yet. Sign in and publish one, or seed
+        the demo card with <code className="text-chalk">npm run db:reset</code>.
+      </p>
+      <Link
+        href="/promoter"
+        className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+      >
+        Promoter sign in
+      </Link>
+    </main>
+  );
+}
