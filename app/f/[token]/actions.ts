@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
-import { getDb, getMedia } from "@/lib/db";
+import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
-import { num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
+import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
 
 /**
  * Everything a fighter can do with their invite.
@@ -58,37 +59,81 @@ function columnsFrom(draft: Draft) {
   };
 }
 
+/**
+ * Saves a draft, all of it or none of it.
+ *
+ * Sponsors are a join table, so they are replaced wholesale: there are at most a
+ * handful and working out a diff would be more code than it saves. Written as
+ * separate statements that meant a payload naming a sponsor that does not exist
+ * deleted the fighter's real sponsors, then failed the foreign key on the insert,
+ * and left the profile saved with an empty sponsor row. So the whole save is one
+ * db.batch, which D1 runs as a single transaction, and the ids are checked
+ * against the promoter's own book before any of it is written.
+ */
 export async function saveDraft(token: string, input: unknown): Promise<{ savedAt: number }> {
-  const { db, invite, fighter } = await inviteOr404(token);
+  const { db, invite, fighter, event } = await inviteOr404(token);
   const draft = sanitiseDraft(input);
+  const sponsorIds = await claimableSponsors(db, event.promoterId, draft.sponsorIds);
 
-  await db.update(schema.fighters).set(columnsFrom(draft)).where(eq(schema.fighters.id, fighter.id));
+  const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.update(schema.fighters).set(columnsFrom(draft)).where(eq(schema.fighters.id, fighter.id)),
+    db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id)),
+  ];
 
-  // Sponsors are a join table, so they are replaced wholesale. There are at most
-  // a handful and working out a diff would be more code than it saves.
-  await db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id));
-  if (draft.sponsorIds.length) {
-    await db
-      .insert(schema.fighterSponsors)
-      .values(
-        draft.sponsorIds.map((sponsorId, position) => ({
+  if (sponsorIds.length) {
+    writes.push(
+      db.insert(schema.fighterSponsors).values(
+        sponsorIds.map((sponsorId, position) => ({
           fighterId: fighter.id,
           sponsorId,
           position,
         })),
-      );
+      ),
+    );
   }
 
   // A submitted profile that is edited again stays submitted. Reopening it to
   // change a walkout song does not put the fighter back on the chase list.
   if (!invite.lastOpenedAt) {
-    await db
-      .update(schema.invites)
-      .set({ lastOpenedAt: Date.now() })
-      .where(eq(schema.invites.id, invite.id));
+    writes.push(
+      db
+        .update(schema.invites)
+        .set({ lastOpenedAt: Date.now() })
+        .where(eq(schema.invites.id, invite.id)),
+    );
   }
 
+  await db.batch(writes);
+
   return { savedAt: Date.now() };
+}
+
+/**
+ * Which of the requested sponsor ids the fighter is entitled to place.
+ *
+ * Rows that exist and belong to the promoter running this show, which is the
+ * same set the questionnaire offers. Checking it here rather than letting the
+ * foreign key do it is what turns an impossible payload into nothing happening
+ * instead of into a half-written profile.
+ */
+async function claimableSponsors(
+  db: Db,
+  promoterId: string,
+  requested: string[],
+): Promise<string[]> {
+  if (!requested.length) return [];
+
+  const rows = await db
+    .select({ id: schema.sponsors.id })
+    .from(schema.sponsors)
+    .where(
+      and(eq(schema.sponsors.promoterId, promoterId), inArray(schema.sponsors.id, requested)),
+    );
+
+  return allowedSponsorIds(
+    requested,
+    rows.map((row) => row.id),
+  );
 }
 
 export async function submitProfile(token: string, input: unknown): Promise<void> {

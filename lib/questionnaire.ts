@@ -146,6 +146,24 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
 }
 
 /**
+ * The sponsors a fighter may actually claim, in the order they picked them.
+ *
+ * sanitiseDraft cannot do this on its own: it has no idea which sponsors exist,
+ * so anything the browser sent used to go straight at the join table and be
+ * refused by the foreign key. That refusal was the problem rather than the
+ * protection, because it arrived after the rest of the profile had saved and
+ * after the fighter's existing sponsors had been deleted.
+ *
+ * Duplicates come out as well as unknowns, since the join table is keyed on the
+ * pair and a repeated id would fail the insert for a payload that is merely
+ * clumsy rather than hostile.
+ */
+export function allowedSponsorIds(requested: string[], allowed: Iterable<string>): string[] {
+  const exists = new Set(allowed);
+  return [...new Set(requested)].filter((id) => exists.has(id));
+}
+
+/**
  * Trusting nothing from the browser. Lengths are capped so a paste of a novel
  * into the story box cannot fill the database, and the numbers are clamped to
  * ranges a human being can actually be: an eleven-foot fighter on the card is a

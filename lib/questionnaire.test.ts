@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { draftFromFighter, fighterFromDraft, EMPTY_DRAFT, sanitiseDraft } from "@/lib/questionnaire";
+import {
+  allowedSponsorIds,
+  draftFromFighter,
+  fighterFromDraft,
+  EMPTY_DRAFT,
+  sanitiseDraft,
+} from "@/lib/questionnaire";
 import { isDebut } from "@/lib/tape";
 import type { Fighter } from "@/lib/types";
 
@@ -82,5 +88,37 @@ describe("sanitiseDraft", () => {
   it("copes with a body that is not a draft at all", () => {
     expect(sanitiseDraft(null).nickname).toBe("");
     expect(sanitiseDraft({ styleTags: "Boxing" }).styleTags).toEqual([]);
+  });
+});
+
+/**
+ * sanitiseDraft has no idea which sponsors exist, so a sponsor id it lets
+ * through used to reach the join table and be refused there by the foreign key —
+ * after the fighter's real sponsors had already been deleted. The check moved in
+ * front of the write, and the write became one transaction.
+ */
+describe("allowedSponsorIds", () => {
+  const book = ["sp_mouthguards", "sp_fightiq", "sp_eventiq"];
+
+  it("keeps the order the fighter picked them in, because the order was sold", () => {
+    expect(allowedSponsorIds(["sp_eventiq", "sp_mouthguards"], book)).toEqual([
+      "sp_eventiq",
+      "sp_mouthguards",
+    ]);
+  });
+
+  it("drops a sponsor that is not in this promoter's book", () => {
+    expect(allowedSponsorIds(["sp_mouthguards", "sp_somebody-elses"], book)).toEqual([
+      "sp_mouthguards",
+    ]);
+    expect(allowedSponsorIds(["sp_nothing"], book)).toEqual([]);
+  });
+
+  it("drops a repeat, which the join table's key would refuse", () => {
+    expect(allowedSponsorIds(["sp_fightiq", "sp_fightiq"], book)).toEqual(["sp_fightiq"]);
+  });
+
+  it("has nothing to allow where there is no book yet", () => {
+    expect(allowedSponsorIds(["sp_fightiq"], [])).toEqual([]);
   });
 });
