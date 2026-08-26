@@ -21,6 +21,45 @@ import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
 
 const DAY = 86_400_000;
 
+/**
+ * How far out the demo show sits when it is seeded.
+ *
+ * A fortnight is the moment the dashboard is worth looking at: the invites have
+ * been out long enough for the pattern of who has answered to mean something,
+ * and there is still time to do anything about it. The chase list is the pitch,
+ * and a chase list for a show eighty days away is a to-do list nobody is going
+ * to open.
+ */
+export const SHOW_LEAD_DAYS = 14;
+
+/**
+ * The demo show's date, a fortnight or so after it is seeded.
+ *
+ * It used to be a literal in the fixture, and the dashboard used to pin the
+ * clock to match it. Pinning the clock had to go once the database held real
+ * shows — a promoter cannot be shown a date that is not today. But taking the
+ * pin out left the demo card announcing eighty days to go, which reads as a
+ * product with nothing to say.
+ *
+ * Moving the show instead is the honest version of the same thing: the seeded
+ * card is genuinely imminent rather than pretending to be, and every real event
+ * keeps its own date and the real clock. The trade is that it ages — a demo
+ * seeded and left alone drifts past its own show date — so re-seeding is what
+ * brings it back, which is the same command that already refreshes the invite
+ * timestamps sitting beside it.
+ *
+ * Snapped to the nearest Saturday, because that is when a fight card runs, and a
+ * demo card billed for a Tuesday is the sort of detail a promoter notices.
+ */
+export function showDateFor(now: number): string {
+  const target = new Date(now + SHOW_LEAD_DAYS * DAY);
+  // Saturday is 6. Nearest rather than next, so the lead time stays near a
+  // fortnight in both directions instead of stretching towards three weeks.
+  const drift = ((6 - target.getUTCDay() + 10) % 7) - 3;
+  target.setUTCDate(target.getUTCDate() + drift);
+  return target.toISOString().slice(0, 10);
+}
+
 /** SQL string literal. Everything here comes from our own fixture, but a seed
  * script that concatenates unescaped text is a habit worth not forming. */
 function lit(value: string | number | boolean | null | undefined): string {
@@ -196,7 +235,10 @@ export function buildSeed({
       slug: event.slug,
       name: event.name,
       tagline: event.tagline,
-      date: event.date,
+      // Not the fixture's date. See showDateFor: the seeded demo show is dated
+      // from when it was seeded so it presents as imminent, which is the only
+      // state in which the dashboard argues for itself.
+      date: showDateFor(now),
       doors_time: event.doorsTime,
       first_bell_time: event.firstBellTime,
       venue: event.venue,

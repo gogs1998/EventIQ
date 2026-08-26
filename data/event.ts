@@ -408,6 +408,9 @@ export const event: FightEvent = {
   slug: "cage-county-12",
   name: "Cage County 12",
   tagline: "Reeves vs Osei",
+  // A Saturday, and the one the tests count from. The seed does not use it: it
+  // dates the show a fortnight after whenever it runs, so the demo card is
+  // imminent rather than historic. See showDateFor in lib/seed.ts.
   date: "2026-11-14",
   doorsTime: "18:00",
   firstBellTime: "19:00",

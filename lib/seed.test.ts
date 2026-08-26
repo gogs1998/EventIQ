@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
-import { buildSeed, seedInviteFor } from "@/lib/seed";
+import { daysUntilShow } from "@/lib/promoter";
+import { buildSeed, seedInviteFor, showDateFor } from "@/lib/seed";
 
 const seed = () =>
   buildSeed({
@@ -81,6 +82,32 @@ describe("buildSeed", () => {
       .find((statement) => statement.startsWith("INSERT INTO fighters") && statement.includes(`'${blank!.id}'`));
     expect(line).toBeDefined();
     expect(line).toMatch(/NULL, NULL, NULL/);
+  });
+});
+
+describe("showDateFor", () => {
+  // A fortnight of seed days, so the answer is checked from every weekday rather
+  // than from whichever one the suite happens to run on.
+  const seedDays = Array.from({ length: 14 }, (_, i) => Date.UTC(2026, 7, 26) + i * 86_400_000);
+
+  it("puts the demo show close enough to sell the chase list", () => {
+    for (const now of seedDays) {
+      const days = daysUntilShow(showDateFor(now), new Date(now));
+      expect(days).toBeGreaterThanOrEqual(11);
+      expect(days).toBeLessThanOrEqual(17);
+    }
+  });
+
+  it("runs the card on a Saturday, like a fight card", () => {
+    for (const now of seedDays) {
+      expect(new Date(`${showDateFor(now)}T00:00:00Z`).getUTCDay()).toBe(6);
+    }
+  });
+
+  it("dates the seeded event from the seed rather than from the fixture", () => {
+    const { sql } = seed();
+    expect(sql).toContain(`'${showDateFor(1_700_000_000_000)}'`);
+    expect(sql).not.toContain(`'${event.date}'`);
   });
 });
 
