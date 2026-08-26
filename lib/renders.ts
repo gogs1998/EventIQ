@@ -1,13 +1,26 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
+/**
+ * Where a bout's rendered video lives.
+ *
+ * Rendering happens outside Workers — see scripts/render-tape.mjs and section 4
+ * of the handover — so nothing here produces a video. It only reports what the
+ * renderer has already finished, which is what the render_jobs table records.
+ *
+ * The previous version asked the filesystem whether a file existed. That worked
+ * while this was a static export and cannot work on Workers, where there is no
+ * filesystem to ask.
+ */
 
 /**
- * Which bouts have a pre-rendered mp4 sitting in public/renders.
- *
- * Server-only: this reads the filesystem while the static export is being
- * built, so pages can offer a download without shipping a broken link.
+ * Renders made before there was a bucket are committed under public/ and are
+ * still served as static assets, so a key beginning with a slash is a path and
+ * anything else is an object in the media bucket.
  */
-export function mp4For(boutNumber: number): string | undefined {
-  const rel = `/renders/bout-${boutNumber}.mp4`;
-  return existsSync(path.join(process.cwd(), "public", rel)) ? rel : undefined;
+export function renderUrl(key: string): string {
+  return key.startsWith("/") ? key : `/media/${key}`;
+}
+
+export type Renders = Record<number, string>;
+
+export function mp4For(renders: Renders, boutNumber: number): string | undefined {
+  return renders[boutNumber];
 }
