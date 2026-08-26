@@ -18,7 +18,7 @@ const steps = [
   {
     n: "03",
     title: "They actually fill it in",
-    body: "Because it puts their photo, their Instagram and their sponsors in front of the whole room, and because they get a broadcast video of their own tale of the tape to post.",
+    body: "Because it puts their photo, their Instagram and their sponsors in front of the whole room, and because they get a broadcast video of their own tale of the tape to post. If they are already on Sherdog or Tapology they paste the link and their record fills itself in.",
   },
   {
     n: "04",

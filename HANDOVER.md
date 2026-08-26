@@ -156,6 +156,34 @@ Key functions:
 
 ---
 
+## 7a. Importing a record from Sherdog or Tapology
+
+Idea from the originator: *"they could just send their Sherdog link and autopopulate."* Implemented as a demo in [lib/fighter-import.ts](lib/fighter-import.ts) and wired into section 03 of the questionnaire. The real fetch is stubbed, because parsing HTML needs a server and this is a static export.
+
+### What the research found
+
+- **Sherdog has no public API.** Verified: no `/api/`, no autocomplete, no JSON endpoints, and `/search/results` 404s. Don't waste time probing for one.
+- **Scraping a profile is straightforward.** `/fighter/Name-ID` returns fully-rendered HTML with `itemprop` microdata intact and does not trip a bot challenge. It carries nickname, DOB, age, nationality, height, weight, weight class, association/team, and the win/loss/draw record broken down by KO/TKO, submission, decision and other. There is a **separate amateur bout table**, which is the one we care about.
+- **Tapology is probably the better primary source for this audience.** It maintains dedicated UK & Ireland *amateur* rankings by weight class with amateur records, whereas Sherdog skews professional. Most fighters on a card like Cage County 12 are more likely to be on Tapology than Sherdog. Support both; do not assume Sherdog is the default.
+- **Smoothcomp** is a competition platform rather than a record database, so it is no use for records. But it is widely used by UK amateur promotions for registrations, which makes it interesting for a *different* reason: that is where the promoter's roster already lives. Importing a whole card from Smoothcomp would beat importing fighters one at a time. Worth investigating as a partnership or integration.
+
+### Design decisions
+
+- **It fills the boring section only, and that is the point.** The form is already ordered fun-first, tape-last. Record, finishes, height, age and gym are almost exactly what these sites carry; sponsors, Instagram, walkout song, story and photo are not. So the import removes precisely the friction that kills completion while leaving intact the fields that create engagement and give a fighter a reason to bother.
+- **Imported values are suggestions, not facts.** Amateur records on both sites go stale. Every imported field is badged with its source and has to be confirmed. Same principle as `isDebut`: never publish a claim about a fighter that we cannot stand behind, because the room knows better than the database.
+- **It only fills blanks.** Anything the fighter already typed wins. Touching a field clears its source badge.
+- **The error path must not dead-end.** Most amateurs have no record page at all, so a bad link says what a good one looks like *and* "no record online? Just fill the boxes in below."
+- **Placement is inside section 03, not at the top of the form.** Leading with "paste your Sherdog link" would lose the flattering opening (nickname, photo) and would exclude the majority who have no page.
+- **URL parsing is strict.** [lib/fighter-import.test.ts](lib/fighter-import.test.ts) covers lookalike domains — `sherdog.com.evil.test` must not match — plus missing scheme, missing `www`, query strings, and right-site-wrong-page.
+
+### The bigger prize: the promoter does it
+
+The most valuable version of this is not the fighter pasting their own link, it is **the promoter pasting links for the fighters who never reply**. That flips the failure mode: instead of a blank card you get real stats and merely no photo or story. It lets a promoter unilaterally raise the floor on the whole undercard, which is the single biggest weakness of the product as it stands. Build this into the promoter admin when that exists.
+
+### To make it real
+
+Needs a server-side endpoint that fetches the one pasted URL and parses it. Note that fetching a single page, on the fighter's own instruction, at human rate is a far more defensible posture than bulk crawling — worth keeping it that way deliberately, not by accident. Sherdog's `robots.txt` permits crawling, but robots.txt is not a licence: check terms of service before relying on this commercially, and cache aggressively so one fighter's link is fetched once. Have a manual fallback for the majority who are on neither site.
+
 ## 8. Assets
 
 Pipeline: [scripts/prepare-assets.mjs](scripts/prepare-assets.mjs) reads `assets-src/` (gitignored) and writes optimised files to `public/`.
@@ -269,6 +297,7 @@ Roughly in dependency order:
 
 1. **Backend.** Postgres via Prisma (schema was designed in an earlier plan: `Promoter`, `Event`, `Fighter`, `Bout`, `Sponsor`, `Invite`, `RenderJob`). Removing `output: "export"` is the first step. Photo storage moves to S3/R2 behind the existing `uploadFile()` seam concept.
 2. **Real questionnaires.** Magic-link invites keyed on an unguessable token, autosave, resumable. `Invite.lastOpenedAt` is the useful nudge signal — it tells the promoter "he opened it and bailed", which is different from "he never looked".
+2a. **Make the record import real** (section 7a). A server-side endpoint that fetches and parses one pasted Sherdog or Tapology page. Then give the same tool to the promoter, so they can populate the fighters who never reply.
 3. **Fighter profiles that persist across events.** A returning fighter gets "confirm your details", not a blank form. This is the biggest retention hook in the whole idea and it gets stronger with every show.
 4. **Promoter admin.** Create event, bouts and fighters; generate and copy invite links; a completion dashboard driven by the existing `completeness()` and `tapeGapsBehind()`; publish toggle. Mostly plumbing — the logic already exists, it is just not surfaced.
 5. **Async render queue.** A 480-frame capture takes tens of seconds, so it can never block a request. Cache per bout, invalidate when either fighter's data changes.

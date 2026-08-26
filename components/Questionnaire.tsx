@@ -10,6 +10,11 @@ import { event, sponsors as allSponsors } from "@/data/event";
 import { FPS } from "@/lib/anim";
 import { cx } from "@/lib/cx";
 import {
+  type ImportedTape,
+  SOURCE_LABEL,
+  lookupTape,
+} from "@/lib/fighter-import";
+import {
   buildTapeFrom,
   completeness,
   firstName,
@@ -111,15 +116,25 @@ async function downscale(file: File, max = 1000): Promise<string> {
 function Field({
   label,
   hint,
+  from,
   children,
 }: {
   label: string;
   hint?: string;
+  /** Where an imported value came from, shown until the fighter edits it. */
+  from?: string;
   children: React.ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="label">{label}</span>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="label">{label}</span>
+        {from ? (
+          <span className="border-gold/40 text-gold whitespace-nowrap border px-1.5 py-0.5 font-mono text-[0.45rem] uppercase tracking-[0.16em]">
+            From {from}
+          </span>
+        ) : null}
+      </span>
       {hint ? <span className="text-ash-dim mt-1 block text-[0.7rem]">{hint}</span> : null}
       <div className="mt-1.5">{children}</div>
     </label>
@@ -153,17 +168,76 @@ function Section({
 }
 
 type PreviewMode = "card" | "tape";
+type ImportStatus = "idle" | "loading" | "error" | "done";
+
+/** Which import group each form field belongs to, for clearing the badge. */
+const IMPORT_FIELD_OF: Partial<Record<keyof Draft, string>> = {
+  age: "age",
+  heightCm: "height",
+  w: "record",
+  l: "record",
+  d: "record",
+  ko: "finishes",
+  sub: "finishes",
+};
 
 export function Questionnaire() {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitted, setSubmitted] = useState(false);
   const [mode, setMode] = useState<PreviewMode>("card");
   const [frame, setFrame] = useState(SCENES.blue.start + 84);
+  const [importUrl, setImportUrl] = useState("");
+  const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
+  const [imported, setImported] = useState<ImportedTape | null>(null);
+  const [importedKeys, setImportedKeys] = useState<Set<string>>(new Set());
   const previewRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
 
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
+    // Once they touch a field it is theirs, so the import badge comes off.
+    setImportedKeys((keys) => {
+      if (!keys.size) return keys;
+      const next = new Set(keys);
+      next.delete(IMPORT_FIELD_OF[key] ?? "");
+      return next;
+    });
+  };
+
+  const runImport = async () => {
+    setImportStatus("loading");
+    const found = await lookupTape(importUrl);
+
+    if (!found) {
+      setImportStatus("error");
+      setImported(null);
+      return;
+    }
+
+    const filled = new Set<string>();
+    setDraft((d) => {
+      const next = { ...d };
+      // Only fills blanks. Anything they have already answered themselves wins.
+      const put = (key: keyof Draft, value: string | undefined, group: string) => {
+        if (value === undefined || next[key] !== "") return;
+        next[key] = value as never;
+        filled.add(group);
+      };
+
+      put("age", found.age?.toString(), "age");
+      put("heightCm", found.heightCm?.toString(), "height");
+      put("w", found.record?.w.toString(), "record");
+      put("l", found.record?.l.toString(), "record");
+      put("d", found.record?.d.toString(), "record");
+      put("ko", found.finishes?.ko.toString(), "finishes");
+      put("sub", found.finishes?.sub.toString(), "finishes");
+      return next;
+    });
+
+    setImportedKeys(filled);
+    setImported(found);
+    setImportStatus("done");
+  };
 
   const bout = getBout(BOUT_NUMBER)!;
   const opponent = getFighter(bout.redId);
@@ -518,10 +592,69 @@ export function Questionnaire() {
           <Section
             step="03"
             title="The tape"
-            blurb="The boring bit, last on purpose. Guess if you have to, your coach can correct it."
+            blurb="The boring bit, last on purpose. If you're already on Sherdog or Tapology, paste the link and most of it fills itself in."
           >
+            <div className="border-hairline bg-panel/40 border p-4">
+              <div className="label mb-2">Fought before?</div>
+              <p className="text-ash mb-3 text-xs leading-relaxed">
+                Paste your Sherdog or Tapology page and we&rsquo;ll pull your record
+                across so you don&rsquo;t have to type it.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  className={inputClass}
+                  value={importUrl}
+                  onChange={(e) => {
+                    setImportUrl(e.target.value);
+                    if (importStatus !== "idle") setImportStatus("idle");
+                  }}
+                  placeholder="sherdog.com/fighter/Owen-Pryce-123456"
+                  inputMode="url"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => void runImport()}
+                  disabled={importStatus === "loading" || !importUrl.trim()}
+                  className="border-chalk/60 hover:bg-chalk hover:text-ink display shrink-0 border px-5 py-2.5 text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {importStatus === "loading" ? "Looking…" : "Look it up"}
+                </button>
+              </div>
+
+              {importStatus === "error" ? (
+                <p className="text-red-corner-hot mt-3 text-xs leading-relaxed">
+                  That doesn&rsquo;t look like a Sherdog or Tapology fighter page. It
+                  should look like sherdog.com/fighter/Your-Name-12345. No record online?
+                  Just fill the boxes in below.
+                </p>
+              ) : null}
+
+              {importStatus === "done" && imported ? (
+                <div className="border-gold/40 bg-gold/5 mt-3 border p-3">
+                  <p className="text-chalk text-xs leading-relaxed">
+                    Pulled from {SOURCE_LABEL[imported.source]}.{" "}
+                    <span className="text-gold">Check it before you submit</span> —
+                    amateur records on there go out of date, and yours is the version
+                    that goes in front of the room.
+                  </p>
+                  <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                    Still yours to answer:{" "}
+                    {imported.notCovered.join(", ").toLowerCase()}.
+                  </p>
+                </div>
+              ) : null}
+
+              <p className="text-ash-dim mt-3 text-[0.65rem] leading-relaxed">
+                Demo: any valid Sherdog or Tapology link returns sample data.
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Field label="Age">
+              <Field
+                label="Age"
+                from={importedKeys.has("age") && imported ? SOURCE_LABEL[imported.source] : undefined}
+              >
                 <input
                   className={inputClass}
                   inputMode="numeric"
@@ -530,7 +663,14 @@ export function Questionnaire() {
                   placeholder="22"
                 />
               </Field>
-              <Field label="Height cm">
+              <Field
+                label="Height cm"
+                from={
+                  importedKeys.has("height") && imported
+                    ? SOURCE_LABEL[imported.source]
+                    : undefined
+                }
+              >
                 <input
                   className={inputClass}
                   inputMode="numeric"
@@ -577,7 +717,15 @@ export function Questionnaire() {
               </div>
             </Field>
 
-            <Field label="Record" hint="Amateur fights only. Nought and nought is fine, everyone starts there.">
+            <Field
+              label="Record"
+              hint="Amateur fights only. Nought and nought is fine, everyone starts there."
+              from={
+                importedKeys.has("record") && imported
+                  ? SOURCE_LABEL[imported.source]
+                  : undefined
+              }
+            >
               <div className="grid grid-cols-3 gap-3">
                 {(["w", "l", "d"] as const).map((key) => (
                   <div key={key}>
@@ -596,7 +744,14 @@ export function Questionnaire() {
               </div>
             </Field>
 
-            <Field label="Of those wins, how many finished early?">
+            <Field
+              label="Of those wins, how many finished early?"
+              from={
+                importedKeys.has("finishes") && imported
+                  ? SOURCE_LABEL[imported.source]
+                  : undefined
+              }
+            >
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
