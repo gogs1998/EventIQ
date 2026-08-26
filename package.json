@@ -21,6 +21,7 @@
     "db:studio": "wrangler d1 execute eventiq --local --command",
     "assets": "node scripts/prepare-assets.mjs",
     "render": "node scripts/render-tape.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "shots": "node scripts/shots.mjs"
   },
   "dependencies": {

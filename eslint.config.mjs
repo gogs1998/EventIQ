@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Cloudflare build output. Bundled third-party code, and linting it buries
+    // anything we wrote in fifty thousand warnings about minified variables.
+    ".open-next/**",
+    ".wrangler/**",
   ]),
 ]);
 

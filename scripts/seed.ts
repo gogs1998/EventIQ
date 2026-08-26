@@ -22,13 +22,9 @@ import path from "node:path";
 import { event, fighters, sponsors } from "@/data/event";
 import { hashPassword } from "@/lib/auth";
 import { buildSeed } from "@/lib/seed";
+import { devVars } from "./dev-vars.mjs";
 
 const remote = process.argv.includes("--remote");
-
-// The same file wrangler dev and next dev read, so the password this sets is the
-// password the login page will accept. Without this the two drift and the first
-// thing anybody does after seeding fails.
-if (!remote && existsSync(".dev.vars")) process.loadEnvFile(".dev.vars");
 
 /**
  * Development default. Fine for a local database that only ever holds invented
@@ -37,7 +33,13 @@ if (!remote && existsSync(".dev.vars")) process.loadEnvFile(".dev.vars");
  */
 const DEV_PASSWORD = "cagecounty";
 
-const password = process.env.SEED_PROMOTER_PASSWORD ?? (remote ? "" : DEV_PASSWORD);
+// Locally, .dev.vars wins, because that is the file the server reads and a
+// password the server will not accept is worse than useless. Remotely there is
+// no such file and the environment is the only source.
+const password = remote
+  ? (process.env.SEED_PROMOTER_PASSWORD ?? "")
+  : (devVars().SEED_PROMOTER_PASSWORD ?? process.env.SEED_PROMOTER_PASSWORD ?? DEV_PASSWORD);
+
 if (!password) {
   console.error(
     "SEED_PROMOTER_PASSWORD must be set when seeding the remote database.\n" +
@@ -76,6 +78,9 @@ execFileSync(
 const site = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 console.log(`\nSeeded ${event.name}: ${event.bouts.length} bouts, ${inviteLinks.length} invites.`);
 console.log(`Promoter sign in at ${site}/promoter/login as "cage-county".`);
+// Printed for the local database only. It holds invented fighters and the
+// alternative is guessing which of .dev.vars and the shell won.
+if (!remote) console.log(`The password is "${password}".`);
 console.log(`\nA few invite links, for trying the questionnaire:`);
 for (const { fighter, token } of inviteLinks.slice(0, 3)) {
   console.log(`  ${fighter.padEnd(18)} ${site}/f/${token}`);
