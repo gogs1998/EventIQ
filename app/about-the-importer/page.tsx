@@ -17,8 +17,7 @@ export const metadata: Metadata = {
 export default function AboutTheImporterPage() {
   return (
     <main className="mx-auto w-full max-w-2xl px-5 py-16">
-      <span className="label">EventIQ</span>
-      <h1 className="display mt-3 text-4xl">About the record importer</h1>
+      <h1 className="display text-4xl">About the record importer</h1>
 
       <div className="text-ash mt-8 grid gap-5 text-sm leading-relaxed">
         <p>

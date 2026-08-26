@@ -12,8 +12,7 @@ export function LoginForm({ next }: { next: string }) {
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
-      <span className="label">EventIQ</span>
-      <h1 className="display mt-3 text-4xl">Promoter sign in</h1>
+      <h1 className="display text-4xl">Promoter sign in</h1>
       <p className="text-ash mt-3 text-sm leading-relaxed">
         Your card, your chase list and your sponsor sheet.
       </p>

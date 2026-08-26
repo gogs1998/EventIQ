@@ -89,8 +89,7 @@ export default async function PitchPage() {
     <main className="w-full">
       {/* ------------------------------------------------------------ hero */}
       <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
-        <span className="label">EventIQ</span>
-        <h1 className="display anim-slam mt-5 text-5xl leading-[0.9] sm:text-6xl">
+        <h1 className="display anim-slam text-5xl leading-[0.9] sm:text-6xl">
           Every fighter&rsquo;s story, one tap away.
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
