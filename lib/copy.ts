@@ -19,23 +19,17 @@
  * anything takes, or tells a fighter what they have failed to do.
  */
 
-/** The empty version of every "not up yet" sentence, said once. */
-export const RUNNING_ORDER_NOT_UP = "The running order is not up yet.";
-
 /** "15 bouts", "1 bout", or the honest version of neither. */
 export function boutCountLabel(bouts: number): string {
   if (bouts <= 0) return "No bouts yet";
   return `${bouts} ${bouts === 1 ? "bout" : "bouts"}`;
 }
 
-/** Under the running-order heading on the programme. */
-export function runningOrderNote(bouts: number): string {
-  return bouts > 0
-    ? "Main event first. Tap any bout for the tale of the tape."
-    : RUNNING_ORDER_NOT_UP;
-}
-
-/** What the programme says where the running order would be. */
+/**
+ * What the programme says where the running order would be. It replaces the
+ * "tap any bout" line rather than sitting under it, because a count label, a
+ * hint and a panel all saying the card is empty is three sentences for one fact.
+ */
 export const EMPTY_PROGRAMME = {
   heading: "No bouts on this card yet",
   body:
@@ -54,7 +48,9 @@ export function tapeForEveryBout(bouts: number): string {
 
 /** The pitch page's "have a look" link to the programme. */
 export function programmeLinkNote(bouts: number): string {
-  return bouts > 0 ? "Tap any bout for the tale of the tape." : RUNNING_ORDER_NOT_UP;
+  return bouts > 0
+    ? "Tap any bout for the tale of the tape."
+    : "The running order is not up yet.";
 }
 
 /** The pitch page's promoter section: who there is to chase. */

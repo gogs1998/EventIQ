@@ -6,7 +6,6 @@ import {
   boutCountLabel,
   chaseNote,
   programmeLinkNote,
-  runningOrderNote,
   sponsorNote,
   sponsorTapNote,
   tableCardNote,
@@ -26,7 +25,6 @@ import {
  */
 
 const EMPTY_STRINGS = [
-  runningOrderNote(0),
   programmeLinkNote(0),
   tapeForEveryBout(0),
   chaseNote(0, 0),
@@ -88,10 +86,10 @@ describe("boutCountLabel", () => {
   });
 });
 
-describe("runningOrderNote", () => {
+describe("programmeLinkNote", () => {
   it("invites the tap only where there is something to tap", () => {
-    expect(runningOrderNote(15)).toContain("Tap any bout");
-    expect(runningOrderNote(0)).toBe("The running order is not up yet.");
+    expect(programmeLinkNote(15)).toContain("Tap any bout");
+    expect(programmeLinkNote(0)).toBe("The running order is not up yet.");
   });
 });
 

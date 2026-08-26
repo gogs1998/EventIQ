@@ -250,8 +250,8 @@ export default async function PitchPage() {
           <p className="text-ash mt-5 text-sm leading-relaxed">
             Their name sits on that fight in the programme, and they close out the video
             for it — the one the fighter posts to their own following the week of the
-            show. That is a thing you can put a real number against, and it is the same
-            fifteen slots you are already selling.
+            show. That is a thing you can put a real number against, and they are the
+            same slots you are already selling.
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
             Your house sponsors sit on the programme itself, in front of every spectator

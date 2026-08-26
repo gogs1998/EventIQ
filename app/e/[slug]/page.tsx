@@ -5,7 +5,7 @@ import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { boutsTopDown, fighterOf, showSponsors } from "@/lib/card";
-import { EMPTY_PROGRAMME, boutCountLabel, runningOrderNote } from "@/lib/copy";
+import { EMPTY_PROGRAMME, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
 import { formatEventDate, lastName } from "@/lib/tape";
@@ -114,26 +114,28 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
           <span className="label">{boutCountLabel(event.bouts.length)}</span>
         </div>
 
-        <p className="text-ash mb-4 px-2 text-xs leading-relaxed">
-          {runningOrderNote(event.bouts.length)}
-        </p>
-
         {/* A show can be published before its running order is entered, so the
             empty card is a state to write rather than a grid with nothing in it
             under an invitation to tap something. The line about invite links is
             only shown on a draft, which is the one case where the reader is
             certainly the promoter who owns it. */}
         {bouts.length ? (
-          <div className="grid gap-3">
-            {bouts.map((bout) => (
-              <BoutCard
-                key={bout.number}
-                card={card}
-                bout={bout}
-                mp4={renders[bout.number]}
-              />
-            ))}
-          </div>
+          <>
+            <p className="text-ash mb-4 px-2 text-xs leading-relaxed">
+              Main event first. Tap any bout for the tale of the tape.
+            </p>
+
+            <div className="grid gap-3">
+              {bouts.map((bout) => (
+                <BoutCard
+                  key={bout.number}
+                  card={card}
+                  bout={bout}
+                  mp4={renders[bout.number]}
+                />
+              ))}
+            </div>
+          </>
         ) : (
           <div className="border-hairline mx-2 border p-5">
             <h3 className="display text-lg">{EMPTY_PROGRAMME.heading}</h3>
