@@ -197,12 +197,20 @@ async function tour() {
   }, NICKNAME);
   await page.keyboard.type("The Welsh Dragon", { delay: 60 });
   await parkCursor();
-  await sleep(3200);
+  await sleep(2400);
 
-  // 9. Play their reveal so it ends on the fighter's own card.
-  await clickText(page, "Play your walkout").catch(() => {});
+  // 9. The payoff: bring the whole card into frame and play their walkout, so
+  // the fighter's section resolves instead of stopping mid-form.
+  await scrollTo(page, 0, 900);
+  await sleep(600);
+  await clickText(page, "Play your walkout");
   await parkCursor();
-  await sleep(5200);
+  await sleep(6000);
+
+  // 10. End on the programme, which is where their work lands, and which is the
+  // best-looking single frame in the product to finish on.
+  await goto(page, `/e/cage-county-12`);
+  await sleep(3400);
 
   browser.disconnect();
   console.log("tour done");
