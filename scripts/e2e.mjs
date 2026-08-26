@@ -185,6 +185,35 @@ await step("the render page is shut to a stranger", async () => {
   }
 });
 
+/**
+ * The other half: the key has to work, or the renderer stops and nothing here
+ * would say so. Skipped rather than failed where the key is not to hand, since
+ * against production it has to be exported and there is no reading it back out
+ * of the Worker.
+ */
+await step("the render key opens it, and a wrong one does not", async () => {
+  const key = process.env.RENDER_KEY || devVars().RENDER_KEY;
+  if (!key) return "skipped: no RENDER_KEY in the environment or .dev.vars";
+
+  const context = await browser.createBrowserContext();
+  try {
+    const renderer = await context.newPage();
+    await renderer.setExtraHTTPHeaders({ "x-eventiq-render-key": key });
+    const good = await renderer.goto(`${BASE}/render/${slug}/1`, {
+      waitUntil: "domcontentloaded",
+    });
+    if (good.status() !== 200) throw new Error(`the right key got ${good.status()}, wanted 200`);
+
+    await renderer.setExtraHTTPHeaders({ "x-eventiq-render-key": `${key}-wrong` });
+    const bad = await renderer.goto(`${BASE}/render/${slug}/1`, {
+      waitUntil: "domcontentloaded",
+    });
+    if (bad.status() !== 404) throw new Error(`a wrong key got ${bad.status()}, wanted 404`);
+  } finally {
+    await context.close();
+  }
+});
+
 await step("the promoter can open their own render page", async () => {
   const response = await page.goto(`${BASE}/render/${slug}/1`, {
     waitUntil: "domcontentloaded",

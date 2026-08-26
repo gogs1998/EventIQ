@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 172 unit tests and a 24-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 172 unit tests and a 25-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -502,7 +502,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-[scripts/e2e.mjs](scripts/e2e.mjs) drives 24 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger and open to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
+[scripts/e2e.mjs](scripts/e2e.mjs) drives 25 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
 
 The unit tests cover the derivation layer, which is pure and therefore easy. This covers the half that is not, and it is the only thing that would catch a form posting to the wrong action or a cookie that never gets set.
 

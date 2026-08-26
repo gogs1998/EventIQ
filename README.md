@@ -66,7 +66,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 24 steps: sign in, check the renderer's capture page is shut to a stranger and open to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+Drives a browser through 25 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
 
 ## The tale of the tape
 
