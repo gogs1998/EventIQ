@@ -38,9 +38,10 @@ function requireCredentials() {
       "  https://dash.cloudflare.com/profile/api-tokens  →  Create Custom Token",
       "",
       "with these permissions:",
-      "  Account · Cloudflare Pages · Edit          (required)",
-      "  Account · Account Settings · Read          (required)",
-      `  Zone · DNS · Edit, scoped to ${DOMAIN}     (only for --attach-domain)`,
+      "  Account · Cloudflare Pages · Edit".padEnd(46) + "(required)",
+      "  Account · Account Settings · Read".padEnd(46) + "(required)",
+      `  Zone · DNS · Edit, scoped to ${DOMAIN}`.padEnd(46) +
+        "(only for --attach-domain)",
       "",
       "The account ID is on the right-hand side of any domain's overview page,",
       "or from `npx wrangler whoami`.",
