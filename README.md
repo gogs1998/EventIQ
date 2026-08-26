@@ -16,10 +16,11 @@ Amateur shows run on paper. A real programme from a real event gives you a fight
 
 | Route | What it is |
 | --- | --- |
-| `/` | The promoter pitch |
+| `/` | The pitch page. The recorded walkthrough, the main event video, and a gallery of every screen |
 | `/e/cage-county-12` | The programme. 15 bouts, main event first, tap any bout for the tape |
 | `/e/cage-county-12/f/[fighter]` | A fighter profile, deep-linkable from an Instagram bio |
 | `/f/demo` | The fighter questionnaire, with their card building live as they type |
+| `/promoter` | The promoter's view. Who to chase, which bouts are ready, which sponsor slots are unsold |
 | `/qr` | The printable table card |
 | `/render/[bout]` | Capture surface for the video exporter, not linked from the programme |
 
@@ -50,6 +51,14 @@ Getting fighters to return the questionnaire is the actual hard problem, not the
 
 The demo card is deliberately uneven for the same reason: the top of the bill is what it looks like when fighters send their details in, and the openers are a name and a gym, exactly like the paper programme. Bout 11 has one fighter who filled everything in and one who sent nothing.
 
+## The promoter's view
+
+`/promoter` is the other half of the same data: a chase list ordered by position on the card, bout-level readiness, and the bout sponsor slots that are still unsold. Everything on it is derived by [`lib/promoter.ts`](lib/promoter.ts) from the same fixture the programme reads, so the two cannot disagree.
+
+The nudge button copies a message ready to paste into WhatsApp, naming the fighter's bout and their opponent, and saying the other one has already sent theirs only where [`tapeGapsBehind`](lib/tape.ts) says that is true.
+
+Invite status is not derived from the completeness score. A record and an age come off the promoter's own entry form, so anyone with those but nothing else reads as "not opened" rather than as someone who looked and gave up — which is the one distinction the page exists to draw.
+
 ## Running it
 
 ```bash
@@ -61,10 +70,12 @@ Then open http://localhost:3000. The QR code on `/qr` is generated in the browse
 
 ```bash
 npm run build      # static export to out/, no server needed
-npm test           # unit tests for the tape logic
+npm test           # unit tests for the tape and promoter logic
 npm run lint
 npm run typecheck
 ```
+
+`NEXT_PUBLIC_SITE_URL` sets the canonical public address at build time and defaults to `https://eventiq.win`. It feeds `metadataBase`, the Open Graph tags and the WhatsApp chase messages, but deliberately not the QR code, which reads whatever origin it is served from.
 
 ## Regenerating assets and videos
 
@@ -88,7 +99,29 @@ node scripts/tour.mjs tour      # run the walkthrough while recording the screen
 node scripts/tour.mjs teardown
 ```
 
-Crop the capture to the window afterwards; the last run used `crop=454:985:719:106`, which depends on where the window landed.
+Crop the capture to the window afterwards; the last run used `crop=454:985:719:106`, which depends on where the window landed. The finished cut is committed at `public/demo/eventiq-demo.mp4` and plays on the pitch page.
+
+## Product screenshots
+
+The gallery on the pitch page uses real captures of the running app, not mockups. [`scripts/shots.mjs`](scripts/shots.mjs) takes them against the dev server at a 390x844 phone viewport, plus the Open Graph card from the live hero.
+
+```bash
+npm run shots                                  # all of public/screens + app/opengraph-image.jpg
+npm run shots -- --only promoter
+npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, for eyeballing
+```
+
+Only the WebP output is committed; intermediate PNGs go to `.stills/`, which is gitignored.
+
+## Deploying
+
+The site is a static export, so hosting it is a file upload. [DEPLOY.md](DEPLOY.md) has the full procedure for Cloudflare Pages and eventiq.win.
+
+```bash
+npm run deploy     # build, then wrangler pages deploy out
+```
+
+It stops with the exact API token permissions it needs if `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are not set. **This has not been run**: no hosting credentials exist yet.
 
 ## What is real and what is not
 

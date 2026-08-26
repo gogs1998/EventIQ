@@ -21,18 +21,21 @@ A third input was a **photograph of a real programme** from an actual event (BUD
 
 ## 2. Current state
 
-Working demo, branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1) (draft). Build, lint, typecheck clean; 26 unit tests passing.
+Working demo, branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1) (draft). Build, lint, typecheck clean; 55 unit tests passing.
 
 | Route | What it is | Notes |
 | --- | --- | --- |
-| `/` | Promoter pitch page | Embeds the main event video |
+| `/` | Pitch page and shop window | The recorded walkthrough, the main event video, a screenshot gallery |
 | `/e/cage-county-12` | The programme | Flagship screen. 15 bouts, main event first, each expands to the tape |
 | `/e/cage-county-12/f/[fighter]` | Fighter profile | Deep-linkable, intended for an Instagram bio |
 | `/f/demo` | Fighter questionnaire walkthrough | Live preview; saves nothing |
+| `/promoter` | The promoter's view | Chase list, bout readiness, unsold sponsor slots. See section 9a |
 | `/qr` | Printable table card | QR generated client-side from current origin |
 | `/render/[bout]` | Capture surface for the video exporter | Not linked from anywhere |
 
-**Deliverables that exist:** the running demo, a static export (`npm run build` → `out/`), five pre-rendered vertical mp4s, and a 65-second sales recording (see section 9).
+**Deliverables that exist:** the running demo, a static export (`npm run build` → `out/`), five pre-rendered vertical mp4s, and a 76-second sales recording (see section 9).
+
+**The domain `eventiq.win` has been bought but the site is not live.** The deploy is prepared and blocked on credentials; see section 9b and [DEPLOY.md](DEPLOY.md).
 
 **What does not exist:** any backend. No database, no accounts, no persistence, no admin, no email or SMS. The questionnaire is a walkthrough.
 
@@ -228,6 +231,59 @@ Chrome runs in `--app` mode, which removes the tab strip and address bar — the
 
 **Verify recordings with a video review before trusting them.** A browser-driving agent reported the first take as flawless; review found the embedded video skipped after four seconds, developer tools were visible in the opening frame, and the cursor sat over the picture throughout.
 
+The finished cut is committed at `public/demo/eventiq-demo.mp4` (454x984, 2.8MB) and plays on the pitch page. The chapter list next to it in [app/page.tsx](app/page.tsx) was read off the recording itself with an ffmpeg contact sheet, not copied from the timings in `tour.mjs` — those drift, because the tour's sleeps do not account for page load or for the trim at either end. Re-derive them if the tour is re-recorded:
+
+```bash
+ffmpeg -i public/demo/eventiq-demo.mp4 -vf "fps=1/4,scale=180:-1,tile=5x4" -frames:v 1 grid.png
+```
+
+---
+
+## 9a. The promoter's view
+
+`/promoter` is the other half of the same fixture: the things a promoter knows that a spectator does not. Added because the pitch only ever showed the room's side, and what a promoter is actually buying is the answer to "who has not sent theirs".
+
+Everything is derived in [lib/promoter.ts](lib/promoter.ts) from `data/event.ts`, so the dashboard and the programme cannot disagree. `data/promoter.ts` holds only what cannot be derived: invite overrides, and the previous show's engagement figures.
+
+Four things on it, in order of how much they matter:
+
+- **The chase list.** Ordered by position on the card rather than by how empty a profile is, because a hole in the main event costs more than a hole in bout two, and that is the order a promoter already thinks in. Each row carries a copy button that puts a WhatsApp-ready message on the clipboard.
+- **Bout readiness.** Ready, one side missing, or nothing in. "One side missing" is called out hardest, because a bout with one finished fighter and one blank looks worse on the night than two blanks, which at least looks consistent.
+- **Sponsor inventory.** How many of the fifteen bout slots are sold. This is the commercial hook and it is the thing the pitch page now links to.
+- **Last show.** Illustrative engagement figures. This is the shape of the post-event sponsor report from section 14, sketched a page early because it is what turns bout sponsorship from a favour into a product.
+
+`AS_OF` is pinned to fourteen days before the show rather than reading the clock, so the demo always opens at the moment this page is useful.
+
+### The bug worth not reintroducing
+
+Invite status was originally derived from `completeness()`: score of zero meant "not opened", anything above meant "opened, unfinished". That read as sensible and was wrong, because a record, an age and a hometown come off the **promoter's own entry form**. The result was twenty-one fighters who had never touched the link all reporting as "opened, unfinished", which erases the only distinction the page exists to draw — the difference between "he looked and bailed" and "he never looked" is the difference between a nudge and a phone call.
+
+`inviteFor()` now looks only at fields nobody but the fighter could have supplied: photo, nickname, story, Instagram, walkout song, sponsors, height, reach. Same rule as `isDebut()` in section 7: **absence is not evidence.** It is worth assuming this class of bug is present anywhere a derived score stands in for a fact.
+
+The nudge message also said "has already sent **his**", on a card with four women's bouts on it. It now says "theirs", and there is a test that fails on any gendered pronoun.
+
+### Screenshots
+
+[scripts/shots.mjs](scripts/shots.mjs) captures the gallery images against the dev server at a 390x844 phone viewport, plus the Open Graph card clipped from the live hero. `npm run shots -- --review /promoter` dumps full-page PNGs at 390 and 1280 for eyeballing, which is how the mobile layout of the chase list got fixed — it had the name, the badge, the meter and the button all trying to share one flex row and wrapping into a mess.
+
+Two things learned: a full-page screenshot does **not** trigger lazy loading, so anything below the fold reviews as an empty box unless the script walks the page first; and a review PNG of a long page is unreadable when handed to a vision model whole, so slice it with ffmpeg `crop` before looking at it.
+
+---
+
+## 9b. Deployment: prepared, not done
+
+**This is the blocker.** `eventiq.win` is bought. The site is a static export, so hosting it is a file upload, and [DEPLOY.md](DEPLOY.md) has the whole procedure. What is missing is a Cloudflare API token and account ID, and only somebody with dashboard access can create those.
+
+`npm run deploy` ([scripts/deploy.mjs](scripts/deploy.mjs)) builds with `NEXT_PUBLIC_SITE_URL=https://eventiq.win` and runs `npx wrangler pages deploy out --project-name=eventiq`. With no credentials it exits 1 and prints the exact token permissions rather than failing mid-upload. Nothing has been run against a real account.
+
+Three things that will bite:
+
+1. **The zone has to be in Cloudflare before the custom domain can be attached at all.** If `eventiq.win` was not bought at Cloudflare Registrar, the site has to be added and the nameservers changed at the registrar first.
+2. **The API token wants three permissions, not one.** Pages Edit, Account Settings Read, and DNS Edit scoped to the single zone — and the DNS one is only needed to attach the domain by API rather than by hand.
+3. **Reprint the table card once it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but it means a card printed from localhost is useless at a venue.
+
+`NEXT_PUBLIC_SITE_URL` ([lib/site.ts](lib/site.ts)) defaults to `https://eventiq.win`, so a plain build is already a correct public build. It feeds `metadataBase`, the Open Graph tags and the chase messages, and deliberately not the QR code.
+
 ---
 
 ## 10. Bugs found and fixed — do not reintroduce
@@ -240,6 +296,10 @@ Chrome runs in `--app` mode, which removes the tab strip and address bar — the
 6. **Next.js dev badge burned into every video frame.** `devIndicators: false`.
 7. **Names clipped at the frame edges** in the head-to-head, because they were inside overflow-hidden portrait containers. Now rendered at scene level.
 8. **Hook sentences set in Anton** collided and were unreadable. Sentences use Oswald.
+9. **Invite status derived from a score that included promoter-entered fields.** See section 9a.
+10. **The chase message assumed a male opponent.** See section 9a.
+11. **The chase list was unusable on a phone.** Four elements sharing one wrapping flex row. Now the name is its own row and the status, meter and button are a second one.
+12. **Sponsor names truncated in the dashboard's card list**, so "EventIQ / Digital programmes" read as "DIGITAL PROGRAM…". The column was 32 units wide for lockups that need 40.
 
 ---
 
@@ -250,7 +310,8 @@ Chrome runs in `--app` mode, which removes the tab strip and address bar — the
 - Rendering one bout takes about **60 seconds**. All 15 would be ~15 minutes.
 - `X` display is `:1`, 1920x1200, XFCE, `xdotool` available.
 - Videos are encoded at **crf 28**, which is visually indistinguishable from crf 20 on this material at a third of the size (~1.7MB per 16s clip).
-- `public/` is ~12MB: 2.9MB imagery plus five mp4s.
+- `public/` is ~15MB: 2.9MB imagery, five bout mp4s, the 2.8MB walkthrough recording, and ~230KB of gallery screenshots. Watch this. It is all served from a CDN so it is not a page-weight problem, but it is committed to git and it only goes one way.
+- Wrangler 4.126.0 works via `npx wrangler` with no install.
 
 ## 12. Commands
 
@@ -265,6 +326,10 @@ npm run assets                          # cutouts + optimisation from assets-src
 npm run render -- --bout 15             # one bout to mp4
 npm run render:headline                 # bouts 15,14,13,12,11
 node scripts/render-tape.mjs --bout 15 --still 300   # single frame PNG, fastest way to iterate
+
+npm run shots                           # gallery screenshots + the Open Graph card
+npm run shots -- --review /promoter     # full-page PNGs at 390 and 1280
+npm run deploy                          # blocked: needs Cloudflare credentials
 ```
 
 ---
@@ -273,7 +338,9 @@ node scripts/render-tape.mjs --bout 15 --still 300   # single frame PNG, fastest
 
 1. **What does FightIQ.win do?** It is currently a bare wordmark because inventing a description of a real business seemed worse than leaving it blank. A strapline would also even up the sponsor strip, where it is the only single-line lockup.
 2. **Real fighter photographs.** The generated portraits are fine for demonstrating the idea, but a promoter who recognises nobody will notice. Getting a handful of real photos from one local gym would make a named pitch far stronger. Note this also needs the fighters' permission.
-3. **Deployment.** No hosting credentials are configured. Deploying the static export to a real URL is arguably the highest-value next step, since it makes the QR code work off printed paper and turns the pitch from "let me show you on my laptop" into a link. Needs a host and credentials.
+3. **Deployment credentials. This is the one thing blocking a live site.** `eventiq.win` is bought and the deploy is written and tested as far as it can be without an account. It needs a Cloudflare API token and account ID, which only somebody with dashboard access can create. See section 9b and [DEPLOY.md](DEPLOY.md). Until this happens the pitch is still "let me show you on my laptop" and the printed QR code cannot work.
+3a. **Was the domain bought at Cloudflare Registrar or somewhere else?** If somewhere else, the nameservers have to change before the custom domain can be attached, and that is the slow step.
+3b. **Are the last-show engagement figures on `/promoter` acceptable as illustrative?** They are invented and labelled as such in the page footer. If there are real numbers from a real show, even rough ones, they are worth far more than plausible ones.
 4. **Music.** Videos are silent by design — no licensing exposure, and Instagram plays muted anyway. Adding a music bed is a licensing conversation, not a code one.
 5. **Commercial model.** Not decided. Candidates: a per-event fee to the promoter; a share of bout sponsorship; or free programme with the post-event sponsor report as the paid upsell. This matters because it determines what gets built next.
 
@@ -285,7 +352,7 @@ Split by whether it earns its place *before* a signed promoter or *after*, becau
 
 ### Before — things that help win the first promoter
 
-- **Deploy to a real URL.** Highest leverage. Static export, so it is a one-liner once a host exists.
+- **Deploy to a real URL.** Highest leverage, and now one command short of done. See section 9b.
 - **Real photos** for at least the main event and co-main.
 - **Render all 15 bouts** rather than five, so no bout in the demo is a dead end (~15 min of compute).
 - **An "empty vs full" toggle on the pitch page**, dramatising the completeness gap directly rather than asking the promoter to scroll to the bottom of the card to see it.
@@ -299,7 +366,7 @@ Roughly in dependency order:
 2. **Real questionnaires.** Magic-link invites keyed on an unguessable token, autosave, resumable. `Invite.lastOpenedAt` is the useful nudge signal — it tells the promoter "he opened it and bailed", which is different from "he never looked".
 2a. **Make the record import real** (section 7a). A server-side endpoint that fetches and parses one pasted Sherdog or Tapology page. Then give the same tool to the promoter, so they can populate the fighters who never reply.
 3. **Fighter profiles that persist across events.** A returning fighter gets "confirm your details", not a blank form. This is the biggest retention hook in the whole idea and it gets stronger with every show.
-4. **Promoter admin.** Create event, bouts and fighters; generate and copy invite links; a completion dashboard driven by the existing `completeness()` and `tapeGapsBehind()`; publish toggle. Mostly plumbing — the logic already exists, it is just not surfaced.
+4. **Promoter admin.** The *read* half now exists at `/promoter` (section 9a). What is missing is everything that writes: create event, bouts and fighters; generate and copy real invite links rather than a demo one; a publish toggle. The invite statuses are currently derived from the fixture, and in a real build they come from `Invite.lastOpenedAt`, which is the useful nudge signal.
 5. **Async render queue.** A 480-frame capture takes tens of seconds, so it can never block a request. Cache per bout, invalidate when either fighter's data changes.
 6. **Sponsor tap counting and a post-event sponsor report.** Probably the thing promoters would actually pay more for: a one-pager they can send a sponsor proving impressions and taps. Turns bout sponsorship from a favour into a product.
 7. **Multi-tenant auth.** Currently there is none at all; the demo has no accounts.
@@ -338,6 +405,15 @@ Document how the sales recording is produced
 Remove unused create-next-app placeholder art
 Show the fighter how they read against their actual opponent
 Add Mouthguards.pro, FightIQ.win and EventIQ as sponsors
+Add a handover document
+Let fighters import their record from Sherdog or Tapology
+Give the demo recording an ending
+Give the promoter their own view of the card
+Capture the sales recording and product screenshots
+Finish the screenshot script and shoot the gallery at phone size
+Turn the pitch page into a shop window
+Give the site the metadata a public URL needs
+Prepare the Cloudflare Pages deploy
 ```
 
 The commit messages are the best record of *why* each decision was taken. Read them before changing anything load-bearing.
