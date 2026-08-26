@@ -120,6 +120,7 @@ async function boutsOf(eventSlug) {
     return {
       number: row.number,
       hash: createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16),
+      playable: job_status === "done",
       // A finished render made before fingerprinting existed has no hash, so it
       // counts as stale. Re-rendering something that was already right is far
       // cheaper than showing a video of a record that has since changed.
@@ -285,6 +286,15 @@ if (still && boutArg) {
   const all = await boutsOf(slug);
   if (!all.length) throw new Error(`No bouts on "${slug}" in the ${scope.slice(2)} database`);
 
+  if (arg("list")) {
+    for (const bout of all) {
+      const state =
+        bout.rendered === bout.hash ? "current" : bout.playable ? "stale" : "missing";
+      console.log(`  bout ${String(bout.number).padStart(2)}  ${state}`);
+    }
+    process.exit(0);
+  }
+
   let wanted;
   if (boutArg && boutArg !== true) {
     wanted = all.filter((b) => b.number === Number(boutArg));
@@ -296,7 +306,7 @@ if (still && boutArg) {
     wanted = all;
   } else {
     console.error(
-      "Pass --slug <event-slug> and one of --bout <n>, --stale, --all,\n" +
+      "Pass --slug <event-slug> and one of --list, --bout <n>, --stale, --all,\n" +
         "or --bout <n> --still <frame>.",
     );
     process.exit(1);
