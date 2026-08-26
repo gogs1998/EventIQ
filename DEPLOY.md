@@ -1,13 +1,16 @@
 # Deploying to eventiq.win
 
-The site is a static export, so hosting it is a file upload. There is no server,
-no database and nothing to keep running. This document covers Cloudflare Pages
-because the domain was bought with a public demo in mind and Pages serves static
-output free, but any static host works: the whole site is the contents of `out/`.
+EventIQ is a Next.js application running on **Cloudflare Workers** via
+[`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare), with **D1** for
+data and **R2** for photographs and rendered video. It is no longer a folder of
+files, so deploying it means creating two pieces of infrastructure and putting a
+secret in place before anything is uploaded.
 
-**Nothing in here has been run.** No hosting credentials exist in the
-development environment, so the deploy has been prepared and left one command
-short of live. See [what is left to do](#what-is-left-to-do).
+> **Status: blocked on one token permission.** Everything below has been run
+> against local bindings and the Worker bundle has been built and validated with
+> `wrangler deploy --dry-run`. The R2 bucket exists. The D1 database does not,
+> because the current API token cannot see D1 at all. See
+> [what is left to do](#what-is-left-to-do).
 
 ---
 
@@ -18,142 +21,220 @@ Cloudflare dashboard → **My Profile** → **API Tokens** → **Create Token** 
 
 | Permission | Scope | Why |
 | --- | --- | --- |
-| Account · Cloudflare Pages · **Edit** | the account that will own the project | creating the project and uploading the build |
-| Account · Account Settings · **Read** | same account | wrangler resolves the account before uploading |
-| Zone · DNS · **Edit** | **`eventiq.win` only** | only needed to attach the custom domain by API |
+| Account · **Workers Scripts** · Edit | the account owning `eventiq.win` | uploading the Worker and its static assets |
+| Account · **D1** · Edit | same account | creating the database, running migrations, seeding |
+| Account · **Workers R2 Storage** · Edit | same account | the bucket holding photographs and mp4s |
+| Account · **Account Settings** · Read | same account | wrangler resolves the account before doing anything |
+| Zone · **Workers Routes** · Edit | **`eventiq.win` only** | attaching the custom domain |
+| Zone · **DNS** · Edit | **`eventiq.win` only** | Cloudflare writes the record for the custom domain |
 
-Leave everything else off. Scope the DNS permission to the single zone rather
-than "All zones" — the token is going into a shell and possibly into CI, and it
-does not need to be able to touch anything else.
+The two zone permissions are only needed for `--attach-domain`. Without them the
+site still deploys and is reachable at `eventiq.<subdomain>.workers.dev`.
 
-If the custom domain is going to be attached by hand in the dashboard instead,
-drop the DNS permission entirely and the token can only publish files.
+The old token had **Cloudflare Pages · Edit** and that permission is no longer
+used by anything. Pages is a separate product from Workers and this app is not
+on it: `@cloudflare/next-on-pages` is deprecated, and a Next.js app with server
+actions and a database wants the Workers runtime.
 
-## 2. Find the account ID
-
-It is on the right-hand column of any domain's **Overview** page in the
-dashboard, or:
-
-```bash
-npx wrangler whoami
-```
-
-## 3. Set both values and deploy
+Check what a token can actually do before using it:
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
 
+node scripts/deploy.mjs --check
+```
+
+It probes each permission and names the missing ones rather than leaving you to
+decode a 401 halfway through an upload.
+
+## 2. Find the account ID
+
+Right-hand column of any domain's **Overview** page in the dashboard, or
+`npx wrangler whoami`.
+
+## 3. Provision the database and the bucket
+
+```bash
+node scripts/deploy.mjs --provision
+```
+
+That creates the `eventiq` D1 database and the `eventiq-media` R2 bucket if they
+are not already there, writes the database id into
+[wrangler.jsonc](wrangler.jsonc), and applies the migrations in `db/migrations`
+to the remote database.
+
+**Commit the wrangler.jsonc change.** The database id has to be in the committed
+config for a deploy to bind anything. It is not a secret; it names a database
+that only this account's tokens can reach.
+
+By hand, the same thing is:
+
+```bash
+npx wrangler d1 create eventiq            # paste the id into wrangler.jsonc
+npx wrangler r2 bucket create eventiq-media
+npx wrangler d1 migrations apply eventiq --remote
+```
+
+## 4. Set the session secret
+
+```bash
+openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
+```
+
+This signs the promoter's login cookie. There is no fallback and no default: a
+Worker without it refuses to serve the promoter area rather than accepting
+sessions signed with something guessable.
+
+Rotating it signs everybody out, which is the whole of the revocation story and
+is deliberate — see section 6 of [HANDOVER.md](HANDOVER.md).
+
+## 5. Seed the first promoter
+
+The database is empty. Seeding it puts the Cage County 12 demo card in, along
+with a promoter account you can sign in as:
+
+```bash
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote
+```
+
+It refuses to run remotely without a password rather than falling back to a
+development default, because a known password on a reachable promoter account is
+the same as no password at all.
+
+It prints the invite links once. They are not recoverable afterwards — they are
+generated fresh each time and nothing stores the plaintext anywhere else — but
+the promoter dashboard shows every one of them once you are signed in.
+
+Skip this if the first show is going to be created through the UI instead. In
+that case you still need a promoter row to sign in as, which today only the seed
+creates. Adding a second promoter is a `wrangler d1 execute` away and there is
+no self-service signup; with one operator that is the right amount of ceremony.
+
+## 6. Deploy
+
+```bash
 npm run deploy
 ```
 
-`npm run deploy` ([scripts/deploy.mjs](scripts/deploy.mjs)) builds with
-`NEXT_PUBLIC_SITE_URL=https://eventiq.win` and then runs:
-
-```bash
-npx wrangler pages deploy out --project-name=eventiq --branch=main
-```
-
-It refuses to start with a printed list of the permissions above if either
-variable is missing, rather than failing halfway through with a Cloudflare error
-code. Wrangler 4.126.0 works via `npx wrangler`; there is no need to install it.
-
-Wrangler creates the `eventiq` project on the first deploy and prints a
-`*.pages.dev` URL. That URL is worth keeping — it is a working demo link even
+[scripts/deploy.mjs](scripts/deploy.mjs) checks the permissions, builds with
+`NEXT_PUBLIC_SITE_URL=https://eventiq.win`, and runs `opennextjs-cloudflare
+deploy`. The first deploy prints a `*.workers.dev` URL, which is a working link
 before DNS is sorted.
 
-Useful variations:
+Variations:
 
 ```bash
-npm run deploy -- --skip-build       # upload the existing out/ again
-npm run deploy -- --attach-domain    # also point eventiq.win at the project
-CF_PAGES_PROJECT=eventiq-staging npm run deploy
+npm run deploy -- --check            # permissions only, changes nothing
+npm run deploy -- --skip-build       # redeploy the existing .open-next/
+npm run deploy -- --attach-domain    # also point eventiq.win at the Worker
 ```
 
-## 4. Attach eventiq.win
+## 7. Attach eventiq.win
 
-**The zone has to be in Cloudflare first.** If the domain was bought at
-Cloudflare Registrar it already is. If it was bought anywhere else, add the site
-in the Cloudflare dashboard and change the nameservers at the registrar to the
-two Cloudflare gives you. That propagates in minutes to a few hours, and nothing
-below works until it has.
-
-Then either use the dashboard (project → **Custom domains** → **Set up a custom
-domain**), or:
+The zone is already in Cloudflare and active, so:
 
 ```bash
 npm run deploy -- --attach-domain
 ```
 
-which is this call:
+Cloudflare creates the DNS record and issues the certificate itself. Repeat for
+`www.eventiq.win` if that should work, then add a redirect rule to the apex so
+there is only one address in circulation.
 
-```bash
-curl -X POST \
-  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/eventiq/domains" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"name":"eventiq.win"}'
-```
-
-Cloudflare creates the CNAME and issues the certificate itself. Repeat with
-`www.eventiq.win` if that should work too, then add a redirect rule from `www` to
-the apex so there is only one address in circulation.
-
-## 5. Check it
+## 8. Check it
 
 ```bash
 curl -sI https://eventiq.win | head -3
-curl -s https://eventiq.win/robots.txt
 curl -s https://eventiq.win/sitemap.xml | head -5
 ```
 
-Then on a phone, in this order, because these are the things a static export
-gets wrong:
+Then, in this order, because these are the things that only break once there is
+a real database behind them:
 
-1. `/` — the walkthrough recording and the tale-of-the-tape video both play.
-2. `/e/cage-county-12` — open a bout, play the tape.
-3. `/qr` — scan the printed code with another phone. The QR is generated from
-   the current origin, so on the live site it points at the live site.
-4. Paste `https://eventiq.win` into WhatsApp and check the preview card appears.
+1. `/promoter/login` — sign in. Getting the password wrong says so; getting it
+   right lands on the dashboard.
+2. The dashboard — the chase list has real invite links. Copy one.
+3. Open that link on a phone. Type something. It saves without a save button.
+   Reload; it is still there.
+4. Upload a photograph. It should appear on the preview card and be served from
+   `/media/...`.
+5. `/e/cage-county-12` — what the fighter typed is on the card.
+6. Back on the dashboard, "This show so far" has counted your visit.
+7. `/e/cage-county-12/qr` — scan the code with another phone. The QR is built
+   from the origin it is served from, so on the live site it points at the live
+   site. **Reprint the table card once the site is live**; one printed from a
+   laptop is useless at a venue.
+
+The same walk is automated:
+
+```bash
+npm run e2e -- --base https://eventiq.win --password '...'
+```
+
+Be careful with that against a live show: it adds a bout, removes it again, and
+writes to a fighter's profile.
 
 ---
 
-## The site URL
+## Video rendering
 
-`NEXT_PUBLIC_SITE_URL` sets the canonical address at build time. It defaults to
-`https://eventiq.win` ([lib/site.ts](lib/site.ts)), so a plain `npm run build`
-already produces a correct public build and the deploy script only sets it
-explicitly so the intent is visible in CI logs.
-
-It feeds `metadataBase`, the Open Graph tags and the WhatsApp chase messages on
-the promoter view. It deliberately does **not** feed the QR code, which reads the
-origin it is being served from — that way the printed card still works off a
-laptop screen in a meeting.
-
-For a preview deployment on a different hostname:
+Rendering is **not** part of the deploy and cannot be. It needs headless Chrome
+and ffmpeg, neither of which runs on Workers, so it is a job run from a machine
+that has both:
 
 ```bash
-NEXT_PUBLIC_SITE_URL=https://eventiq-preview.pages.dev npm run build
-node scripts/deploy.mjs --skip-build
+npm run render -- --slug cage-county-12 --list             # what needs doing
+npm run render -- --slug cage-county-12 --stale --publish --remote
 ```
+
+`--publish` puts the mp4 in R2 and records the key in `render_jobs`, which is
+where the programme reads it from. `--stale` renders only the bouts whose
+fighters have changed since the last render; a fifteen-bout card is about a
+quarter of an hour of compute.
+
+The machine running it needs the same `CLOUDFLARE_API_TOKEN` and a `--base`
+pointing at somewhere the card can be rendered from — either the deployed site
+or a local dev server against the same data.
+
+## The site URL
+
+`NEXT_PUBLIC_SITE_URL` sets the canonical address at build time and defaults to
+`https://eventiq.win` ([lib/site.ts](lib/site.ts)). It feeds `metadataBase`, the
+Open Graph tags and the WhatsApp chase messages. It deliberately does **not**
+feed the QR code, which reads the origin it is being served from, so the printed
+card still works off a laptop screen in a meeting.
 
 ## What is left to do
 
-1. Create the token and find the account ID (sections 1 and 2). Only a human
-   with dashboard access can do this.
-2. Run `npm run deploy`.
-3. Confirm the zone is in Cloudflare, then `npm run deploy -- --attach-domain`.
-4. Reprint the table card once the live URL exists, so the QR on the table points
-   at `eventiq.win` rather than at a laptop.
+1. **Add `Account · D1 · Edit` to the API token.** This is the only thing
+   blocking a live site. Verified against the current token:
 
-## Somewhere other than Cloudflare
+   | Endpoint | Result |
+   | --- | --- |
+   | `accounts/:id/workers/scripts` | 200 |
+   | `accounts/:id/r2/buckets` | 200 |
+   | `accounts/:id` | 200 |
+   | `accounts/:id/d1/database` | **401** |
 
-`out/` is a directory of static files with no server requirements, so:
+2. `node scripts/deploy.mjs --provision`, then commit the `wrangler.jsonc`
+   change.
+3. `npx wrangler secret put SESSION_SECRET`.
+4. `SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote`.
+5. `npm run deploy` and then `npm run deploy -- --attach-domain`.
+6. Reprint the table card from the live URL.
 
-- **Netlify** — `npx netlify deploy --prod --dir=out`
-- **Vercel** — `npx vercel deploy --prebuilt out`, or connect the repo
-- **GitHub Pages** — push `out/` to `gh-pages`; needs `basePath` in
-  [next.config.ts](next.config.ts) unless it is served from a domain root
-- **Any web server** — copy `out/` into the document root
+Also worth tidying: an empty R2 bucket named `eventiq-photos` exists in the
+account from an earlier attempt. Nothing references it and it can be deleted.
 
-The only host-specific thing in the repo is `scripts/deploy.mjs`.
+## Rolling back
+
+```bash
+npx wrangler deployments list
+npx wrangler rollback [deployment-id]
+```
+
+Rolling back the Worker does not roll back the database. Migrations are additive
+and there is no down-migration path, which is a deliberate limit rather than an
+oversight at this size: reverting a schema change means writing the SQL to
+reverse it.
