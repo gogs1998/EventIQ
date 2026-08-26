@@ -454,7 +454,7 @@ Two things it taught, both worth knowing before writing another one: the design 
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 97 unit tests
+npm test                     # 102 unit tests
 npm run lint
 npm run typecheck
 
