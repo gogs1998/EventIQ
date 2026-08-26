@@ -144,6 +144,12 @@ nothing back, so a plain pipe puts the key somewhere you cannot see it and the
 renderer then has no way to match it. Locally the same value goes in `.dev.vars`
 instead, which is the file both the dev server and the renderer read.
 
+**An exported `RENDER_KEY` beats `.dev.vars`, in every tool that reads it.** That
+is the right way round — the shell is how you point the renderer at production —
+but it means a key exported for a production render is then the wrong key for a
+local one, and the way that arrives is a 404 from a route that is working
+perfectly. Start a local run in a shell without it, or with `env -u RENDER_KEY`.
+
 Rotating it is the same two commands. Do it if the renderer ever runs somewhere
 less trusted than the operator's own machine, and note what it is: anybody
 holding it can read any card on the instance, published or not.

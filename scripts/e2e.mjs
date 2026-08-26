@@ -192,6 +192,10 @@ await step("the render page is shut to a stranger", async () => {
  * of the Worker.
  */
 await step("the render key opens it, and a wrong one does not", async () => {
+  // Named, because the shell wins over the file and a key exported for a render
+  // against production is the wrong key for a local run — which arrives as "the
+  // right key got 404" and reads like a broken route.
+  const source = process.env.RENDER_KEY ? "the environment" : ".dev.vars";
   const key = process.env.RENDER_KEY || devVars().RENDER_KEY;
   if (!key) return "skipped: no RENDER_KEY in the environment or .dev.vars";
 
@@ -202,7 +206,11 @@ await step("the render key opens it, and a wrong one does not", async () => {
     const good = await renderer.goto(`${BASE}/render/${slug}/1`, {
       waitUntil: "domcontentloaded",
     });
-    if (good.status() !== 200) throw new Error(`the right key got ${good.status()}, wanted 200`);
+    if (good.status() !== 200) {
+      throw new Error(
+        `the key from ${source} got ${good.status()}, wanted 200 — it is not the key ${BASE} holds`,
+      );
+    }
 
     await renderer.setExtraHTTPHeaders({ "x-eventiq-render-key": `${key}-wrong` });
     const bad = await renderer.goto(`${BASE}/render/${slug}/1`, {
