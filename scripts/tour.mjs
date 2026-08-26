@@ -200,7 +200,7 @@ async function tour() {
   await sleep(3200);
 
   // 9. Play their reveal so it ends on the fighter's own card.
-  await clickText(page, "Play it").catch(() => {});
+  await clickText(page, "Play your walkout").catch(() => {});
   await parkCursor();
   await sleep(5200);
 

@@ -225,6 +225,18 @@ export function buildTapeFrom(red: Fighter, blue: Fighter): TapeRow[] {
   });
 }
 
+/**
+ * Lines of the tape the opponent has answered and this fighter has not.
+ *
+ * The most effective thing we can say to a fighter who has not filled the form
+ * in is not a completion percentage, it is that the other one has.
+ */
+export function tapeGapsBehind(mine: Fighter, theirs: Fighter): string[] {
+  return ROW_SPECS.filter(
+    (spec) => spec.display(theirs) !== undefined && spec.display(mine) === undefined,
+  ).map((spec) => spec.label);
+}
+
 // -------------------------------------------------------------------- hooks
 
 export type Hook = {

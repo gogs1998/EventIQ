@@ -9,6 +9,7 @@ import {
   formatRecord,
   isDebut,
   isUndefeated,
+  tapeGapsBehind,
   totalFights,
 } from "@/lib/tape";
 
@@ -192,6 +193,33 @@ describe("buildHooks", () => {
     });
 
     expect(buildHooks(bout(red, blue, { titleLabel: "Belt" })).length).toBe(3);
+  });
+});
+
+describe("tapeGapsBehind", () => {
+  it("names the lines the opponent answered and this fighter did not", () => {
+    const mine: Fighter = { id: "g1", name: "Owen Pryce", gym: "Bryn" };
+    const theirs: Fighter = {
+      id: "g2",
+      name: "Reece Tulloch",
+      gym: "Northgate",
+      age: 20,
+      heightCm: 172,
+      record: { w: 1, l: 0, d: 0 },
+    };
+    expect(tapeGapsBehind(mine, theirs)).toEqual(["Record", "Age", "Height"]);
+  });
+
+  it("counts nothing when the fighter is level or ahead", () => {
+    const mine: Fighter = { id: "g3", name: "A", gym: "G", age: 25, heightCm: 180 };
+    const theirs: Fighter = { id: "g4", name: "B", gym: "G", age: 30 };
+    expect(tapeGapsBehind(mine, theirs)).toEqual([]);
+  });
+
+  it("ignores rows neither of them answered", () => {
+    const mine: Fighter = { id: "g5", name: "A", gym: "G" };
+    const theirs: Fighter = { id: "g6", name: "B", gym: "G" };
+    expect(tapeGapsBehind(mine, theirs)).toEqual([]);
   });
 });
 

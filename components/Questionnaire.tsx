@@ -5,10 +5,19 @@ import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
 import { SponsorLockup } from "@/components/SponsorLockup";
+import { TapeTable } from "@/components/TapeTable";
 import { event, sponsors as allSponsors } from "@/data/event";
 import { FPS } from "@/lib/anim";
 import { cx } from "@/lib/cx";
-import { completeness, getBout, getFighter } from "@/lib/tape";
+import {
+  buildTapeFrom,
+  completeness,
+  firstName,
+  getBout,
+  getFighter,
+  lastName,
+  tapeGapsBehind,
+} from "@/lib/tape";
 import type { Fighter, Stance } from "@/lib/types";
 
 /**
@@ -143,9 +152,12 @@ function Section({
   );
 }
 
+type PreviewMode = "card" | "tape";
+
 export function Questionnaire() {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitted, setSubmitted] = useState(false);
+  const [mode, setMode] = useState<PreviewMode>("card");
   const [frame, setFrame] = useState(SCENES.blue.start + 84);
   const previewRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
@@ -193,6 +205,11 @@ export function Questionnaire() {
 
   const { score, missing } = completeness(fighter);
 
+  // The opponent is a real fighter on the card who has already sent his in, so
+  // this is a genuine comparison rather than a scare tactic.
+  const behind = tapeGapsBehind(fighter, opponent);
+  const tapeRows = buildTapeFrom(opponent, fighter);
+
   const playReveal = () => {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
     const { start, end } = SCENES.blue;
@@ -231,27 +248,79 @@ export function Questionnaire() {
     <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12">
       {/* ------------------------------------------------------- preview */}
       <div ref={previewRef} className="lg:sticky lg:top-8 lg:self-start">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <span className="label">What the room sees</span>
-          <button
-            type="button"
-            onClick={playReveal}
-            className="label hover:text-chalk transition-colors"
-          >
-            Play it
-          </button>
+          <div className="flex items-center gap-1">
+            {(
+              [
+                ["card", "Your card"],
+                ["tape", "The tape"],
+              ] as const
+            ).map(([value, text]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={cx(
+                  "border px-2 py-1 font-mono text-[0.55rem] uppercase tracking-[0.14em] transition-colors",
+                  mode === value
+                    ? "border-chalk bg-chalk text-ink"
+                    : "border-hairline text-ash hover:border-chalk/30",
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="border-hairline mx-auto max-w-[300px] border lg:max-w-none">
-          <Stage>
-            <TaleOfTheTape
-              bout={bout}
-              frame={Math.round(frame)}
-              red={opponent}
-              blue={fighter}
-            />
-          </Stage>
-        </div>
+        {mode === "card" ? (
+          <>
+            <div className="border-hairline mx-auto max-w-[300px] border lg:max-w-none">
+              <Stage>
+                <TaleOfTheTape
+                  bout={bout}
+                  frame={Math.round(frame)}
+                  red={opponent}
+                  blue={fighter}
+                />
+              </Stage>
+            </div>
+            <button
+              type="button"
+              onClick={playReveal}
+              className="border-hairline hover:border-chalk/40 label mt-2 w-full border py-2 transition-colors"
+            >
+              Play your walkout
+            </button>
+          </>
+        ) : (
+          <div>
+            <div className="border-hairline grid grid-cols-[1fr_auto_1fr] items-end border-b pb-2">
+              <span className="text-red-corner-hot display truncate text-right text-sm">
+                {lastName(opponent)}
+              </span>
+              <span className="label px-3">vs</span>
+              <span className="text-blue-corner-hot display truncate text-sm">You</span>
+            </div>
+            <TapeTable rows={tapeRows} />
+            <p className="text-ash-dim mt-3 text-[0.7rem] leading-relaxed">
+              This is your bout on the programme. Anything you leave blank shows as a
+              dash on your side of it.
+            </p>
+          </div>
+        )}
+
+        {behind.length ? (
+          <div className="border-red-corner/40 bg-red-corner/5 mt-4 border p-3">
+            <p className="text-chalk text-xs leading-relaxed">
+              {firstName(opponent)} has already sent{" "}
+              <span className="tnum display text-base">{behind.length}</span>{" "}
+              {behind.length === 1 ? "thing" : "things"} you haven&rsquo;t:{" "}
+              {behind.join(", ").toLowerCase()}.
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-4">
           <div className="mb-1.5 flex items-baseline justify-between">
