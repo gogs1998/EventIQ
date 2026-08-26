@@ -209,6 +209,29 @@ SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote
 npx wrangler r2 object delete eventiq-media/fighters/chloe-baines-<hash>.jpg --remote
 ```
 
+The bout the suite adds and removes leaves its two fighters behind as well.
+Removing a bout removes the bout, and the seed only deletes fighters that are on
+the card — so `Test Redcorner` and `Test Bluecorner` end up attached to nothing
+and survive a re-seed. They are invisible in the app, since everything is derived
+from the running order, but they are still rows in a live database:
+
+```bash
+npx wrangler d1 execute eventiq --remote --command \
+  "DELETE FROM invites WHERE fighter_id IN ('test-redcorner','test-bluecorner');
+   DELETE FROM fighter_sponsors WHERE fighter_id IN ('test-redcorner','test-bluecorner');
+   DELETE FROM fighters WHERE id IN ('test-redcorner','test-bluecorner');"
+```
+
+The check that catches all three is that `fighters` and `invites` should both be
+30 with no fighter absent from every bout:
+
+```bash
+npx wrangler d1 execute eventiq --remote --command \
+  "SELECT (SELECT count(*) FROM fighters) fighters, (SELECT count(*) FROM invites) invites,
+          (SELECT count(*) FROM fighters WHERE id NOT IN
+             (SELECT red_id FROM bouts UNION SELECT blue_id FROM bouts)) orphans;"
+```
+
 ---
 
 ## Video rendering
