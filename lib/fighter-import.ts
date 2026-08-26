@@ -8,35 +8,36 @@
  * WHAT THESE SOURCES ACTUALLY CARRY
  *
  * Between them: record broken down by knockout, submission and decision;
- * height; weight class; date of birth; association or team; and often a
- * nickname. Sherdog keeps amateur bouts in a separate table from the pro
- * record, which matters here because amateur is all we care about. Tapology has
- * considerably better amateur coverage for the UK and Ireland, including
- * dedicated amateur rankings, so it is the more useful of the two for this
- * audience even though Sherdog is the better known name.
+ * height; date of birth; association or team; and often a nickname. Sherdog
+ * keeps amateur bouts in a table separate from the professional record, which
+ * matters here because amateur is all we care about.
  *
  * Neither reliably carries reach, stance, walkout song, sponsors, Instagram or
  * anything a fighter would say about themselves. Those stay manual, which is
  * fine, because those are the fields that make a spectator care.
  *
+ * TAPOLOGY CANNOT BE READ FROM A SERVER
+ *
+ * The earlier research here assumed Tapology would be the better primary source,
+ * because its UK and Ireland amateur coverage is much stronger than Sherdog's.
+ * That assumption is wrong in practice. Tapology sits behind a Cloudflare
+ * interactive challenge and returns 403 with "Just a moment..." to any request
+ * that is not a real browser, including from a Worker. Sherdog returns clean
+ * HTML to a plain fetch.
+ *
+ * So Tapology links are still recognised, and the fighter is told plainly that
+ * we cannot read that site and asked for a Sherdog link or the boxes below.
+ * Guessing at their record would be worse than asking, and driving a headless
+ * browser to get past a challenge that exists to stop exactly that is not a
+ * thing to build into a product.
+ *
  * IMPORTED VALUES ARE SUGGESTIONS, NOT FACTS
  *
- * Amateur records on both sites are frequently stale or wrong. A programme that
- * misstates a fighter's record in front of a room that knows better is worse
- * than a programme that says nothing, which is the same principle behind
- * `isDebut` refusing to treat silence as a debut. So everything imported is
- * marked with where it came from and has to be confirmed by the fighter, who is
- * the only person who actually knows.
- *
- * THIS IMPLEMENTATION IS A STUB
- *
- * Reading a real profile means fetching and parsing HTML, which needs a server;
- * this demo is a static export. `lookupTape` therefore resolves sample data.
- * The signature is the one a real implementation should keep: give it a URL,
- * get back a partial tape or null. The real version belongs behind an endpoint
- * that fetches the single pasted URL server-side — which is also a far more
- * defensible posture than bulk crawling, since it is one page, on the
- * fighter's own instruction, at human rate.
+ * Amateur records go stale. A programme that misstates a fighter's record in
+ * front of a room that knows better is worse than one that says nothing, which
+ * is the same principle behind isDebut refusing to treat silence as a debut. So
+ * everything imported is marked with where it came from and has to be confirmed
+ * by the fighter, who is the only person who actually knows.
  */
 
 export type ImportSource = "sherdog" | "tapology";
@@ -57,6 +58,11 @@ export type ImportedTape = {
   gym?: string;
   record?: { w: number; l: number; d: number };
   finishes?: { ko: number; sub: number };
+  /**
+   * Which of a fighter's two records this is. Somebody with both will see very
+   * different numbers depending on the answer, so it is never left implied.
+   */
+  recordKind?: "amateur" | "professional";
   /** Fields no record site carries, so the fighter still has to answer them. */
   notCovered: string[];
 };
@@ -104,30 +110,38 @@ export const SOURCE_LABEL: Record<ImportSource, string> = {
   tapology: "Tapology",
 };
 
-/** Fields a fighter always has to supply themselves, whatever we import. */
-const NOT_COVERED = ["Reach", "Stance", "Photo", "Instagram", "Sponsors", "Walkout song"];
+export type ImportOutcome =
+  | { ok: true; tape: ImportedTape & { name?: string } }
+  /** Recognised the link but could not read the page. `reason` is shown as-is. */
+  | { ok: false; kind: "unreadable"; source: ImportSource; reason: string }
+  | { ok: false; kind: "not-a-profile" };
 
 /**
- * Sample response, standing in for a server-side fetch and parse.
+ * Asks the server to fetch and parse the one pasted URL.
  *
- * Returns the demo fighter's amateur record regardless of which valid profile
- * URL is pasted, because in the walkthrough you are playing that fighter. The
- * UI says as much rather than implying a live lookup happened.
+ * The URL is validated here as well as on the server, so an obvious typo costs
+ * nothing and never reaches the other site. Fetching a single page, on the
+ * fighter's own instruction, at human rate is a far more defensible posture than
+ * bulk crawling, and it is worth keeping it that way deliberately.
  */
-export async function lookupTape(input: string): Promise<ImportedTape | null> {
+export async function lookupTape(input: string): Promise<ImportOutcome> {
   const ref = parseProfileUrl(input);
-  if (!ref) return null;
+  if (!ref) return { ok: false, kind: "not-a-profile" };
 
-  // Enough delay that the interaction reads as a lookup rather than a toggle.
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  const response = await fetch("/api/import-record", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url: ref.url }),
+  });
 
-  return {
-    source: ref.source,
-    age: 21,
-    heightCm: 174,
-    gym: "Bryn Athletic",
-    record: { w: 2, l: 1, d: 0 },
-    finishes: { ko: 1, sub: 0 },
-    notCovered: NOT_COVERED,
-  };
+  if (!response.ok) {
+    return {
+      ok: false,
+      kind: "unreadable",
+      source: ref.source,
+      reason: "Something went wrong looking that up. Try again, or fill the boxes in below.",
+    };
+  }
+
+  return (await response.json()) as ImportOutcome;
 }
