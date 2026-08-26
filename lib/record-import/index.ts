@@ -31,6 +31,17 @@ const USER_AGENT =
 const TAPOLOGY_MESSAGE =
   "Tapology blocks automated reading, so we can't pull your record from there. Paste a Sherdog link instead, or fill the boxes in below.";
 
+/**
+ * What a caller past their allowance is told. Nothing is wrong with their link,
+ * so it does not suggest there is.
+ */
+export const TOO_MANY_LOOKUPS: ImportOutcome = {
+  ok: false,
+  kind: "too-many",
+  reason:
+    "That's a lot of lookups from one connection, so we've paused them for a minute. Try again shortly, or fill the boxes in below.",
+};
+
 function isChallenge(html: string): boolean {
   return html.includes("Just a moment...") || html.includes("cf-browser-verification");
 }
@@ -76,11 +87,14 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
     return { ok: false, kind: "unreadable", source: "tapology", reason: TAPOLOGY_MESSAGE };
   }
 
+  // Keyed on the canonical form rather than on what was pasted, so a link with a
+  // query string on it is the same fighter as the same link without one. Anything
+  // else is a row in D1 and a request to somebody else's website per variation.
   const now = Date.now();
   const [cached] = await db
     .select()
     .from(schema.importCache)
-    .where(eq(schema.importCache.url, ref.url))
+    .where(eq(schema.importCache.url, ref.cacheKey))
     .limit(1);
 
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
@@ -99,7 +113,12 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
 
   await db
     .insert(schema.importCache)
-    .values({ url: ref.url, source: ref.source, payload: parsed ? JSON.stringify(parsed) : null, fetchedAt: now })
+    .values({
+      url: ref.cacheKey,
+      source: ref.source,
+      payload: parsed ? JSON.stringify(parsed) : null,
+      fetchedAt: now,
+    })
     .onConflictDoUpdate({
       target: schema.importCache.url,
       set: { payload: parsed ? JSON.stringify(parsed) : null, fetchedAt: now },

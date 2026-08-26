@@ -36,6 +36,20 @@
       "bucket_name": "eventiq-media"
     }
   ],
+  "ratelimits": [
+    {
+      // Bounds /api/import-record, which takes no token by design. Counted at
+      // the edge rather than in D1, because a counter in the database would
+      // answer an unauthenticated flood with a write per request. The namespace
+      // id is local to this Worker and needs no provisioning.
+      "name": "IMPORT_LOOKUPS",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ],
   "observability": {
     "enabled": true
   }

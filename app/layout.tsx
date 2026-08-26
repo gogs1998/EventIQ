@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Anton, Oswald, Roboto_Mono } from "next/font/google";
+import { SiteHeader } from "@/components/SiteHeader";
 import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
@@ -59,6 +60,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${anton.variable} ${oswald.variable} ${robotoMono.variable} h-full antialiased`}
     >
       <body className="bg-ink text-chalk min-h-full flex flex-col overflow-x-hidden">
+        {/* Mounted here rather than per page so that the rule about which routes
+            carry EventIQ's name is written down once. It renders nothing at all
+            on the programme, the questionnaire and the render stage. */}
+        <SiteHeader />
         {children}
         <div className="grain" aria-hidden />
       </body>

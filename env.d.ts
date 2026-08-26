@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { D1Database, RateLimit, R2Bucket } from "@cloudflare/workers-types";
 
 /**
  * The bindings, declared by hand.
@@ -15,6 +15,8 @@ declare global {
   interface CloudflareEnv {
     DB: D1Database;
     MEDIA: R2Bucket;
+    /** Bounds the open record importer. See lib/rate-limit.ts. */
+    IMPORT_LOOKUPS: RateLimit;
     /** Signs the promoter's login cookie. Set with `wrangler secret put`. */
     SESSION_SECRET: string;
   }
