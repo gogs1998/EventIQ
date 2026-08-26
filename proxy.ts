@@ -37,8 +37,26 @@ import { SESSION_COOKIE } from "@/lib/auth";
 
 const PROMOTER_AREA = /^\/promoter(\/e(\/|$)|$)/;
 
+/**
+ * Where there is no https to send anybody to.
+ *
+ * The scheme check reads `x-forwarded-proto`, on the reasoning that the header
+ * is only there when something is in front of us. That turned out to be wrong:
+ * `next dev` sets it to `http` on every request it serves, so a plain
+ * `npm run dev` answered 308 to `https://localhost:3000`, which nothing is
+ * listening on. Every page, the questionnaire, the capture page the mp4 renderer
+ * screenshots — all of it, redirected to a port with no certificate on it.
+ *
+ * The host is the honest signal, because the thing being protected is a public
+ * hostname served by Cloudflare and that is never one of these.
+ */
+const NO_HTTPS_HERE = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/;
+
 export function proxy(request: NextRequest) {
-  if (request.headers.get("x-forwarded-proto") === "http") {
+  if (
+    request.headers.get("x-forwarded-proto") === "http" &&
+    !NO_HTTPS_HERE.test(request.nextUrl.hostname)
+  ) {
     const secure = new URL(request.url);
     secure.protocol = "https:";
     return NextResponse.redirect(secure, 308);
