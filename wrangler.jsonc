@@ -24,7 +24,7 @@
       // Replaced by the id printed by `wrangler d1 create eventiq`. Local
       // development ignores this and uses the Miniflare database under
       // .wrangler/state, so the placeholder does not stop anything working.
-      "database_id": "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE",
+      "database_id": "74fbf335-d41d-42e7-8d18-41905dccd60e",
       "migrations_dir": "db/migrations"
     }
   ],
