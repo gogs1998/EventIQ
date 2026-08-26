@@ -273,7 +273,9 @@ async function main() {
 
   if (!has("skip-build")) {
     console.log(`\nBuilding for ${SITE_URL}`);
-    await sh("npx", ["opennextjs-cloudflare", "build"], { NEXT_PUBLIC_SITE_URL: SITE_URL });
+    // Nested under `env`, because that is where sh() looks. Passed flat it was
+    // silently dropped, so SITE_DOMAIN appeared to work and never did.
+    await sh("npx", ["opennextjs-cloudflare", "build"], { env: { NEXT_PUBLIC_SITE_URL: SITE_URL } });
   }
 
   await sh("npx", ["opennextjs-cloudflare", "deploy"]);
