@@ -280,16 +280,31 @@ export async function removeBout(slug: string, boutNumber: number): Promise<void
   revalidatePath(`/e/${slug}`);
 }
 
-/** Name and gym come off the promoter's own entry form, so they can fix them. */
-export async function updateFighter(slug: string, fighterId: string, form: FormData): Promise<void> {
+/**
+ * Name and gym come off the promoter's own entry form, so they can fix them.
+ *
+ * A name is the one field on a fighter that nothing can stand in for. An empty
+ * gym becomes "Gym to confirm", a missing record is simply absent, but a blank
+ * name renders as a gap on the public programme and reads out as silence in the
+ * video, so it is refused rather than saved. Returns the message to show, or null
+ * where the save went through.
+ */
+export async function updateFighter(
+  slug: string,
+  fighterId: string,
+  form: FormData,
+): Promise<string | null> {
   const db = await getDb();
   const { event } = await ownedEvent(db, slug);
   await assertOnCard(db, event.id, fighterId);
 
+  const name = text(form, "name", 60);
+  if (!name) return "A fighter needs a name. It carries their bout on the card and in the video.";
+
   await db
     .update(schema.fighters)
     .set({
-      name: text(form, "name", 60),
+      name,
       gym: text(form, "gym", 60) || "Gym to confirm",
       updatedAt: Date.now(),
     })
@@ -297,6 +312,7 @@ export async function updateFighter(slug: string, fighterId: string, form: FormD
 
   revalidatePath(`/promoter/e/${slug}`);
   revalidatePath(`/e/${slug}`);
+  return null;
 }
 
 async function assertOnCard(db: Db, eventId: string, fighterId: string): Promise<void> {

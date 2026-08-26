@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { removeBout, updateBout, updateFighter } from "@/app/promoter/actions";
 import {
   DISCIPLINES,
@@ -158,30 +158,13 @@ export function BoutRow({
                 [blue, "Blue corner", "border-blue-corner"],
               ] as const
             ).map(([fighter, label, accent]) => (
-              <form
+              <CornerForm
                 key={fighter.id}
-                action={(form) => start(() => void updateFighter(slug, fighter.id, form))}
-                className={`grid gap-3 border-l-2 pl-3 ${accent}`}
-              >
-                <span className="label">{label}</span>
-                <Field label="Name">
-                  <input name="name" className={inputClass} defaultValue={fighter.name} />
-                </Field>
-                <Field label="Gym">
-                  <input name="gym" className={inputClass} defaultValue={fighter.gym} />
-                </Field>
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="border-hairline hover:border-chalk/40 label justify-self-start border px-3 py-1.5 transition-colors disabled:opacity-50"
-                >
-                  Save
-                </button>
-                <p className="text-ash-dim text-[0.65rem] leading-relaxed">
-                  Everything else on this fighter comes from their own form, so it is not
-                  editable here.
-                </p>
-              </form>
+                slug={slug}
+                fighter={fighter}
+                label={label}
+                accent={accent}
+              />
             ))}
           </div>
 
@@ -202,5 +185,53 @@ export function BoutRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One corner's name and gym.
+ *
+ * Its own component so it can hold its own refusal: the two corners are two
+ * forms, and a message from one of them belongs under that one rather than under
+ * both.
+ */
+function CornerForm({
+  slug,
+  fighter,
+  label,
+  accent,
+}: {
+  slug: string;
+  fighter: Fighter;
+  label: string;
+  accent: string;
+}) {
+  const [error, submit, pending] = useActionState(
+    (_state: string | null, form: FormData) => updateFighter(slug, fighter.id, form),
+    null,
+  );
+
+  return (
+    <form action={submit} className={`grid gap-3 border-l-2 pl-3 ${accent}`}>
+      <span className="label">{label}</span>
+      <Field label="Name">
+        <input name="name" className={inputClass} defaultValue={fighter.name} />
+      </Field>
+      <Field label="Gym">
+        <input name="gym" className={inputClass} defaultValue={fighter.gym} />
+      </Field>
+      <button
+        type="submit"
+        disabled={pending}
+        className="border-hairline hover:border-chalk/40 label justify-self-start border px-3 py-1.5 transition-colors disabled:opacity-50"
+      >
+        Save
+      </button>
+      {error ? <p className="text-red-corner-hot text-xs leading-relaxed">{error}</p> : null}
+      <p className="text-ash-dim text-[0.65rem] leading-relaxed">
+        Everything else on this fighter comes from their own form, so it is not editable
+        here.
+      </p>
+    </form>
   );
 }
