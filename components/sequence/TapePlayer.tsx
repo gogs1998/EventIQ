@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { track } from "@/lib/analytics";
+import type { Card } from "@/lib/card";
 import type { Bout } from "@/lib/types";
 import { TaleOfTheTape } from "./TaleOfTheTape";
 import { Stage } from "./Stage";
@@ -20,9 +22,12 @@ type Status = "idle" | "playing" | "paused" | "ended";
  * Without a file we fall back to driving the composition directly, which is also
  * what the questionnaire preview uses, since that has to update as you type.
  */
-export function TapePlayer({ bout, mp4 }: { bout: Bout; mp4?: string }) {
-  if (mp4) return <VideoTape bout={bout} mp4={mp4} />;
-  return <LiveTape bout={bout} />;
+export function TapePlayer({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: string }) {
+  // Counted once per bout per visit, on the press rather than on render, so the
+  // number a sponsor is shown is people who chose to watch.
+  const played = () => track({ slug: card.event.slug, kind: "tape_play", boutNumber: bout.number });
+  if (mp4) return <VideoTape bout={bout} mp4={mp4} onPlay={played} />;
+  return <LiveTape card={card} bout={bout} onPlay={played} />;
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -65,7 +70,7 @@ function DownloadLink({ mp4 }: { mp4: string }) {
   );
 }
 
-function VideoTape({ bout, mp4 }: { bout: Bout; mp4: string }) {
+function VideoTape({ bout, mp4, onPlay }: { bout: Bout; mp4: string; onPlay: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
 
@@ -90,6 +95,7 @@ function VideoTape({ bout, mp4 }: { bout: Bout; mp4: string }) {
             label="Play the tape"
             onPlay={() => {
               setStarted(true);
+              onPlay();
               void video.current?.play();
             }}
           />
@@ -100,7 +106,7 @@ function VideoTape({ bout, mp4 }: { bout: Bout; mp4: string }) {
   );
 }
 
-function LiveTape({ bout }: { bout: Bout }) {
+function LiveTape({ card, bout, onPlay }: { card: Card; bout: Bout; onPlay: () => void }) {
   const [frame, setFrame] = useState(0);
   const [status, setStatus] = useState<Status>("idle");
   const raf = useRef<number | null>(null);
@@ -152,12 +158,15 @@ function LiveTape({ bout }: { bout: Bout }) {
     <div className="grid gap-3">
       <Frame>
         <Stage>
-          <TaleOfTheTape bout={bout} frame={Math.round(frame)} />
+          <TaleOfTheTape card={card} bout={bout} frame={Math.round(frame)} />
         </Stage>
         {status === "idle" || status === "ended" ? (
           <PlayOverlay
             label={status === "ended" ? "Watch again" : "Play the tape"}
-            onPlay={() => play(0)}
+            onPlay={() => {
+              onPlay();
+              play(0);
+            }}
           />
         ) : null}
       </Frame>

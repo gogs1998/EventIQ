@@ -2,38 +2,51 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BoutCard } from "@/components/BoutCard";
-import { SponsorLockup } from "@/components/SponsorLockup";
-import { event } from "@/data/event";
-import { mp4For } from "@/lib/renders";
-import {
-  boutsTopDown,
-  formatEventDate,
-  getSponsor,
-  lastName,
-  getFighter,
-} from "@/lib/tape";
+import { SponsorLink } from "@/components/SponsorLink";
+import { TrackOpen } from "@/components/TrackOpen";
+import { boutsTopDown, fighterOf, showSponsors } from "@/lib/card";
+import { getDb } from "@/lib/db";
+import { loadCard, loadRenders } from "@/lib/db/queries";
+import { currentPromoter } from "@/lib/session";
+import { formatEventDate, lastName } from "@/lib/tape";
 
-export function generateStaticParams() {
-  return [{ slug: event.slug }];
+export async function generateMetadata({
+  params,
+}: PageProps<"/e/[slug]">): Promise<Metadata> {
+  const { slug } = await params;
+  const card = await loadCard(await getDb(), slug);
+  if (!card) return {};
+
+  const { event } = card;
+  return {
+    title: `${event.name} — digital programme`,
+    description: `The full running order for ${event.name} at ${event.venue}, ${event.city}. Every bout, every fighter, a tale of the tape for all of them.`,
+  };
 }
-
-export const metadata: Metadata = {
-  title: `${event.name} — digital programme`,
-  description: `The full running order for ${event.name} at ${event.venue}, ${event.city}. Every bout, every fighter, a tale of the tape for all of them.`,
-};
 
 export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) {
   const { slug } = await params;
-  if (slug !== event.slug) notFound();
+  const db = await getDb();
+  const card = await loadCard(db, slug);
+  if (!card) notFound();
 
-  const bouts = boutsTopDown();
+  // An unpublished card is the promoter's working copy. They can see it so they
+  // can check it before the codes go on the tables; nobody else gets a hint that
+  // it exists.
+  if (!card.published) {
+    const promoter = await currentPromoter();
+    if (promoter?.id !== card.promoterId) notFound();
+  }
+
+  const { event } = card;
+  const renders = await loadRenders(db, card.eventId);
+  const bouts = boutsTopDown(card);
   const main = bouts[0];
-  const showSponsors = event.showSponsorIds
-    .map((id) => getSponsor(id))
-    .filter((s): s is NonNullable<typeof s> => !!s);
 
   return (
     <main className="mx-auto w-full max-w-xl">
+      <TrackOpen slug={event.slug} kind="programme_open" />
+
       {/* -------------------------------------------------------- hero */}
       <header className="relative overflow-hidden">
         {event.backdrop ? (
@@ -47,6 +60,12 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
         <div className="from-ink via-ink/70 to-ink/95 absolute inset-0 bg-gradient-to-b" />
 
         <div className="relative px-5 pb-8 pt-12">
+          {!card.published ? (
+            <p className="border-gold/50 text-gold mb-5 inline-block border px-2 py-1 font-mono text-[0.55rem] uppercase tracking-[0.18em]">
+              Not published — only you can see this
+            </p>
+          ) : null}
+
           <div className="flex items-center gap-2.5">
             {event.promoter.mark ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -57,9 +76,10 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
 
           <h1 className="display anim-slam mt-6 text-6xl">{event.name}</h1>
 
-          {event.tagline ? (
+          {main ? (
             <p className="display text-gold mt-2 text-2xl">
-              {lastName(getFighter(main.redId))} vs {lastName(getFighter(main.blueId))}
+              {lastName(fighterOf(card, main.redId))} vs{" "}
+              {lastName(fighterOf(card, main.blueId))}
             </p>
           ) : null}
 
@@ -105,30 +125,36 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
 
         <div className="grid gap-3">
           {bouts.map((bout) => (
-            <BoutCard key={bout.number} bout={bout} mp4={mp4For(bout.number)} />
+            <BoutCard
+              key={bout.number}
+              card={card}
+              bout={bout}
+              mp4={renders[bout.number]}
+            />
           ))}
         </div>
       </section>
 
       {/* --------------------------------------------- show sponsors */}
-      <section className="border-hairline border-t px-5 py-8">
-        <h2 className="label mb-5">Show sponsors</h2>
-        <div className="grid grid-cols-2 gap-5">
-          {showSponsors.map((sponsor) => (
-            <a
-              key={sponsor.id}
-              href={sponsor.url ?? "#"}
-              className="hover:opacity-100 opacity-80 transition-opacity"
-            >
-              <SponsorLockup sponsor={sponsor} size="md" />
-            </a>
-          ))}
-        </div>
-        <p className="text-ash-dim mt-6 text-xs leading-relaxed">
-          {event.promoter.name} would like to thank everyone who put money behind this
-          show. Without them there is no card.
-        </p>
-      </section>
+      {showSponsors(card).length ? (
+        <section className="border-hairline border-t px-5 py-8">
+          <h2 className="label mb-5">Show sponsors</h2>
+          <div className="grid grid-cols-2 gap-5">
+            {showSponsors(card).map((sponsor) => (
+              <SponsorLink
+                key={sponsor.id}
+                slug={event.slug}
+                sponsor={sponsor}
+                className="hover:opacity-100 opacity-80 transition-opacity"
+              />
+            ))}
+          </div>
+          <p className="text-ash-dim mt-6 text-xs leading-relaxed">
+            {event.promoter.name} would like to thank everyone who put money behind this
+            show. Without them there is no card.
+          </p>
+        </section>
+      ) : null}
 
       <footer className="border-hairline text-ash-dim border-t px-5 py-8 text-xs">
         <div className="flex items-center justify-between gap-4">

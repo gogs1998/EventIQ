@@ -1,4 +1,4 @@
-import { event } from "@/data/event";
+import type { Card } from "@/lib/card";
 import {
   countTo,
   easeOutBack,
@@ -13,17 +13,15 @@ import {
   boutBillingLabel,
   boutClassLine,
   boutFormat,
-  buildHooksFrom,
-  buildTapeFrom,
+  buildHooks,
+  buildTape,
   firstName,
   formatEventDateShort,
   formatRecord,
-  getFighter,
-  getSponsor,
   lastName,
   type TapeRow,
 } from "@/lib/tape";
-import type { Bout, Corner, Fighter, Sponsor } from "@/lib/types";
+import type { Bout, Corner, FightEvent, Fighter, Sponsor } from "@/lib/types";
 import { emberX, emberY, embers } from "./atmosphere";
 import { SCENES, SEQ } from "./timeline";
 
@@ -42,19 +40,27 @@ const GOLD = "#f0c04a";
 const EMBERS = embers(20);
 
 export function TaleOfTheTape({
+  card,
   bout,
   frame,
   red: redOverride,
   blue: blueOverride,
 }: {
+  /**
+   * The show this bout belongs to. Passed in rather than read from a module, so
+   * the component stays a function of its arguments and can be rendered from a
+   * database, from a test, or from the questionnaire preview without caring.
+   */
+  card: Card;
   bout: Bout;
   frame: number;
   /** Supplied by the questionnaire preview, where the fighter is not on the card yet. */
   red?: Fighter;
   blue?: Fighter;
 }) {
-  const red = redOverride ?? getFighter(bout.redId);
-  const blue = blueOverride ?? getFighter(bout.blueId);
+  const { event, sponsors } = card;
+  const red = redOverride ?? card.fighters[bout.redId];
+  const blue = blueOverride ?? card.fighters[bout.blueId];
 
   return (
     <div
@@ -67,14 +73,30 @@ export function TaleOfTheTape({
         color: "#f4f5f7",
       }}
     >
-      <Backdrop frame={frame} />
+      <Backdrop event={event} frame={frame} />
       <Embers frame={frame} />
 
-      <Billing bout={bout} frame={frame} />
-      <Reveal bout={bout} fighter={red} corner="red" frame={frame} scene={SCENES.red} />
-      <Reveal bout={bout} fighter={blue} corner="blue" frame={frame} scene={SCENES.blue} />
-      <HeadToHead bout={bout} frame={frame} red={red} blue={blue} />
-      <Close bout={bout} frame={frame} red={red} blue={blue} />
+      <Billing event={event} bout={bout} frame={frame} />
+      <Reveal
+        event={event}
+        sponsors={sponsors}
+        bout={bout}
+        fighter={red}
+        corner="red"
+        frame={frame}
+        scene={SCENES.red}
+      />
+      <Reveal
+        event={event}
+        sponsors={sponsors}
+        bout={bout}
+        fighter={blue}
+        corner="blue"
+        frame={frame}
+        scene={SCENES.blue}
+      />
+      <HeadToHead event={event} bout={bout} frame={frame} red={red} blue={blue} />
+      <Close event={event} sponsors={sponsors} bout={bout} frame={frame} red={red} blue={blue} />
 
       <Vignette />
     </div>
@@ -84,7 +106,7 @@ export function TaleOfTheTape({
 // ------------------------------------------------------------------- layers
 
 /** Drifts for the whole sequence so the cutouts always have something to move against. */
-function Backdrop({ frame }: { frame: number }) {
+function Backdrop({ event, frame }: { event: FightEvent; frame: number }) {
   const scale = interpolate(frame, [0, SEQ.duration], [1.05, 1.28]);
   const y = interpolate(frame, [0, SEQ.duration], [0, -70]);
 
@@ -222,13 +244,13 @@ function SponsorRow({
   );
 }
 
-function fighterSponsors(f: Fighter): Sponsor[] {
-  return (f.sponsorIds ?? []).map((id) => getSponsor(id)).filter((s): s is Sponsor => !!s);
+function fighterSponsors(f: Fighter, sponsors: Record<string, Sponsor>): Sponsor[] {
+  return (f.sponsorIds ?? []).map((id) => sponsors[id]).filter((s): s is Sponsor => !!s);
 }
 
 // ------------------------------------------------------------------- scene 1
 
-function Billing({ bout, frame }: { bout: Bout; frame: number }) {
+function Billing({ event, bout, frame }: { event: FightEvent; bout: Bout; frame: number }) {
   const { start, end } = SCENES.billing;
   const opacity = pulse(frame, start, start + 12, end - 14, end);
   if (opacity <= 0.001) return null;
@@ -317,12 +339,16 @@ function Billing({ bout, frame }: { bout: Bout; frame: number }) {
 // ------------------------------------------------------------- scenes 2 and 3
 
 function Reveal({
+  event,
+  sponsors,
   bout,
   fighter,
   corner,
   frame,
   scene,
 }: {
+  event: FightEvent;
+  sponsors: Record<string, Sponsor>;
   bout: Bout;
   fighter: Fighter;
   corner: Corner;
@@ -511,7 +537,7 @@ function Reveal({
 
         <div style={{ marginTop: 20 }}>
           <SponsorRow
-            sponsors={fighterSponsors(fighter)}
+            sponsors={fighterSponsors(fighter, sponsors)}
             opacity={progress(f, 52, 72)}
             size={58}
           />
@@ -595,11 +621,13 @@ function countedValue(
 }
 
 function HeadToHead({
+  event,
   bout,
   frame,
   red,
   blue,
 }: {
+  event: FightEvent;
   bout: Bout;
   frame: number;
   red: Fighter;
@@ -610,7 +638,7 @@ function HeadToHead({
   if (opacity <= 0.001) return null;
 
   const f = frame - start;
-  const rows = buildTapeFrom(red, blue);
+  const rows = buildTape(red, blue);
 
   const enter = (dir: number) => interpolate(f, [0, 40], [dir * 220, 0], easeOutCubic);
   const vsScale = interpolate(f, [4, 40], [1.6, 1], easeOutExpo);
@@ -937,11 +965,15 @@ function TapeValue({
 // ------------------------------------------------------------------- scene 5
 
 function Close({
+  event,
+  sponsors,
   bout,
   frame,
   red,
   blue,
 }: {
+  event: FightEvent;
+  sponsors: Record<string, Sponsor>;
   bout: Bout;
   frame: number;
   red: Fighter;
@@ -952,8 +984,8 @@ function Close({
   if (opacity <= 0.001) return null;
 
   const f = frame - start;
-  const hooks = buildHooksFrom(bout, red, blue);
-  const sponsor = getSponsor(bout.sponsorId);
+  const hooks = buildHooks(bout, red, blue);
+  const sponsor = bout.sponsorId ? sponsors[bout.sponsorId] : undefined;
 
   return (
     <div

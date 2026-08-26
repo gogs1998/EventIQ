@@ -2,10 +2,11 @@ import Link from "next/link";
 import { DemoReel } from "@/components/DemoReel";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
-import { event } from "@/data/event";
-import { chaseList, daysUntilShow, sponsorInventory } from "@/lib/promoter";
-import { mp4For } from "@/lib/renders";
-import { eventCompleteness, formatEventDateShort, getBout } from "@/lib/tape";
+import { boutsTopDown, cardCompleteness } from "@/lib/card";
+import { getDb } from "@/lib/db";
+import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
+import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
+import { formatEventDateShort } from "@/lib/tape";
 
 const steps = [
   {
@@ -55,12 +56,34 @@ const audiences = [
   },
 ];
 
-export default function PitchPage() {
-  const main = getBout(15)!;
-  const { score, done, total } = eventCompleteness();
-  const outstanding = chaseList().length;
-  const inventory = sponsorInventory();
-  const days = daysUntilShow();
+/**
+ * Every figure below is counted at request time, so prerendering this would
+ * freeze them at whatever they were when the Worker was last deployed. A page
+ * whose whole argument is "these numbers are real" cannot be a snapshot.
+ */
+export const dynamic = "force-dynamic";
+
+/**
+ * The pitch page runs on whatever show is currently published, not on a fixture.
+ *
+ * Every number in the prose below is counted from that card. It is the same data
+ * the programme and the dashboard read, so the sales copy cannot quietly drift
+ * away from what a promoter sees when they click through — which is exactly the
+ * kind of thing that gets noticed in a meeting.
+ */
+export default async function PitchPage() {
+  const db = await getDb();
+  const card = await loadShowcase(db);
+  if (!card) return <NothingPublished />;
+
+  const { event } = card;
+  const invites = await loadInvites(db, card.eventId);
+  const renders = await loadRenders(db, card.eventId);
+  const main = boutsTopDown(card)[0];
+  const { score, done, total } = cardCompleteness(card, DONE_AT);
+  const outstanding = chaseList(card, invites).length;
+  const inventory = sponsorInventory(card);
+  const days = daysUntilShow(event.date);
 
   return (
     <main className="w-full">
@@ -97,7 +120,7 @@ export default function PitchPage() {
       <section className="border-hairline border-t">
         <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
           <div>
-            <TapePlayer bout={main} mp4={mp4For(main.number)} />
+            <TapePlayer card={card} bout={main} mp4={renders[main.number]} />
           </div>
           <div>
             <span className="label">Every bout becomes this</span>
@@ -298,7 +321,7 @@ export default function PitchPage() {
                 body: "Who to chase, which bouts are ready, which sponsor slots are unsold.",
               },
               {
-                href: "/qr",
+                href: `/e/${event.slug}/qr`,
                 title: "The table card",
                 body: "The printable QR that goes on the tables and the doors.",
               },
@@ -325,10 +348,33 @@ export default function PitchPage() {
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
           <span className="label">EventIQ</span>
           <span>
-            Every fighter, gym and sponsor in this demo is invented.
+            Every fighter, gym and sponsor on the {event.name} card is invented.
           </span>
         </div>
       </footer>
+    </main>
+  );
+}
+
+/**
+ * What a fresh database looks like. Says so plainly rather than rendering a
+ * pitch with holes where the numbers should be.
+ */
+function NothingPublished() {
+  return (
+    <main className="mx-auto w-full max-w-3xl px-5 py-24">
+      <span className="label">EventIQ</span>
+      <h1 className="display mt-5 text-5xl leading-[0.9]">Digital programmes for fight shows</h1>
+      <p className="text-ash mt-6 text-base leading-relaxed">
+        There is no published show on this instance yet. Sign in and publish one, or seed
+        the demo card with <code className="text-chalk">npm run db:reset</code>.
+      </p>
+      <Link
+        href="/promoter"
+        className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+      >
+        Promoter sign in
+      </Link>
     </main>
   );
 }

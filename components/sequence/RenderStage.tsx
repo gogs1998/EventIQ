@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getBout } from "@/lib/tape";
+import { boutOf, type Card } from "@/lib/card";
 import { TaleOfTheTape } from "./TaleOfTheTape";
 import { SEQ } from "./timeline";
 
@@ -23,9 +23,9 @@ declare global {
  * `window.__setFrame`, which is far quicker than reloading 480 times and
  * guarantees every frame comes from the same page state.
  */
-export function RenderStage({ boutNumber }: { boutNumber: number }) {
+export function RenderStage({ card, boutNumber }: { card: Card; boutNumber: number }) {
   const [frame, setFrame] = useState(0);
-  const bout = getBout(boutNumber);
+  const bout = boutOf(card, boutNumber);
 
   useEffect(() => {
     window.__setFrame = (next: number) => setFrame(next);
@@ -67,7 +67,7 @@ export function RenderStage({ boutNumber }: { boutNumber: number }) {
         id="stage"
         style={{ width: SEQ.width, height: SEQ.height, overflow: "hidden" }}
       >
-        <TaleOfTheTape bout={bout} frame={frame} />
+        <TaleOfTheTape card={card} bout={bout} frame={frame} />
       </div>
     </>
   );

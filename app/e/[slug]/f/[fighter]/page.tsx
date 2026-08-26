@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FighterPortrait } from "@/components/FighterPortrait";
-import { SponsorLockup } from "@/components/SponsorLockup";
-import { event } from "@/data/event";
+import { SponsorLink } from "@/components/SponsorLink";
+import { TrackOpen } from "@/components/TrackOpen";
+import { fighterSponsors, type Card } from "@/lib/card";
+import { getDb } from "@/lib/db";
+import { loadCard } from "@/lib/db/queries";
+import { currentPromoter } from "@/lib/session";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -11,53 +15,48 @@ import {
   finishCount,
   formatEventDateShort,
   formatRecord,
-  getFighter,
-  getSponsor,
   totalFights,
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
 
-function boutFor(fighterId: string) {
-  const bout = event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
+function boutFor(card: Card, fighterId: string) {
+  const bout = card.event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
   if (!bout) return undefined;
   return { bout, corner: (bout.redId === fighterId ? "red" : "blue") as Corner };
-}
-
-export function generateStaticParams() {
-  const ids = new Set(event.bouts.flatMap((b) => [b.redId, b.blueId]));
-  return [...ids].map((fighter) => ({ slug: event.slug, fighter }));
 }
 
 export async function generateMetadata({
   params,
 }: PageProps<"/e/[slug]/f/[fighter]">): Promise<Metadata> {
-  const { fighter: id } = await params;
-  try {
-    const fighter = getFighter(id);
-    return {
-      title: `${fighter.name} — ${event.name}`,
-      description: `${fighter.name}, ${fighter.gym}. Fighting at ${event.name}, ${formatEventDateShort(event.date)}.`,
-    };
-  } catch {
-    return {};
-  }
+  const { slug, fighter: id } = await params;
+  const card = await loadCard(await getDb(), slug);
+  const fighter = card?.fighters[id];
+  if (!card || !fighter) return {};
+
+  return {
+    title: `${fighter.name} — ${card.event.name}`,
+    description: `${fighter.name}, ${fighter.gym}. Fighting at ${card.event.name}, ${formatEventDateShort(card.event.date)}.`,
+  };
 }
 
 export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fighter]">) {
   const { slug, fighter: id } = await params;
-  if (slug !== event.slug) notFound();
+  const card = await loadCard(await getDb(), slug);
+  if (!card) notFound();
 
-  const found = event.bouts.some((b) => b.redId === id || b.blueId === id);
-  if (!found) notFound();
+  if (!card.published) {
+    const promoter = await currentPromoter();
+    if (promoter?.id !== card.promoterId) notFound();
+  }
 
-  const fighter = getFighter(id);
-  const assignment = boutFor(id);
+  const fighter = card.fighters[id];
+  if (!fighter) notFound();
+
+  const assignment = boutFor(card, id);
   const corner: Corner = assignment?.corner ?? "red";
   const record = formatRecord(fighter);
   const { score, missing } = completeness(fighter);
-  const sponsors = (fighter.sponsorIds ?? [])
-    .map((sid) => getSponsor(sid))
-    .filter((s): s is NonNullable<typeof s> => !!s);
+  const sponsors = fighterSponsors(card, fighter);
 
   const stats: { label: string; value?: string }[] = [
     { label: "Record", value: record },
@@ -72,6 +71,8 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
   return (
     <main className="mx-auto w-full max-w-xl">
+      <TrackOpen slug={card.event.slug} kind="profile_view" fighterId={fighter.id} />
+
       <div className="relative">
         <FighterPortrait
           fighter={fighter}
@@ -106,7 +107,7 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
       {assignment ? (
         <Link
-          href={`/e/${event.slug}`}
+          href={`/e/${card.event.slug}`}
           className="border-hairline hover:border-chalk/30 flex items-center justify-between gap-3 border-b px-5 py-4 transition-colors"
         >
           <div>
@@ -186,9 +187,13 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
           <h2 className="label mb-4">Backed by</h2>
           <div className="grid gap-4">
             {sponsors.map((sponsor) => (
-              <a key={sponsor.id} href={sponsor.url ?? "#"}>
-                <SponsorLockup sponsor={sponsor} size="md" />
-              </a>
+              <SponsorLink
+                key={sponsor.id}
+                slug={card.event.slug}
+                sponsor={sponsor}
+                fighterId={fighter.id}
+                boutNumber={assignment?.bout.number}
+              />
             ))}
           </div>
         </section>
@@ -203,8 +208,8 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
       <footer className="border-hairline text-ash-dim border-t px-5 py-8 text-xs">
         <div className="flex items-center justify-between">
-          <span className="label">{event.name}</span>
-          <Link href={`/e/${event.slug}`} className="hover:text-chalk transition-colors">
+          <span className="label">{card.event.name}</span>
+          <Link href={`/e/${card.event.slug}`} className="hover:text-chalk transition-colors">
             Full programme
           </Link>
         </div>

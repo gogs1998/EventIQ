@@ -6,7 +6,8 @@ import { FighterPortrait } from "@/components/FighterPortrait";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
-import { event } from "@/data/event";
+import { track } from "@/lib/analytics";
+import { fighterOf, fighterSponsors, sponsorOf, type Card } from "@/lib/card";
 import { cx } from "@/lib/cx";
 import {
   boutBillingLabel,
@@ -16,15 +17,9 @@ import {
   buildTape,
   firstName,
   formatRecord,
-  getFighter,
-  getSponsor,
   lastName,
 } from "@/lib/tape";
-import type { Bout, Corner, Fighter, Sponsor } from "@/lib/types";
-
-function sponsorsFor(f: Fighter): Sponsor[] {
-  return (f.sponsorIds ?? []).map((id) => getSponsor(id)).filter((s): s is Sponsor => !!s);
-}
+import type { Bout, Corner, Fighter } from "@/lib/types";
 
 function FighterSide({
   fighter,
@@ -76,8 +71,18 @@ function FighterSide({
   );
 }
 
-function FighterDetail({ fighter, corner }: { fighter: Fighter; corner: Corner }) {
-  const sponsors = sponsorsFor(fighter);
+function FighterDetail({
+  card,
+  bout,
+  fighter,
+  corner,
+}: {
+  card: Card;
+  bout: Bout;
+  fighter: Fighter;
+  corner: Corner;
+}) {
+  const sponsors = fighterSponsors(card, fighter);
   const accent = corner === "red" ? "border-l-red-corner" : "border-l-blue-corner";
 
   return (
@@ -134,7 +139,7 @@ function FighterDetail({ fighter, corner }: { fighter: Fighter; corner: Corner }
         ) : null}
 
         <Link
-          href={`/e/${event.slug}/f/${fighter.id}`}
+          href={`/e/${card.event.slug}/f/${fighter.id}`}
           className="label hover:text-chalk transition-colors"
         >
           Full profile
@@ -146,7 +151,21 @@ function FighterDetail({ fighter, corner }: { fighter: Fighter; corner: Corner }
           <span className="label">Backed by</span>
           <div className="mt-1.5 flex flex-wrap gap-4">
             {sponsors.map((s) => (
-              <SponsorLockup key={s.id} sponsor={s} size="sm" />
+              <a
+                key={s.id}
+                href={s.url ?? "#"}
+                onClick={() =>
+                  track({
+                    slug: card.event.slug,
+                    kind: "sponsor_tap",
+                    sponsorId: s.id,
+                    fighterId: fighter.id,
+                    boutNumber: bout.number,
+                  })
+                }
+              >
+                <SponsorLockup sponsor={s} size="sm" />
+              </a>
             ))}
           </div>
         </div>
@@ -155,14 +174,25 @@ function FighterDetail({ fighter, corner }: { fighter: Fighter; corner: Corner }
   );
 }
 
-export function BoutCard({ bout, mp4 }: { bout: Bout; mp4?: string }) {
+export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: string }) {
   const [open, setOpen] = useState(false);
-  const red = getFighter(bout.redId);
-  const blue = getFighter(bout.blueId);
-  const hooks = buildHooks(bout);
-  const rows = buildTape(bout);
-  const sponsor = getSponsor(bout.sponsorId);
+  const red = fighterOf(card, bout.redId);
+  const blue = fighterOf(card, bout.blueId);
+  const hooks = buildHooks(bout, red, blue);
+  const rows = buildTape(red, blue);
+  const sponsor = sponsorOf(card, bout.sponsorId);
   const headline = bout.billing === "MAIN";
+
+  const expand = () => {
+    setOpen((wasOpen) => {
+      // Counted on the way open only. Counting the close as well would double
+      // every number a promoter sends a sponsor.
+      if (!wasOpen) {
+        track({ slug: card.event.slug, kind: "bout_expand", boutNumber: bout.number });
+      }
+      return !wasOpen;
+    });
+  };
 
   return (
     <article
@@ -174,7 +204,7 @@ export function BoutCard({ bout, mp4 }: { bout: Bout; mp4?: string }) {
     >
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={expand}
         aria-expanded={open}
         className="block w-full p-4 text-left"
       >
@@ -249,12 +279,12 @@ export function BoutCard({ bout, mp4 }: { bout: Bout; mp4?: string }) {
 
           <div>
             <div className="label mb-2">Watch the tape</div>
-            <TapePlayer bout={bout} mp4={mp4} />
+            <TapePlayer card={card} bout={bout} mp4={mp4} />
           </div>
 
           <div className="grid gap-4">
-            <FighterDetail fighter={red} corner="red" />
-            <FighterDetail fighter={blue} corner="blue" />
+            <FighterDetail card={card} bout={bout} fighter={red} corner="red" />
+            <FighterDetail card={card} bout={bout} fighter={blue} corner="blue" />
           </div>
         </div>
       ) : null}
