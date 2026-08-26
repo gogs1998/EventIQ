@@ -39,7 +39,7 @@ const RED = "#e8121f";
 const BLUE = "#1668f0";
 const GOLD = "#f0c04a";
 
-const EMBERS = embers(34);
+const EMBERS = embers(20);
 
 export function TaleOfTheTape({
   bout,
@@ -830,7 +830,6 @@ function FaceOff({
             // Mirror the blue corner so the two of them square up.
             transform: corner === "blue" ? "scaleX(-1)" : undefined,
             maskImage: "linear-gradient(to bottom, #000 62%, transparent 96%)",
-            filter: "drop-shadow(0 30px 40px rgba(0,0,0,0.7))",
           }}
         />
       ) : (

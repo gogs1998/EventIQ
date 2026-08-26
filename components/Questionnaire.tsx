@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
@@ -157,7 +157,12 @@ export function Questionnaire() {
   const opponent = getFighter(bout.redId);
   const base = getFighter(FIGHTER_ID);
 
+  // Repainting the full 1080x1920 preview on every keystroke makes typing feel
+  // sticky, so the preview trails the input by a frame or two instead.
+  const settled = useDeferredValue(draft);
+
   const fighter: Fighter = useMemo(() => {
+    const draft = settled;
     const w = num(draft.w);
     const l = num(draft.l);
     const d = num(draft.d);
@@ -184,24 +189,33 @@ export function Questionnaire() {
       styleTags: draft.styleTags.length ? draft.styleTags : undefined,
       sponsorIds: draft.sponsorIds.length ? draft.sponsorIds : undefined,
     };
-  }, [base, draft]);
+  }, [base, settled]);
 
   const { score, missing } = completeness(fighter);
 
   const playReveal = () => {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
     const { start, end } = SCENES.blue;
-    const began = performance.now();
-    const step = () => {
-      const f = start + ((performance.now() - began) / 1000) * FPS;
-      if (f >= end) {
-        setFrame(start + 84);
-        raf.current = null;
-        return;
+    const frameMs = 1000 / FPS;
+    let current = start;
+    let last = performance.now();
+
+    const step = (now: number) => {
+      // Capped catch-up, so a slow device plays this slowly rather than jumping.
+      const behind = Math.floor((now - last) / frameMs);
+      if (behind > 0) {
+        last += behind * frameMs;
+        current += Math.min(behind, 3);
+        if (current >= end) {
+          setFrame(start + 84);
+          raf.current = null;
+          return;
+        }
+        setFrame(current);
       }
-      setFrame(f);
       raf.current = requestAnimationFrame(step);
     };
+
     raf.current = requestAnimationFrame(step);
   };
 
