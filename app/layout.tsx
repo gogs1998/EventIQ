@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Anton, Oswald, Roboto_Mono } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const anton = Anton({
@@ -21,10 +22,29 @@ const robotoMono = Roboto_Mono({
   display: "swap",
 });
 
+const description =
+  "Scan the code, get the whole card. Every bout with a tale of the tape, every fighter with a story, every sponsor in the room.";
+
 export const metadata: Metadata = {
+  // Absolute in the built output, so shared links and og:image resolve wherever
+  // this is deployed rather than only on localhost.
+  metadataBase: new URL(SITE_URL),
   title: "EventIQ — digital fight programmes",
-  description:
-    "Scan the code, get the whole card. Every bout with a tale of the tape, every fighter with a story, every sponsor in the room.",
+  description,
+  applicationName: "EventIQ",
+  openGraph: {
+    type: "website",
+    siteName: "EventIQ",
+    title: "EventIQ — digital fight programmes",
+    description,
+    url: "/",
+    locale: "en_GB",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "EventIQ — digital fight programmes",
+    description,
+  },
 };
 
 export const viewport: Viewport = {
