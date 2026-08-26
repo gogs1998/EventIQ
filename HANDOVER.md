@@ -27,9 +27,11 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 143 unit tests and a 22-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 172 unit tests and a 24-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
+
+An independent audit after that found three more, all fixed: **the capture page the video renderer screenshots was serving unpublished shows to anybody who could guess a slug** (bug 27, section 6c — it is the one that mattered), the copy around an empty card still read as a fault even after the crash behind it was fixed (bug 28), and the local dev server had started redirecting every one of its own requests to a port with no https on it (bug 29).
 
 **It is a working application, not a demo of one.** The five things that were faked are real:
 
@@ -60,7 +62,7 @@ It has since been through a code review and a security review, which found six t
 | `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
 | `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
 | `/promoter/login` | Sign in | public |
-| `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | unlisted |
+| `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
 | `/media/[...key]` | Serves R2 objects | public |
 | `/api/track` | Records one interaction | public, write-only |
 | `/api/import-record` | Fetches and parses one record page | public |
@@ -202,7 +204,9 @@ The SQL is generated at seed time and **never committed**. Invite tokens are the
 
 ## 6a. Authentication
 
-Two kinds of caller, and neither justifies an identity provider.
+Three kinds of caller, and none of them justifies an identity provider. The
+promoter and the fighter are here; the third is the mp4 renderer, which is a
+machine holding one shared key, and it gets section 6c.
 
 **The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at **100,000 iterations**, and the session is a **signed cookie**, not a row: `{promoterId, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. The expiry is inside the signature so the holder cannot extend it. Comparison is constant-time.
 
@@ -246,6 +250,39 @@ So [lib/image-type.ts](lib/image-type.ts) reads the first few bytes and decides 
 - **`Content-Security-Policy: default-src 'none'; sandbox`** and **`X-Content-Type-Options: nosniff`** on every response. So even a document that reached the bucket and got past the disposition has no origin to act in and cannot fetch anything.
 
 Proved rather than reasoned about: an SVG carrying `alert(document.domain)` was pushed at the live server action twice, once declared `image/jpeg` and once declared `image/svg+xml`, and refused both times with nothing written to R2; a real photograph still uploads and comes back `image/jpeg`, `inline`; and an SVG planted directly in the bucket is served `application/octet-stream` as an attachment.
+
+---
+
+## 6c. The render key, and why the renderer could not use the publish check
+
+`/render/[slug]/[bout]` is the page headless Chrome screenshots 480 times. It has to serve a card **before** it is published, because a promoter renders the videos while they are still filling the card in — that is what rendering a card is for. So it could not go behind `loadVisibleCard`, and for a while that meant it went behind nothing.
+
+An audit probed an isolated unpublished show on production and got this, which is the whole argument in four lines:
+
+| Route | Then | Now |
+| --- | --- | --- |
+| `/e/probe-gate-2` | 404 | 404 |
+| `/e/probe-gate-2/qr` | 404 | 404 |
+| `/e/probe-gate-2/f/probe-red-fighter` | 404 | 404 |
+| `/render/probe-gate-2/1` | **200** — event name, venue, city, date, both fighters, gym | 404 |
+
+**The route was protected by being unlisted, and a slug is the promoter's own show name.** Anybody who knows a promoter has a show coming can type it. `robots.txt` disallows `/render/`, which keeps it out of a search index and is not a control.
+
+The fix is a credential of its own rather than the publish check. Either of two things gets in:
+
+- **`RENDER_KEY` in an `x-eventiq-render-key` header.** This is what the renderer holds. Set with `wrangler secret put`, compared by digesting both sides and comparing the digests, so the comparison neither returns early nor leaks a length.
+- **A promoter session that owns the show**, so a promoter can open the capture page in their own browser and see what the video will look like.
+
+Four decisions in it worth keeping:
+
+- **An unset secret denies.** No default, no empty-string shortcut. A deployment that forgot `wrangler secret put` refuses everybody rather than accepting anybody, and it would have looked exactly like a working deployment until somebody probed it. `secretMatches` returns false the moment either side is missing and there is a test for each way round.
+- **404, not 401 or 403.** The other draft routes answer 404, so a wrong key and a slug that does not exist are indistinguishable. The cost is that a wrong key looks like a wrong slug to whoever is running the renderer, so `scripts/render-tape.mjs` checks the response status and says which it probably is — otherwise the symptom is a two-minute wait for `window.__ready` that never arrives.
+- **The same rule for a published show as for a draft.** A quieter second way to read a published card is worth nothing to a spectator, and one rule is one thing to get right. `/render/cage-county-12/15` is 404 to a stranger too.
+- **The rule lives in [lib/visibility.ts](lib/visibility.ts) beside the publish check**, not in the route. That file is now the only place that decides who may see a card, which is the lesson from bug 23 applied to the route that had to be the exception.
+
+`scripts/render-tape.mjs` sends the header with `page.setExtraHTTPHeaders`, so every request the capture page makes carries it, and reads the key from the shell first and `.dev.vars` second — the same file the local server reads, so nothing has to be exported to render locally. The header name is written out in that script rather than imported, because it is plain Node and cannot import a TypeScript module; the status check is what stops that duplication turning into a silent 480-frame capture of a 404 page.
+
+Proved against production after deploying: anonymous request 404 and nothing leaked, wrong key 404, empty key 404, correct key 200, owning promoter's session 200 — and then bout 15 rendered end to end at 1080x1920, 480 frames, 16.000 seconds, 1.6MB. Closing a hole by breaking the video pipeline would have been a bad trade, so the pipeline was run rather than assumed.
 
 ---
 
@@ -408,6 +445,8 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 [scripts/render-tape.mjs](scripts/render-tape.mjs) reads the running order out of D1, captures 480 frames per bout, streams them into ffmpeg, puts the mp4 in R2 and writes the key into `render_jobs`. It talks to D1 and R2 through wrangler rather than through an API of our own, because anyone who can run it already holds the Cloudflare credentials and a write endpoint on the public site would be a way in for no gain.
 
+**It needs `RENDER_KEY` as well as `CLOUDFLARE_API_TOKEN`.** The capture page it screenshots is not public — section 6c, and [DEPLOY.md](DEPLOY.md#video-rendering) for the operational half. Without the key the script says so before it launches Chrome.
+
 It fingerprints the inputs to each bout and stores the hash with the job, so `--stale` renders only the bouts whose fighters have changed. A fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
 
 **Cloudflare Browser Rendering does not solve this.** It can drive a browser; it cannot run ffmpeg. Do not go round that loop again.
@@ -425,7 +464,7 @@ The build was held up for a while on **Account · D1 · Edit** being missing fro
 Four things that bit, and will bite again on a fresh account:
 
 1. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
-2. **`SESSION_SECRET` has to exist before the first deploy** or the promoter area refuses to serve. There is no fallback, deliberately.
+2. **`SESSION_SECRET` and `RENDER_KEY` have to exist before the first deploy.** Without the first the promoter area refuses to serve; without the second nothing can render a video. Neither has a fallback, deliberately, and the second one fails quietly from the outside — the render route just carries on answering 404. `npx wrangler secret list` is the check.
 3. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
 4. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
 
@@ -437,7 +476,7 @@ Four things that bit, and will bite again on a fresh account:
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET and the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, the seed password
 npm run db:reset                   # migrate + seed the local D1
 npm run dev                        # http://localhost:3000
 ```
@@ -463,7 +502,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-[scripts/e2e.mjs](scripts/e2e.mjs) drives 22 steps through the whole product: sign in with the wrong password and the right one, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
+[scripts/e2e.mjs](scripts/e2e.mjs) drives 24 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger and open to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
 
 The unit tests cover the derivation layer, which is pure and therefore easy. This covers the half that is not, and it is the only thing that would catch a form posting to the wrong action or a cookie that never gets set.
 
@@ -505,6 +544,14 @@ Six more, found by reviewing the finished thing rather than by using it. Worth r
 25. **A promoter could blank a fighter's name.** `updateFighter` wrote whatever was in the box, so clearing the field persisted an empty string, which renders as a gap on the public programme and in the video. `updateEvent` had had the answer next to it the whole time — it falls back to the stored value on a blank — which is worth noticing, because the fix was already in the file.
 26. **The open importer could be made to write unbounded rows into D1.** Section 8a, "What stops it being a proxy for anybody who finds it". Two things worth remembering beyond this project: Cloudflare's rate limiting binding counts per location and is documented as best-effort, so a local test cannot show you the live bound; and a burst sent one connection at a time gets a fresh egress address each time and never trips it, which looks exactly like a limiter that was never wired up.
 
+### From the independent audit
+
+Three more, and the first is the most serious thing found in this project so far.
+
+27. **The capture page for the video renderer served unpublished shows to anybody who could guess a slug.** Full account in section 6c. The part worth carrying forward is *why it survived the review that put the publish check in one place*: the route had a legitimate reason not to use the gate — the renderer works on a draft, which is the point of it — and a comment saying so. That comment was true and it was also the end of the thinking. **"This one is different" is where the next hole will be**, so the answer was to give the exception its own rule in the same file as the gate rather than to leave it with none. It is also a reminder that "unlisted" is not a control when the identifier is the promoter's own show name.
+28. **The empty-card copy read as a fault rather than as a state.** Publishing a show before entering its running order stopped crashing (bug 22) but the prose around it was left interpolating the count: "a tale of the tape for all **0 bouts**" on the pitch page, a running order headed "**0 BOUTS**" that still said to tap one, four dashboard figures reading 0/0, and — worst of the lot — a chase list whose empty state congratulated the promoter that "every profile on the card is finished" about a card with nobody on it. **Fixing the crash is not finishing the case.** The count-bearing sentences are in [lib/copy.ts](lib/copy.ts) now, where the zero can be tested, and the programme, the dashboard and the card editor have deliberate empty states in the register `/f/demo` already used. There is a test asserting that no zero-bout string states a count, invites a tap, or breaks the tone rules the nudge message is held to. It also caught a hardcoded "the same fifteen slots you are already selling", which was wrong on every card that is not fifteen bouts long.
+29. **The local dev server redirected every one of its own requests to a port with no https on it.** The http-to-https redirect in [proxy.ts](proxy.ts) keyed on `x-forwarded-proto`, on the reasoning that the header is only present when something is in front of the Worker. `next dev` sets it to `http` on everything it serves, so `npm run dev` answered 308 to `https://localhost:3000` for every page — including the capture page, which is why the renderer could not run against a local dev server either. It is keyed on the hostname now. Worth noticing that this had been true for a while and was invisible, because everything anybody had checked recently was checked against production.
+
 ---
 
 ## 15. Environment notes
@@ -521,7 +568,7 @@ Six more, found by reviewing the finished thing rather than by using it. Worth r
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 143 unit tests
+npm test                     # 172 unit tests
 npm run lint
 npm run typecheck
 
@@ -537,12 +584,16 @@ npm run e2e -- --base http://localhost:8788
 
 npm run assets                                       # cutouts, from assets-src/
 npm run icons                                        # favicon, apple icon, manifest icons
+
+# Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
+# deployed site. Section 6c.
 npm run render -- --slug cage-county-12 --list
 npm run render -- --slug cage-county-12 --bout 15 --still 300   # one PNG, fastest iteration
 npm run render -- --slug cage-county-12 --stale --publish
 
 npm run shots                            # gallery screenshots + the Open Graph card
 node scripts/deploy.mjs --check          # what the token can and cannot do
+npx wrangler secret list                 # SESSION_SECRET and RENDER_KEY, both required
 npm run deploy                           # build and push the Worker
 npm run e2e -- --base https://eventiq.win --password '...'
 ```
@@ -617,6 +668,8 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
 - **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It needs consent wording, a privacy notice, a retention policy and a basis for publishing. The questionnaire is the natural consent point — design it in rather than bolting it on. This is now more urgent than it was, because the data is stored rather than living in a browser tab.
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
+- **So is the render key.** It is one shared secret held by whatever machine renders the videos, and anybody holding it can read any card on the instance, published or not. That is the right size of credential for a machine doing one job, but it wants rotating if the renderer ever runs somewhere less trusted than the operator's own laptop, and per-promoter keys would be the next step if there is ever more than one promoter. Rotation costs nothing else: nothing but the renderer reads it.
+- **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.
 - **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. Same consent point.
 - **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission.
 - **Remotion licensing** if the render harness is ever swapped. Section 4.

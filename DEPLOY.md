@@ -17,6 +17,12 @@ secret in place before anything is uploaded.
 > http. See [HTTPS at the edge](#https-at-the-edge). Before changing anything in
 > `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
 > — the runtime enforces a limit that no local test can observe.
+>
+> **There are now two secrets, not one.** `RENDER_KEY` joined
+> `SESSION_SECRET` when the capture page the video renderer screenshots stopped
+> being reachable by anybody who could guess a slug. It is set in production. A
+> fresh deployment without it renders no videos — see
+> [section 4](#4-set-the-secrets).
 
 ---
 
@@ -90,18 +96,45 @@ npx wrangler r2 bucket create eventiq-media
 npx wrangler d1 migrations apply eventiq --remote
 ```
 
-## 4. Set the session secret
+## 4. Set the secrets
+
+There are two, and the Worker needs both. Neither has a fallback and neither has
+a default.
 
 ```bash
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
+openssl rand -base64 36 | npx wrangler secret put RENDER_KEY
 ```
 
-This signs the promoter's login cookie. There is no fallback and no default: a
-Worker without it refuses to serve the promoter area rather than accepting
-sessions signed with something guessable.
+**`SESSION_SECRET`** signs the promoter's login cookie. A Worker without it
+refuses to serve the promoter area rather than accepting sessions signed with
+something guessable. Rotating it signs everybody out, which is the whole of the
+revocation story and is deliberate — see section 6a of
+[HANDOVER.md](HANDOVER.md).
 
-Rotating it signs everybody out, which is the whole of the revocation story and
-is deliberate — see section 6 of [HANDOVER.md](HANDOVER.md).
+**`RENDER_KEY`** is what the mp4 renderer presents to reach
+`/render/[slug]/[bout]`, the page headless Chrome screenshots. That page cannot
+go behind the publish check, because rendering a card before it is published is
+the point of rendering it, so it takes a key of its own instead. **Without this
+secret the render route refuses everybody who is not the signed-in promoter who
+owns the show, and `npm run render` stops working** with the error saying so.
+Keep the same value in the environment of whatever machine runs the renderer —
+see [video rendering](#video-rendering).
+
+An unset `RENDER_KEY` denies rather than allows, which is the right way round
+but does mean it fails quietly from the outside: the route simply carries on
+answering 404. If rendering has stopped working and nothing else has, check
+`npx wrangler secret list` first.
+
+Check what is set at any time:
+
+```bash
+npx wrangler secret list
+```
+
+Secrets survive a deploy. Both of these were confirmed present after
+`npm run deploy`, which is worth knowing because `wrangler.jsonc` declares
+neither.
 
 ## 5. Seed the first promoter
 
@@ -191,6 +224,10 @@ a real database behind them:
    from the origin it is served from, so on the live site it points at the live
    site. **Reprint the table card once the site is live**; one printed from a
    laptop is useless at a venue.
+8. `/render/cage-county-12/15` signed out — **404**, and 200 with the render key
+   in an `x-eventiq-render-key` header or with the owning promoter's session.
+   That route reads a card whether or not it is published, so it is the one
+   worth checking by hand after any deploy.
 
 The same walk is automated:
 
@@ -265,9 +302,35 @@ where the programme reads it from. `--stale` renders only the bouts whose
 fighters have changed since the last render; a fifteen-bout card is about a
 quarter of an hour of compute.
 
-The machine running it needs the same `CLOUDFLARE_API_TOKEN` and a `--base`
-pointing at somewhere the card can be rendered from — either the deployed site
-or a local dev server against the same data.
+The machine running it needs three things: the same `CLOUDFLARE_API_TOKEN`, a
+`--base` pointing at somewhere the card can be rendered from — either the
+deployed site or a local dev server against the same data — and **`RENDER_KEY`,
+matching the Worker secret of the same name.**
+
+```bash
+export RENDER_KEY='...'                # the value from `wrangler secret put`
+npm run render -- --slug cage-county-12 --bout 15 --base https://eventiq.win --remote
+```
+
+The key goes out as an `x-eventiq-render-key` header, set with
+`page.setExtraHTTPHeaders` so every request the capture page makes carries it.
+Against a local `next dev` or `wrangler dev` the script reads it out of
+`.dev.vars` instead, the same file the server reads, so nothing needs exporting
+locally.
+
+Two failures and what they look like:
+
+- **`RENDER_KEY is not set, so the capture page will refuse this render.`** The
+  script checks before launching Chrome. Set it, or add it to `.dev.vars`.
+- **`… answered 404.`** The show and bout are fine and the key is wrong. The
+  render route answers 404 rather than 401 or 403, on purpose, so that it will
+  not confirm which slugs exist — which means a wrong key and a wrong slug look
+  identical from outside. The script says so in the message rather than leaving
+  you to guess.
+
+Verified against production after the key went in: bout 15 of `cage-county-12`
+renders in 58 seconds to 1080x1920, 480 frames at 30fps, 16.000 seconds exactly,
+1.6MB.
 
 ## The PBKDF2 ceiling, and why local tests cannot see it
 
@@ -347,6 +410,14 @@ Worker to run first would close the gap at the cost of an invocation on every
 image on the site, to do a job the zone setting already does properly and for
 free. Hence the toggle.
 
+**The same redirect used to take the local dev server down with it.** The check
+read `x-forwarded-proto`, on the reasoning that the header only exists when
+something is in front of the Worker. `next dev` sets it to `http` on everything
+it serves, so a plain `npm run dev` answered 308 to `https://localhost:3000`,
+which nothing is listening on — every page, and the capture page the renderer
+screenshots. It is keyed on the hostname now, which is the thing actually being
+protected and is never `localhost`.
+
 ## The site URL
 
 `NEXT_PUBLIC_SITE_URL` sets the canonical address at build time and defaults to
@@ -376,12 +447,20 @@ What remains is operational rather than technical:
 5. **Render the tapes into R2.** The programme falls back to playing the
    sequence live in the browser where no mp4 exists, so this is a quality step
    rather than a fix. See [video rendering](#video-rendering).
+6. **Get `RENDER_KEY` to whoever runs the renderer, and put it somewhere it will
+   survive them.** It is set on the Worker and there is no way to read it back
+   out, so if the only copy is in one person's shell the next render is a
+   rotation. Rotating it is one `wrangler secret put` and an update wherever the
+   renderer runs — nothing else in the product reads it, so a rotation costs no
+   sessions and no data.
 
 Done since this list was last written: the `eventiq-photos` bucket has been
 deleted (it held one orphaned photograph from an end-to-end run against a
 deployment that briefly bound it; `eventiq-media` is the only bucket now), the
-promoter password and `SESSION_SECRET` have been rotated, and the PBKDF2
-iteration count has been brought down to something the runtime will run.
+promoter password and `SESSION_SECRET` have been rotated, the PBKDF2 iteration
+count has been brought down to something the runtime will run, and `RENDER_KEY`
+has been generated and set so the capture page stopped serving unpublished shows
+to anybody who could guess a slug.
 
 ## Rolling back
 

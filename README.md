@@ -23,7 +23,7 @@ Amateur shows run on paper. A real programme from a real event gives you a fight
 | `/f/[token]` | A fighter's questionnaire, reached by their own invite link |
 | `/f/demo` | The questionnaire as a walkthrough, saving nothing |
 | `/promoter` | The promoter's area, behind a password |
-| `/render/[slug]/[bout]` | Capture surface for the video exporter, not linked from the programme |
+| `/render/[slug]/[bout]` | Capture surface for the video exporter. Needs the render key, or the promoter who owns the show |
 
 ## Architecture
 
@@ -35,7 +35,7 @@ Video rendering is the one part that does not run on Cloudflare, because headles
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET and the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY and the seed password
 npm run db:reset                   # migrate and seed the local database
 npm run dev
 ```
@@ -45,7 +45,7 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 102 unit tests
+npm test           # 172 unit tests
 npm run lint
 npm run typecheck
 npm run build
@@ -66,7 +66,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 22 steps: sign in, add a bout, watch it appear on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+Drives a browser through 24 steps: sign in, check the renderer's capture page is shut to a stranger and open to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
 
 ## The tale of the tape
 
@@ -125,6 +125,8 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 Reads the running order from D1, captures the frames, puts the mp4 in R2 and records the key in `render_jobs`, which is where the programme looks for it. `--stale` renders only the bouts whose fighters have changed since the last render. One bout is about a minute.
 
+It needs `RENDER_KEY` — the capture page it screenshots serves cards that are not published yet, so it is not public. Locally that comes out of `.dev.vars`; against the deployed site export it to match the Worker secret. See section 6c of the handover.
+
 `--bout 15 --still 300` dumps a single frame as a PNG, which is the quickest way to iterate on the composition.
 
 ## Regenerating assets
@@ -158,7 +160,7 @@ npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, 
 
 ## Deploying
 
-[DEPLOY.md](DEPLOY.md) has the full procedure. In short: create the D1 database and the R2 bucket, put `SESSION_SECRET` in place, seed a promoter, then `npm run deploy`.
+[DEPLOY.md](DEPLOY.md) has the full procedure. In short: create the D1 database and the R2 bucket, put `SESSION_SECRET` and `RENDER_KEY` in place, seed a promoter, then `npm run deploy`.
 
 ```bash
 node scripts/deploy.mjs --check    # what the current token can and cannot do
