@@ -1,6 +1,6 @@
 # EventIQ
 
-Digital fight programmes for amateur MMA.
+Digital fight programmes for amateur MMA. Running at **https://eventiq.win**.
 
 > Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things.
 
@@ -164,7 +164,7 @@ npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, 
 node scripts/deploy.mjs --check    # what the current token can and cannot do
 ```
 
-**Not yet live.** The API token has Workers and R2 but not D1, so the database cannot be created. That is the only thing in the way.
+**Live at https://eventiq.win.** `npm run e2e -- --base https://eventiq.win` walks the whole product against it. Note that it writes as it goes, so it is not something to point at a card a promoter is using.
 
 ## What is real and what is not
 

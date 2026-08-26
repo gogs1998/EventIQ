@@ -6,11 +6,11 @@ data and **R2** for photographs and rendered video. It is no longer a folder of
 files, so deploying it means creating two pieces of infrastructure and putting a
 secret in place before anything is uploaded.
 
-> **Status: blocked on one token permission.** Everything below has been run
-> against local bindings and the Worker bundle has been built and validated with
-> `wrangler deploy --dry-run`. The R2 bucket exists. The D1 database does not,
-> because the current API token cannot see D1 at all. See
-> [what is left to do](#what-is-left-to-do).
+> **Status: live at https://eventiq.win.** The D1 permission arrived, so the
+> database was created, migrated and seeded, and the Worker is deployed with the
+> custom domain attached. Every step below has been run against the real
+> account, and the whole product has been walked end to end in production with
+> `npm run e2e -- --base https://eventiq.win` (22 checks, all passing).
 
 ---
 
@@ -207,25 +207,23 @@ card still works off a laptop screen in a meeting.
 
 ## What is left to do
 
-1. **Add `Account · D1 · Edit` to the API token.** This is the only thing
-   blocking a live site. Verified against the current token:
+Nothing is blocking the site. The token now answers 200 on all four account
+endpoints the deploy needs, the database is provisioned, migrated and seeded,
+and `https://eventiq.win` serves the card out of D1.
 
-   | Endpoint | Result |
-   | --- | --- |
-   | `accounts/:id/workers/scripts` | 200 |
-   | `accounts/:id/r2/buckets` | 200 |
-   | `accounts/:id` | 200 |
-   | `accounts/:id/d1/database` | **401** |
+What remains is operational rather than technical:
 
-2. `node scripts/deploy.mjs --provision`, then commit the `wrangler.jsonc`
-   change.
-3. `npx wrangler secret put SESSION_SECRET`.
-4. `SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote`.
-5. `npm run deploy` and then `npm run deploy -- --attach-domain`.
-6. Reprint the table card from the live URL.
-
-Also worth tidying: an empty R2 bucket named `eventiq-photos` exists in the
-account from an earlier attempt. Nothing references it and it can be deleted.
+1. **Rotate the API token and the promoter password.** Both were handled in
+   chat during this build, so treat them as known. Rotating `SESSION_SECRET`
+   at the same time signs out any existing session, which is the whole of the
+   revocation story.
+2. **Reprint the table card from the live URL.** The QR encodes the origin it
+   was served from, so one printed from a laptop is useless at a venue.
+3. **Render the tapes into R2.** The programme falls back to playing the
+   sequence live in the browser where no mp4 exists, so this is a quality step
+   rather than a fix. See [video rendering](#video-rendering).
+4. **Delete the empty `eventiq-photos` bucket.** It is left over from an
+   earlier attempt and nothing references it.
 
 ## Rolling back
 

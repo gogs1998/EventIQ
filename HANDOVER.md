@@ -41,7 +41,7 @@ Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs
 
 **Still not real, and honestly labelled:** video rendering runs outside Cloudflare (section 11), there is no email or SMS so invites are copied and pasted by the promoter, there is no self-service promoter signup, and the demo card's fighters and sponsors are invented apart from the three real brands in section 6.
 
-**The domain `eventiq.win` is bought, the zone is active, and the site is not live.** It is blocked on exactly one API token permission. See section 12 and [DEPLOY.md](DEPLOY.md).
+**It is live at https://eventiq.win**, on Workers, with D1 and R2 behind it. The whole product has been walked end to end against production, not just against local bindings: signing in, adding and removing a bout, opening a real invite link, autosaving, uploading a photograph to R2, submitting, and watching the counts move on the dashboard. See section 12 and [DEPLOY.md](DEPLOY.md).
 
 ### Routes
 
@@ -337,28 +337,19 @@ The five mp4s committed under `public/renders/` predate the bucket. The seed rec
 
 ---
 
-## 12. Deployment: one permission away
+## 12. Deployment: done
 
-`eventiq.win` is bought, the zone is in Cloudflare and active, and the Worker bundle builds and passes `wrangler deploy --dry-run`. The R2 bucket `eventiq-media` has been created.
+`https://eventiq.win` is a Worker, bound to the D1 database `eventiq` and the R2 bucket `eventiq-media`, with the custom domain attached. `node scripts/deploy.mjs --check` probes each permission the deploy needs and now reports all four present.
 
-**The API token cannot see D1.** Probed directly:
+The build was held up for a while on **Account · D1 · Edit** being missing from the token, which is worth knowing about because the failure is unhelpful: D1 answers **401**, not 403, so it reads like a bad token rather than a token that is fine but scoped for something else. `--check` exists to say which of the four it actually is. The full permission list is in [DEPLOY.md](DEPLOY.md).
 
-| Endpoint | Result |
-| --- | --- |
-| `accounts/:id/workers/scripts` | 200 |
-| `accounts/:id/r2/buckets` | 200 |
-| `accounts/:id` | 200 |
-| `accounts/:id/d1/database` | **401** |
+Three things that bit, and will bite again on a fresh account:
 
-So the database cannot be created, migrated or seeded, and without it the app has nothing to serve. Deploying a Worker that 500s on every request would be worse than not deploying, so nothing has been deployed.
+1. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
+2. **`SESSION_SECRET` has to exist before the first deploy** or the promoter area refuses to serve. There is no fallback, deliberately.
+3. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
 
-Adding **Account · D1 · Edit** unblocks it. `node scripts/deploy.mjs --check` re-runs that probe and names what is missing. Full procedure in [DEPLOY.md](DEPLOY.md).
-
-Three things that will still bite:
-
-1. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret.
-2. **`SESSION_SECRET` has to exist before the first deploy** or the promoter area refuses to serve.
-3. **Reprint the table card once it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
+`npm run e2e -- --base https://eventiq.win` runs the whole walk against production. It is honest about what it does to the data — it adds a bout, removes it again, and fills in a fighter's profile — so anything it touches needs putting back afterwards. Running it against a card a promoter is actually using would be rude.
 
 ---
 
@@ -453,7 +444,8 @@ npm run render -- --slug cage-county-12 --stale --publish
 
 npm run shots                            # gallery screenshots + the Open Graph card
 node scripts/deploy.mjs --check          # what the token can and cannot do
-npm run deploy                           # blocked: needs D1 on the token
+npm run deploy                           # build and push the Worker
+npm run e2e -- --base https://eventiq.win --password '...'
 ```
 
 ---
