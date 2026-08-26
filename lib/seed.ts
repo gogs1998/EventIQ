@@ -135,17 +135,29 @@ export function buildSeed({
   const statements: string[] = [];
   const inviteLinks: SeedResult["inviteLinks"] = [];
 
+  // Only the fighters actually on this card. The fixture holds exactly those,
+  // but relying on that rather than saying it is how orphan rows appear.
+  const onCard = new Set(event.bouts.flatMap((bout) => [bout.redId, bout.blueId]));
+  const seededFighters = Object.values(fighters).filter((fighter) => onCard.has(fighter.id));
+  const fighterIds = seededFighters.map((fighter) => lit(fighter.id)).join(", ");
+
   // Scoped to this promoter and in dependency order, so re-seeding is safe and
   // does not need foreign keys switched off. Analytics for the event go too:
   // counts recorded against a card that is about to be rebuilt would be
   // attributed to bouts that may no longer exist.
+  //
+  // Fighters are deleted by id rather than by promoter, because a fighter is not
+  // owned by one. If the same person turns up on somebody else's card the
+  // foreign key will refuse this, which is the right outcome: it would be far
+  // worse for a re-seed of the demo to quietly rewrite a real fighter's profile.
   statements.push(
     `DELETE FROM analytics_events WHERE event_id = ${lit(eventId)};`,
     `DELETE FROM render_jobs WHERE event_id = ${lit(eventId)};`,
     `DELETE FROM invites WHERE event_id = ${lit(eventId)};`,
     `DELETE FROM bouts WHERE event_id = ${lit(eventId)};`,
     `DELETE FROM event_sponsors WHERE event_id = ${lit(eventId)};`,
-    `DELETE FROM fighter_sponsors WHERE sponsor_id IN (SELECT id FROM sponsors WHERE promoter_id = ${lit(promoterId)});`,
+    `DELETE FROM fighter_sponsors WHERE fighter_id IN (${fighterIds});`,
+    `DELETE FROM fighters WHERE id IN (${fighterIds});`,
     `DELETE FROM events WHERE id = ${lit(eventId)};`,
     `DELETE FROM sponsors WHERE promoter_id = ${lit(promoterId)};`,
     `DELETE FROM promoters WHERE id = ${lit(promoterId)};`,
@@ -201,13 +213,7 @@ export function buildSeed({
     statements.push(row("event_sponsors", { event_id: eventId, sponsor_id: sponsorId, position }));
   });
 
-  // Only the fighters actually on this card. The fixture holds exactly those,
-  // but relying on that rather than saying it is how orphan rows appear.
-  const onCard = new Set(event.bouts.flatMap((bout) => [bout.redId, bout.blueId]));
-
-  for (const fighter of Object.values(fighters)) {
-    if (!onCard.has(fighter.id)) continue;
-
+  for (const fighter of seededFighters) {
     statements.push(
       row("fighters", {
         id: fighter.id,

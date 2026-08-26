@@ -25,6 +25,11 @@ import { buildSeed } from "@/lib/seed";
 
 const remote = process.argv.includes("--remote");
 
+// The same file wrangler dev and next dev read, so the password this sets is the
+// password the login page will accept. Without this the two drift and the first
+// thing anybody does after seeding fails.
+if (!remote && existsSync(".dev.vars")) process.loadEnvFile(".dev.vars");
+
 /**
  * Development default. Fine for a local database that only ever holds invented
  * fighters; the remote seed refuses to run without a real one, because a known
