@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { QrCode } from "@/components/QrCode";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { showSponsors } from "@/lib/card";
+import { tableCardNote } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { formatEventDateShort } from "@/lib/tape";
 import { loadVisibleCard } from "@/lib/visibility";
@@ -80,9 +81,10 @@ export default async function QrPage({ params }: PageProps<"/e/[slug]/qr">) {
           </div>
 
           <div className="flex flex-col items-center gap-3">
+            {/* Printed today and read at the venue, so with no running order in
+                yet it promises the whole card rather than counting nothing. */}
             <p className="text-chalk print:text-black max-w-xs text-sm leading-relaxed">
-              All {event.bouts.length} bouts. Every fighter&rsquo;s record, gym and story,
-              with a tale of the tape for all of them.
+              {tableCardNote(event.bouts.length)}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4 opacity-80 print:hidden">
               {sponsors.map((sponsor) => (

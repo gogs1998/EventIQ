@@ -6,6 +6,7 @@ import { AddSponsorForm } from "@/app/promoter/e/[slug]/card/AddSponsorForm";
 import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { boutsTopDown, cornersOf } from "@/lib/card";
+import { EMPTY_CARD_EDITOR, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadCard } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
@@ -50,28 +51,35 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
       <section className="mt-12">
         <div className="border-hairline mb-4 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">Running order</h2>
-          <span className="label">{event.bouts.length} bouts</span>
+          <span className="label">{boutCountLabel(event.bouts.length)}</span>
         </div>
-        <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
-          Listed main event first, the way the programme shows it. Bout numbers run the
-          other way, from the opener up, because that is how a running order is called.
-        </p>
 
-        <div className="grid gap-3">
-          {boutsTopDown(card).map((bout) => {
-            const { red, blue } = cornersOf(card, bout);
-            return (
-              <BoutRow
-                key={bout.number}
-                slug={event.slug}
-                bout={bout}
-                red={red}
-                blue={blue}
-                sponsors={sponsors}
-              />
-            );
-          })}
-        </div>
+        {event.bouts.length ? (
+          <>
+            <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
+              Listed main event first, the way the programme shows it. Bout numbers run the
+              other way, from the opener up, because that is how a running order is called.
+            </p>
+
+            <div className="grid gap-3">
+              {boutsTopDown(card).map((bout) => {
+                const { red, blue } = cornersOf(card, bout);
+                return (
+                  <BoutRow
+                    key={bout.number}
+                    slug={event.slug}
+                    bout={bout}
+                    red={red}
+                    blue={blue}
+                    sponsors={sponsors}
+                  />
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="text-ash max-w-2xl text-sm leading-relaxed">{EMPTY_CARD_EDITOR}</p>
+        )}
       </section>
 
       <section className="mt-12">

@@ -3,6 +3,7 @@ import { DemoReel } from "@/components/DemoReel";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { cardCompleteness, featuredBout } from "@/lib/card";
+import { chaseNote, programmeLinkNote, sponsorNote, tapeForEveryBout } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
 import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
@@ -94,9 +95,9 @@ export default async function PitchPage() {
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
           One code on the table puts the whole card on every phone in the building: every
-          fighter&rsquo;s record, photo and story, a tale of the tape for all{" "}
-          {event.bouts.length} bouts, and a broadcast video for the ones that matter. The
-          room knows exactly who is walking out.
+          fighter&rsquo;s record, photo and story, {tapeForEveryBout(event.bouts.length)},
+          and a broadcast video for the ones that matter. The room knows exactly who is
+          walking out.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -222,18 +223,13 @@ export default async function PitchPage() {
             {days} days out, you know exactly who has not sent theirs
           </h2>
           <p className="text-ash mt-5 text-sm leading-relaxed">
-            The same card from where you sit. {outstanding} of the {total} fighters still
-            have holes in their profile, listed top of the bill first, because a gap in
-            the main event costs more than a gap in bout two. Each one comes with a
-            message you can copy straight into WhatsApp that names their bout and their
-            opponent. It tells a fighter their opponent has already sent theirs only when
-            that is true.
+            The same card from where you sit. {chaseNote(outstanding, total)}
           </p>
           <p className="text-ash mt-4 text-sm leading-relaxed">
-            Your sponsor sheet sits alongside it: {inventory.sold.length} of the{" "}
-            {event.bouts.length} bout slots sold, {inventory.unsold.length} still
-            available. Those are slots you are already selling, now in one place, with a
-            report to send the sponsor afterwards.
+            Your sponsor sheet sits alongside it:{" "}
+            {sponsorNote(inventory.sold.length, event.bouts.length)}. Those are slots you
+            are already selling, now in one place, with a report to send the sponsor
+            afterwards.
           </p>
           <Link
             href="/promoter"
@@ -280,26 +276,32 @@ export default async function PitchPage() {
       </section>
 
       {/* ------------------------------------------------------- honest note */}
-      <section className="border-hairline border-t">
-        <div className="mx-auto max-w-3xl px-5 py-14">
-          <span className="label">About the demo card</span>
-          <h2 className="display mt-4 text-3xl leading-none">
-            The demo card is deliberately uneven
-          </h2>
-          <p className="text-ash mt-5 text-sm leading-relaxed">
-            The demo runs on {event.name}, an invented show with {event.bouts.length}{" "}
-            bouts. {done} of the {total} fighters have finished their profile, which is
-            about {score}% of the card between them — roughly where a real show sits two
-            weeks out.
-          </p>
-          <p className="text-ash mt-4 text-sm leading-relaxed">
-            Scroll to the bottom of the running order and the openers carry a name and a
-            gym and nothing else. The top of the bill is what it looks like when fighters
-            send their details in. Closing the gap between those two is what the
-            fighter&rsquo;s form is built to do.
-          </p>
-        </div>
-      </section>
+      {/* The whole section is about the unevenness of a card, so on a card with
+          nothing on it there is nothing to be honest about and it comes out —
+          the same treatment the video section gets above, and for the same
+          reason. */}
+      {event.bouts.length ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto max-w-3xl px-5 py-14">
+            <span className="label">About the demo card</span>
+            <h2 className="display mt-4 text-3xl leading-none">
+              The demo card is deliberately uneven
+            </h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">
+              The demo runs on {event.name}, an invented show with {event.bouts.length}{" "}
+              bouts. {done} of the {total} fighters have finished their profile, which is
+              about {score}% of the card between them — roughly where a real show sits two
+              weeks out.
+            </p>
+            <p className="text-ash mt-4 text-sm leading-relaxed">
+              Scroll to the bottom of the running order and the openers carry a name and a
+              gym and nothing else. The top of the bill is what it looks like when fighters
+              send their details in. Closing the gap between those two is what the
+              fighter&rsquo;s form is built to do.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {/* --------------------------------------------------------------- try */}
       <section className="border-hairline border-t">
@@ -310,7 +312,7 @@ export default async function PitchPage() {
               {
                 href: `/e/${event.slug}`,
                 title: "The programme",
-                body: `${event.name}, ${formatEventDateShort(event.date)}. Tap any bout for the tale of the tape.`,
+                body: `${event.name}, ${formatEventDateShort(event.date)}. ${programmeLinkNote(event.bouts.length)}`,
               },
               {
                 href: "/f/demo",

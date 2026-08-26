@@ -16,6 +16,7 @@ import {
   sponsorTaps,
   type AnalyticsTotals,
 } from "@/lib/db/queries";
+import { EMPTY_DASHBOARD, boutCountLabel, sponsorTapNote } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
   DONE_AT,
@@ -31,7 +32,7 @@ import {
 import { currentPromoter } from "@/lib/session";
 import { SITE_URL } from "@/lib/site";
 import { boutBillingLabel, boutClassLine, formatEventDate, lastName } from "@/lib/tape";
-import type { InviteStatus } from "@/lib/types";
+import type { FightEvent, InviteStatus } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Promoter view — EventIQ",
@@ -139,7 +140,7 @@ function Counts({
       <Stat
         label="Sponsor taps"
         value={totals.sponsor_tap.toLocaleString("en-GB")}
-        sub={`Across ${sponsors} ${sponsors === 1 ? "sponsor" : "sponsors"}`}
+        sub={sponsorTapNote(sponsors)}
       />
       <Stat
         label="Profiles opened"
@@ -161,6 +162,75 @@ const STATE_STYLE = {
   empty: { label: "Nothing in", className: "text-ash-dim border-hairline" },
 } as const;
 
+/** The show, the countdown and the four ways out of this page. */
+function Head({
+  event,
+  published,
+}: {
+  event: FightEvent;
+  published: boolean;
+}) {
+  return (
+    <header className="border-hairline border-b pb-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <span className="label">Promoter view</span>
+          <h1 className="display mt-2 text-4xl">{event.name}</h1>
+          <p className="text-ash mt-2 text-sm">
+            {formatEventDate(event.date)} · {event.venue}, {event.city}
+          </p>
+        </div>
+        {/* Baseline row on a phone, stacked block on a desktop. */}
+        <div className="flex items-baseline gap-3 sm:block sm:text-right">
+          <div className="display text-gold text-4xl leading-none">
+            {daysUntilShow(event.date)}
+          </div>
+          <div className="label sm:mt-1">Days to go</div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <PublishToggle slug={event.slug} published={published} />
+        <Link
+          href={`/e/${event.slug}`}
+          className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+        >
+          View the programme
+        </Link>
+        <Link
+          href={`/promoter/e/${event.slug}/card`}
+          className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+        >
+          Edit the card
+        </Link>
+        <Link
+          href={`/e/${event.slug}/qr`}
+          className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+        >
+          Table card
+        </Link>
+        <div className="ml-auto">
+          <SignOutButton />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Foot() {
+  return (
+    <footer className="border-hairline text-ash-dim mt-10 border-t pt-6 text-xs leading-relaxed">
+      <p>
+        Numbers on this page are counted from real interactions or shown as zero. None of
+        them are estimated.
+      </p>
+      <Link href="/" className="hover:text-chalk mt-3 inline-block transition-colors">
+        Back to EventIQ
+      </Link>
+    </footer>
+  );
+}
+
 export default async function PromoterEventPage({ params }: PageProps<"/promoter/e/[slug]">) {
   const { slug } = await params;
   const promoter = await currentPromoter();
@@ -173,13 +243,47 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   if (!card || card.promoterId !== promoter.id) notFound();
 
   const { event } = card;
+
+  /**
+   * A show can be created and published before its running order goes in, and
+   * every figure below is derived from that running order: profiles finished,
+   * bouts ready, sponsor slots sold, who to chase. Zeroes in all of them read as
+   * a page that is broken rather than as a card that is empty — and the chase
+   * list's own empty state would announce that every profile on the card is
+   * finished, about a card with nobody on it. So the page says which state it is
+   * in and where to fix it, and the rest arrives with the first bout.
+   */
+  if (!event.bouts.length) {
+    return (
+      <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+        <Head event={event} published={card.published} />
+
+        <section className="mt-8">
+          <div className="border-hairline border p-5">
+            <h2 className="display text-2xl">{EMPTY_DASHBOARD.heading}</h2>
+            <p className="text-ash mt-3 max-w-2xl text-sm leading-relaxed">
+              {EMPTY_DASHBOARD.body}
+            </p>
+            <Link
+              href={`/promoter/e/${event.slug}/card`}
+              className="border-hairline hover:border-chalk/40 display mt-5 inline-block border px-5 py-3 text-lg transition-colors"
+            >
+              Put the running order in
+            </Link>
+          </div>
+        </section>
+
+        <Foot />
+      </main>
+    );
+  }
+
   const invites = await loadInvites(db, card.eventId);
   const renders = await loadRenders(db, card.eventId);
   const progress = eventProgress(card, invites);
   const chase = chaseList(card, invites);
   const bouts = boutReadiness(card, invites);
   const inventory = sponsorInventory(card);
-  const days = daysUntilShow(event.date);
   const rendered = event.bouts.filter((bout) => renders[bout.number]).length;
 
   const live = await analyticsTotals(db, card.eventId);
@@ -196,48 +300,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
-      {/* ------------------------------------------------------------ head */}
-      <header className="border-hairline border-b pb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <span className="label">Promoter view</span>
-            <h1 className="display mt-2 text-4xl">{event.name}</h1>
-            <p className="text-ash mt-2 text-sm">
-              {formatEventDate(event.date)} · {event.venue}, {event.city}
-            </p>
-          </div>
-          {/* Baseline row on a phone, stacked block on a desktop. */}
-          <div className="flex items-baseline gap-3 sm:block sm:text-right">
-            <div className="display text-gold text-4xl leading-none">{days}</div>
-            <div className="label sm:mt-1">Days to go</div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <PublishToggle slug={event.slug} published={card.published} />
-          <Link
-            href={`/e/${event.slug}`}
-            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
-          >
-            View the programme
-          </Link>
-          <Link
-            href={`/promoter/e/${event.slug}/card`}
-            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
-          >
-            Edit the card
-          </Link>
-          <Link
-            href={`/e/${event.slug}/qr`}
-            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
-          >
-            Table card
-          </Link>
-          <div className="ml-auto">
-            <SignOutButton />
-          </div>
-        </div>
-      </header>
+      <Head event={event} published={card.published} />
 
       {/* ------------------------------------------------------------ stats */}
       <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -331,7 +394,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
       <section className="mt-10">
         <div className="border-hairline mb-3 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">The card</h2>
-          <span className="label">{bouts.length} bouts</span>
+          <span className="label">{boutCountLabel(bouts.length)}</span>
         </div>
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
           A bout with one finished fighter and one blank looks worse than two blanks, so
@@ -414,15 +477,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         )}
       </section>
 
-      <footer className="border-hairline text-ash-dim mt-10 border-t pt-6 text-xs leading-relaxed">
-        <p>
-          Numbers on this page are counted from real interactions or shown as zero. None
-          of them are estimated.
-        </p>
-        <Link href="/" className="hover:text-chalk mt-3 inline-block transition-colors">
-          Back to EventIQ
-        </Link>
-      </footer>
+      <Foot />
     </main>
   );
 }
