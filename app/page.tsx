@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { DemoReel } from "@/components/DemoReel";
+import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { event } from "@/data/event";
+import { chaseList, daysUntilShow, sponsorInventory } from "@/lib/promoter";
 import { mp4For } from "@/lib/renders";
 import { eventCompleteness, formatEventDateShort, getBout } from "@/lib/tape";
 
@@ -27,6 +30,16 @@ const steps = [
   },
 ];
 
+/** Timings read off the recording itself, not off the tour script. */
+const reel = [
+  { at: "0:00", what: "The code that goes on the table" },
+  { at: "0:04", what: "The running order, down through all fifteen bouts" },
+  { at: "0:20", what: "One bout opened out into the tale of the tape" },
+  { at: "0:24", what: "The video for it, start to finish" },
+  { at: "0:48", what: "The fighters' own words, and the bout sponsor" },
+  { at: "0:52", what: "The form a fighter gets sent, filled in as you watch" },
+];
+
 const audiences = [
   {
     who: "The punter in row four",
@@ -45,6 +58,9 @@ const audiences = [
 export default function PitchPage() {
   const main = getBout(15)!;
   const { score, done, total } = eventCompleteness();
+  const outstanding = chaseList().length;
+  const inventory = sponsorInventory();
+  const days = daysUntilShow();
 
   return (
     <main className="w-full">
@@ -115,6 +131,90 @@ export default function PitchPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- the reel */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[1fr_minmax(0,340px)] lg:items-center">
+          <div className="lg:order-1">
+            <span className="label">End to end</span>
+            <h2 className="display mt-4 text-4xl leading-none">
+              The whole thing, in a minute and a bit
+            </h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">
+              Recorded off the demo as it stands, on a phone-shaped screen. The card on
+              the table, the running order, a bout opening into the tape, the video, and
+              the form a fighter gets sent. No narration and no sound.
+            </p>
+            <p className="text-ash mt-4 text-sm leading-relaxed">
+              This is the version to forward to somebody on WhatsApp, which is where most
+              of these conversations happen.
+            </p>
+
+            <dl className="border-hairline mt-8 divide-y divide-white/5 border-t">
+              {reel.map((chapter) => (
+                <div key={chapter.at} className="flex gap-4 py-2.5">
+                  <dt className="tnum text-ash-dim w-12 shrink-0 font-mono text-[0.65rem] tracking-wider">
+                    {chapter.at}
+                  </dt>
+                  <dd className="text-ash text-sm leading-tight">{chapter.what}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="lg:order-2">
+            <DemoReel
+              src="/demo/eventiq-demo.mp4"
+              poster="/demo/eventiq-demo-poster.webp"
+              seconds={76}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- gallery */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <span className="label">Every screen in it</span>
+          <h2 className="display mt-4 text-3xl">What it actually looks like</h2>
+          <p className="text-ash mt-4 max-w-2xl text-sm leading-relaxed">
+            Screenshots of the working demo, not mockups. Tap any of them to open the
+            real page.
+          </p>
+          <div className="mt-8">
+            <ScreenGallery />
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- promoter */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-3xl px-5 py-14">
+          <span className="label">Your side of it</span>
+          <h2 className="display mt-4 text-4xl leading-none">
+            {days} days out, you know exactly who has not sent theirs
+          </h2>
+          <p className="text-ash mt-5 text-sm leading-relaxed">
+            The same card from where you sit. {outstanding} of the {total} fighters still
+            have holes in their profile, listed top of the bill first, because a gap in
+            the main event costs more than a gap in bout two. Each one comes with a
+            message you can copy straight into WhatsApp that names their bout and their
+            opponent. It tells a fighter the other one has already sent theirs only when
+            that is true.
+          </p>
+          <p className="text-ash mt-4 text-sm leading-relaxed">
+            And your sponsor sheet: {inventory.sold.length} of the {event.bouts.length}{" "}
+            bout slots sold, {inventory.unsold.length} still going. Those are slots you
+            are already selling. This is the first time you can see the lot in one place,
+            with something to send the sponsor afterwards.
+          </p>
+          <Link
+            href="/promoter"
+            className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+          >
+            Open the promoter view
+          </Link>
         </div>
       </section>
 
@@ -191,6 +291,11 @@ export default function PitchPage() {
                 href: "/f/demo",
                 title: "The fighter's form",
                 body: "What lands in a fighter's hand. Watch their card build as they type.",
+              },
+              {
+                href: "/promoter",
+                title: "The promoter's view",
+                body: "Who to chase, which bouts are ready, which sponsor slots are unsold.",
               },
               {
                 href: "/qr",
