@@ -29,7 +29,7 @@ const USER_AGENT =
   "EventIQBot/1.0 (+https://eventiq.win/about-the-importer; one page per fighter, on request)";
 
 const TAPOLOGY_MESSAGE =
-  "Tapology blocks automated reading, so we can't pull your record from there. Paste a Sherdog link instead, or just fill the boxes in below — it takes a minute.";
+  "Tapology blocks automated reading, so we can't pull your record from there. Paste a Sherdog link instead, or fill the boxes in below.";
 
 function isChallenge(html: string): boolean {
   return html.includes("Just a moment...") || html.includes("cf-browser-verification");
@@ -44,7 +44,7 @@ async function fetchPage(url: string): Promise<{ html: string } | { failed: stri
       redirect: "follow",
     });
   } catch {
-    return { failed: "That page didn't respond. Try again in a minute, or fill the boxes in below." };
+    return { failed: "That page didn't respond. Try again, or fill the boxes in below." };
   }
 
   if (response.status === 404) {

@@ -201,8 +201,8 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
       {score < 60 ? (
         <section className="border-hairline text-ash-dim border-t px-5 py-6 text-xs leading-relaxed">
-          {fighter.name.split(" ")[0]} hasn&rsquo;t finished their profile yet.
-          Still missing: {missing.slice(0, 4).join(", ").toLowerCase()}.
+          More to come from {fighter.name.split(" ")[0]}:{" "}
+          {missing.slice(0, 4).join(", ").toLowerCase()}.
         </section>
       ) : null}
 

@@ -402,8 +402,8 @@ export function Questionnaire({
             </div>
             <TapeTable rows={tapeRows} />
             <p className="text-ash-dim mt-3 text-[0.7rem] leading-relaxed">
-              This is your bout on the programme. Anything you leave blank shows as a
-              dash on your side of it.
+              This is your bout on the programme. Every box you fill in replaces a dash
+              on your side of it.
             </p>
           </div>
         )}
@@ -413,8 +413,9 @@ export function Questionnaire({
             <p className="text-chalk text-xs leading-relaxed">
               {firstName(opponent)} has already sent{" "}
               <span className="tnum display text-base">{behind.length}</span>{" "}
-              {behind.length === 1 ? "thing" : "things"} you haven&rsquo;t:{" "}
-              {behind.join(", ").toLowerCase()}.
+              {behind.length === 1 ? "line" : "lines"} of the tape in:{" "}
+              {behind.join(", ").toLowerCase()}. Add yours and you go up alongside them,
+              line for line.
             </p>
           </div>
         ) : null}
@@ -432,7 +433,7 @@ export function Questionnaire({
           </div>
           {missing.length ? (
             <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
-              Still missing: {missing.join(", ").toLowerCase()}.
+              Still to come: {missing.join(", ").toLowerCase()}.
             </p>
           ) : (
             <p className="text-gold mt-2 text-[0.7rem]">
@@ -452,7 +453,7 @@ export function Questionnaire({
           <p className="text-ash mt-3 text-sm leading-relaxed">
             You&rsquo;re fighting {opponent.name} out of {opponent.gym}. Fill this in and
             you get the card above, on the screen of everyone in the building, plus the
-            video to post. Takes about four minutes. It saves as you go.
+            video to post. It saves as you go.
           </p>
           {mode === "live" ? (
             <p
@@ -476,7 +477,7 @@ export function Questionnaire({
           <Section
             step="01"
             title="The bit people read"
-            blurb="This is what goes under your name when you walk out. Do this bit properly."
+            blurb="This is what goes under your name when you walk out."
           >
             <Field label="Nickname" hint="Goes on the card in gold. Leave it if you haven't got one.">
               <input
@@ -519,7 +520,10 @@ export function Questionnaire({
               ) : null}
             </Field>
 
-            <Field label="Instagram" hint="Tapped straight from your card. Free followers.">
+            <Field
+              label="Instagram"
+              hint="Tapped straight from your card by anyone reading the programme."
+            >
               <input
                 className={inputClass}
                 value={draft.instagram}
@@ -619,7 +623,7 @@ export function Questionnaire({
           <Section
             step="03"
             title="The tape"
-            blurb="The boring bit, last on purpose. If you're already on Sherdog, paste the link and most of it fills itself in."
+            blurb="Last on purpose. If you're already on Sherdog, paste the link and most of it fills itself in."
           >
             <div className="border-hairline bg-panel/40 border p-4">
               <div className="label mb-2">Fought before?</div>

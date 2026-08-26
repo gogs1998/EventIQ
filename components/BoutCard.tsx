@@ -95,9 +95,7 @@ function FighterDetail({
       {fighter.bio ? (
         <p className="text-ash mt-2 text-sm leading-relaxed">{fighter.bio}</p>
       ) : (
-        <p className="text-ash-dim mt-2 text-sm italic">
-          Hasn&rsquo;t sent their details in yet.
-        </p>
+        <p className="text-ash-dim mt-2 text-sm italic">Story to follow.</p>
       )}
 
       {fighter.styleTags?.length ? (

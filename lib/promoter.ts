@@ -167,6 +167,12 @@ export function sponsorInventory(card: Card): SponsorInventory {
  * is true — that the opponent has already sent theirs, which is the line that
  * actually works. It never claims that when it is not the case.
  *
+ * The competitive fact stays because it is what gets the form filled in, but it
+ * is pitched as an invitation rather than a telling-off: the fighter is offered
+ * a place alongside their opponent rather than shown a list of what they have
+ * failed to do. A promoter writing to their own fighter can be warm, so this
+ * reads as a person rather than a system, without reading as a wind-up.
+ *
  * The link is the fighter's own invite, so the message is the whole job rather
  * than a prompt to go and find the link afterwards.
  */
@@ -175,21 +181,21 @@ export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string):
   const link = invite ? `${baseUrl}/f/${invite.token}` : `${baseUrl}/f/demo`;
 
   const lines = [
-    `Alright ${firstName(fighter)} — you're on ${boutBillingLabel(bout).toLowerCase()} at ${event.name}, ${formatEventDateShort(event.date)}, against ${opponent.name} out of ${opponent.gym}.`,
+    `Hi ${firstName(fighter)} — you're on ${boutBillingLabel(bout).toLowerCase()} at ${event.name}, ${formatEventDateShort(event.date)}, against ${opponent.name} out of ${opponent.gym}.`,
   ];
 
   if (behind.length >= 2) {
     lines.push(
-      `Your programme profile is still light and ${firstName(opponent)} has already sent theirs. Everyone in the room reads this on the night, so right now it's their name with the detail next to it and yours without.`,
+      `${firstName(opponent)} has already sent their programme profile over. Send yours and the two of you go up side by side, line for line — everyone in the room reads this on the night.`,
     );
   } else {
     lines.push(
-      `Your programme profile isn't finished yet. Everyone in the room reads this on the night.`,
+      `Your programme profile is still to come, and everyone in the room reads this on the night.`,
     );
   }
 
   lines.push(
-    `Four minutes, no login, and you get a video of your own tale of the tape to post. Your gym and sponsors go on it: ${link}`,
+    `No account and no login. You get a video of your own tale of the tape to post, with your gym and your sponsors on it: ${link}`,
   );
 
   return lines.join("\n\n");
