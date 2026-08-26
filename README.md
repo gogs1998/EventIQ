@@ -2,6 +2,8 @@
 
 Digital fight programmes for amateur MMA.
 
+> Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things.
+
 Spectators scan a QR code at the venue and open the full running order for that show. Every bout expands into a tale of the tape, and the ones that matter come with a broadcast-style video built from the fighters' own photos.
 
 This repository is a **pitch demo**. It runs on an invented show with invented fighters, and it exists to be shown to a promoter.
