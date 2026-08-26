@@ -46,6 +46,10 @@ next-env.d.ts
 /.asset-tmp/
 /.stills/
 
+# Rendered mp4s. They belong in R2 now, not in the repository; the five under
+# public/renders/ predate the bucket and are kept so the demo card still plays.
+/.renders/
+
 # Cloudflare
 /.open-next/
 /.wrangler/
