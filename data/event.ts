@@ -9,6 +9,27 @@ import type { FightEvent, Fighter, Sponsor } from "@/lib/types";
  */
 
 export const sponsors: Record<string, Sponsor> = {
+  // Real businesses. Everything below them is invented.
+  mouthguards: {
+    id: "mouthguards",
+    name: "Mouthguards.pro",
+    qualifier: "Custom fitted",
+    mark: "/sponsors/sponsor-mark-mouthguard.webp",
+    url: "https://mouthguards.pro",
+  },
+  fightiq: {
+    id: "fightiq",
+    name: "FightIQ.win",
+    mark: "/sponsors/sponsor-mark-fightiq.webp",
+    url: "https://fightiq.win",
+  },
+  eventiq: {
+    id: "eventiq",
+    name: "EventIQ",
+    qualifier: "Digital programmes",
+    mark: "/sponsors/sponsor-mark-eventiq.webp",
+    url: "/",
+  },
   steel: {
     id: "steel",
     name: "Northern Steel",
@@ -73,7 +94,7 @@ export const fighters: Record<string, Fighter> = {
     walkoutSong: { title: "Bulls on Parade", artist: "Rage Against the Machine" },
     bio: "Six years at Ironworks, started on the doors and never stopped. Won the last four inside the first round. Wants this belt more than anything.",
     styleTags: ["Boxing", "Ground and pound"],
-    sponsorIds: ["anvil", "steel"],
+    sponsorIds: ["mouthguards", "anvil"],
   },
   "dre-osei": {
     id: "dre-osei",
@@ -93,7 +114,7 @@ export const fighters: Record<string, Fighter> = {
     walkoutSong: { title: "Man's Not Hot", artist: "Big Shaq" },
     bio: "Undefeated. Taps people in the second round and smiles about it. Says the draw was a robbery and he is not discussing it further.",
     styleTags: ["Jiu jitsu", "Front headlock"],
-    sponsorIds: ["vault"],
+    sponsorIds: ["fightiq", "vault"],
   },
 
   // ---- Co-main. Full data, photos. ----
@@ -399,7 +420,17 @@ export const event: FightEvent = {
     instagram: "cagecountypromotions",
   },
   backdrop: "/venue/venue-backdrop.webp",
-  showSponsorIds: ["steel", "anvil", "boltbarrel", "vault", "riverside", "kirkby"],
+  showSponsorIds: [
+    "mouthguards",
+    "fightiq",
+    "eventiq",
+    "steel",
+    "anvil",
+    "boltbarrel",
+    "vault",
+    "riverside",
+    "kirkby",
+  ],
   bouts: [
     {
       number: 1,
@@ -541,7 +572,7 @@ export const event: FightEvent = {
       roundMinutes: 3,
       redId: "steph-nakamura",
       blueId: "erin-gallagher",
-      sponsorId: "anvil",
+      sponsorId: "fightiq",
     },
     {
       number: 14,
@@ -554,7 +585,7 @@ export const event: FightEvent = {
       roundMinutes: 3,
       redId: "tomasz-wolski",
       blueId: "bilal-rahman",
-      sponsorId: "kirkby",
+      sponsorId: "mouthguards",
     },
     {
       number: 15,
@@ -567,7 +598,7 @@ export const event: FightEvent = {
       roundMinutes: 3,
       redId: "callum-reeves",
       blueId: "dre-osei",
-      sponsorId: "steel",
+      sponsorId: "eventiq",
     },
   ],
 };
