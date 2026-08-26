@@ -4,14 +4,14 @@ import { QrCode } from "@/components/QrCode";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { showSponsors } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadCard } from "@/lib/db/queries";
 import { formatEventDateShort } from "@/lib/tape";
+import { loadVisibleCard } from "@/lib/visibility";
 
 export async function generateMetadata({
   params,
 }: PageProps<"/e/[slug]/qr">): Promise<Metadata> {
   const { slug } = await params;
-  const card = await loadCard(await getDb(), slug);
+  const card = await loadVisibleCard(await getDb(), slug);
   return card
     ? {
         title: `Table card — ${card.event.name}`,
@@ -25,10 +25,14 @@ export async function generateMetadata({
  *
  * Dark on screen so it matches the programme, light when printed, because
  * nobody is putting a hundred solid-black A5 cards through a copy shop.
+ *
+ * Gated exactly as the programme is. This card carries the show's name, date and
+ * venue and a code straight into it, so it had no business being the one route
+ * that would print a draft for anybody holding the slug.
  */
 export default async function QrPage({ params }: PageProps<"/e/[slug]/qr">) {
   const { slug } = await params;
-  const card = await loadCard(await getDb(), slug);
+  const card = await loadVisibleCard(await getDb(), slug);
   if (!card) notFound();
 
   const { event } = card;

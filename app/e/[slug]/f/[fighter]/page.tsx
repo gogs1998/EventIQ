@@ -6,8 +6,6 @@ import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { fighterSponsors, type Card } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadCard } from "@/lib/db/queries";
-import { currentPromoter } from "@/lib/session";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -18,6 +16,7 @@ import {
   totalFights,
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
+import { loadVisibleCard } from "@/lib/visibility";
 
 function boutFor(card: Card, fighterId: string) {
   const bout = card.event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
@@ -29,7 +28,9 @@ export async function generateMetadata({
   params,
 }: PageProps<"/e/[slug]/f/[fighter]">): Promise<Metadata> {
   const { slug, fighter: id } = await params;
-  const card = await loadCard(await getDb(), slug);
+  // Through the same gate as the body, so a draft card's fighters are not named
+  // to a crawler or in a chat app's preview of the link.
+  const card = await loadVisibleCard(await getDb(), slug);
   const fighter = card?.fighters[id];
   if (!card || !fighter) return {};
 
@@ -41,13 +42,8 @@ export async function generateMetadata({
 
 export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fighter]">) {
   const { slug, fighter: id } = await params;
-  const card = await loadCard(await getDb(), slug);
+  const card = await loadVisibleCard(await getDb(), slug);
   if (!card) notFound();
-
-  if (!card.published) {
-    const promoter = await currentPromoter();
-    if (promoter?.id !== card.promoterId) notFound();
-  }
 
   const fighter = card.fighters[id];
   if (!fighter) notFound();

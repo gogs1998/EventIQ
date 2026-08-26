@@ -6,15 +6,17 @@ import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { boutsTopDown, fighterOf, showSponsors } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadCard, loadRenders } from "@/lib/db/queries";
-import { currentPromoter } from "@/lib/session";
+import { loadRenders } from "@/lib/db/queries";
 import { formatEventDate, lastName } from "@/lib/tape";
+import { loadVisibleCard } from "@/lib/visibility";
 
 export async function generateMetadata({
   params,
 }: PageProps<"/e/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const card = await loadCard(await getDb(), slug);
+  // Through the same gate as the body. A draft show's name and venue in an
+  // unfurled link is the show leaking, whatever the page itself answers.
+  const card = await loadVisibleCard(await getDb(), slug);
   if (!card) return {};
 
   const { event } = card;
@@ -27,16 +29,8 @@ export async function generateMetadata({
 export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) {
   const { slug } = await params;
   const db = await getDb();
-  const card = await loadCard(db, slug);
+  const card = await loadVisibleCard(db, slug);
   if (!card) notFound();
-
-  // An unpublished card is the promoter's working copy. They can see it so they
-  // can check it before the codes go on the tables; nobody else gets a hint that
-  // it exists.
-  if (!card.published) {
-    const promoter = await currentPromoter();
-    if (promoter?.id !== card.promoterId) notFound();
-  }
 
   const { event } = card;
   const renders = await loadRenders(db, card.eventId);
