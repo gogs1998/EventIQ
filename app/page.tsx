@@ -365,8 +365,7 @@ export default async function PitchPage() {
 function NothingPublished() {
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-24">
-      <span className="label">EventIQ</span>
-      <h1 className="display mt-5 text-5xl leading-[0.9]">Digital programmes for fight shows</h1>
+      <h1 className="display text-5xl leading-[0.9]">Digital programmes for fight shows</h1>
       <p className="text-ash mt-6 text-base leading-relaxed">
         There is no published show on this instance yet. Sign in and publish one, or seed
         the demo card with <code className="text-chalk">npm run db:reset</code>.
