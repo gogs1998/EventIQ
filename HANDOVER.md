@@ -27,11 +27,13 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 172 unit tests and a 25-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 203 unit tests and a 25-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
 An independent audit after that found three more, all fixed: **the capture page the video renderer screenshots was serving unpublished shows to anybody who could guess a slug** (bug 27, section 6c — it is the one that mattered), the copy around an empty card still read as a fault even after the crash behind it was fixed (bug 28), and the local dev server had started redirecting every one of its own requests to a port with no https on it (bug 29).
+
+**The photograph a fighter uploads now reaches their video**, which until recently it did not: nothing generated a cutout on upload and the sequence showed the initialled plate to anyone without one, so the centrepiece only worked on artwork prepared by hand in advance. The renderer makes the cutouts, and the sequence falls back to the photograph itself in the meantime. Section 4, and bugs 30 and 31.
 
 **It is a working application, not a demo of one.** The five things that were faked are real:
 
@@ -124,7 +126,21 @@ Scenes overlap by 8 frames to crossfade.
 
 ### The two ideas that make it work
 
-**Depth from a flat photograph.** Every portrait is background-removed into a transparent cutout at asset-prep time. In the sequence the cutout and the backdrop move at *different rates*, which reads as parallax rather than a photo sliding around. Plus a slow camera push, a light sweep and drifting embers. No AI video model, no per-clip cost, works for every fighter automatically. If a cutout is missing, the sequence falls back to an initialled "photo to follow" plate and still plays.
+**Depth from a flat photograph.** Every portrait is background-removed into a transparent cutout. In the sequence the cutout and the backdrop move at *different rates*, which reads as parallax rather than a photo sliding around. Plus a slow camera push, a light sweep and drifting embers. No AI video model, no per-clip cost, works for every fighter automatically.
+
+### How a photograph reaches a video
+
+Three states, in order of preference, decided by [lib/portrait.ts](lib/portrait.ts) and nowhere else:
+
+1. **Cutout.** Full parallax travel, drop shadow, no mask. What the curated demo card has.
+2. **The photograph itself.** A soft-edged mask on both axes, a vignette pulling the photograph's own background towards the ground colour of the composition, a slightly tighter crop, and about a third of the parallax travel — a rectangle moving at cutout speed is what gives it away. This is the ordinary state of a fighter between submitting their form and the next render.
+3. **An initialled plate.** Only for a fighter who has sent no photograph at all.
+
+The same order is used by the reveals, the head-to-head and the questionnaire's own preview, so a fighter sees in the preview what the video will show.
+
+**Background removal happens in the renderer and only in the renderer.** [scripts/cutouts.mjs](scripts/cutouts.mjs) runs before any bout is rendered, finds every fighter on the card with a photograph and no cutout, removes the background, puts the WebP in R2 and records the key in D1. It is not in any request path: the model is ONNX and about three and a half seconds of CPU per image, so in the upload it would hold a fighter's form open on a phone — and Workers cannot run it at all. It is idempotent (`--refresh-cutouts` to force), and a photograph it cannot handle leaves the cutout null, logs the reason and lets the video fall back to state 2. It never fails a render. It is also runnable alone as `npm run cutouts`.
+
+The upload path therefore stores a photograph and nothing else. `app/f/[token]/actions.ts` clears the cutout when the photograph changes, so a stale cutout of a previous picture cannot survive; the next render makes the new one. Both the photograph and the cutout are named in the `--stale` fingerprint, so a cutout appearing is enough to make a bout need re-rendering.
 
 **One composition, two outputs.** [components/sequence/TaleOfTheTape.tsx](components/sequence/TaleOfTheTape.tsx) is a **pure function of a frame number**. No CSS animations, no timers, no state. All motion is interpolated in JS from `frame` using [lib/anim.ts](lib/anim.ts). Even the embers are seeded from their index so they are identical on every render of a given frame.
 
@@ -447,7 +463,9 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 **It needs `RENDER_KEY` as well as `CLOUDFLARE_API_TOKEN`.** The capture page it screenshots is not public — section 6c, and [DEPLOY.md](DEPLOY.md#video-rendering) for the operational half. Without the key the script says so before it launches Chrome.
 
-It fingerprints the inputs to each bout and stores the hash with the job, so `--stale` renders only the bouts whose fighters have changed. A fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
+It fingerprints the inputs to each bout and stores the hash with the job, so `--stale` renders only the bouts whose fighters have changed. Both corners' photographs and cutouts are named in that fingerprint rather than being left to `updated_at`, because a cutout appearing is the most visible change a bout can undergo. A fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
+
+**Before it renders anything it makes the missing cutouts**, via [scripts/cutouts.mjs](scripts/cutouts.mjs). Background removal happens here and nowhere else in the product; section 4 has the reasoning and the fallback that covers the gap between a photograph arriving and the next render. `--no-cutouts` skips the step, `--refresh-cutouts` remakes them all, and `npm run cutouts` runs the step alone.
 
 **Cloudflare Browser Rendering does not solve this.** It can drive a browser; it cannot run ffmpeg. Do not go round that loop again.
 
@@ -552,6 +570,11 @@ Three more, and the first is the most serious thing found in this project so far
 28. **The empty-card copy read as a fault rather than as a state.** Publishing a show before entering its running order stopped crashing (bug 22) but the prose around it was left interpolating the count: "a tale of the tape for all **0 bouts**" on the pitch page, a running order headed "**0 BOUTS**" that still said to tap one, four dashboard figures reading 0/0, and — worst of the lot — a chase list whose empty state congratulated the promoter that "every profile on the card is finished" about a card with nobody on it. **Fixing the crash is not finishing the case.** The count-bearing sentences are in [lib/copy.ts](lib/copy.ts) now, where the zero can be tested, and the programme, the dashboard and the card editor have deliberate empty states in the register `/f/demo` already used. There is a test asserting that no zero-bout string states a count, invites a tap, or breaks the tone rules the nudge message is held to. It also caught a hardcoded "the same fifteen slots you are already selling", which was wrong on every card that is not fifteen bouts long.
 29. **The local dev server redirected every one of its own requests to a port with no https on it.** The http-to-https redirect in [proxy.ts](proxy.ts) keyed on `x-forwarded-proto`, on the reasoning that the header is only present when something is in front of the Worker. `next dev` sets it to `http` on everything it serves, so `npm run dev` answered 308 to `https://localhost:3000` for every page — including the capture page, which is why the renderer could not run against a local dev server either. It is keyed on the hostname now. Worth noticing that this had been true for a while and was invisible, because everything anybody had checked recently was checked against production.
 
+### From closing the photograph-to-video gap
+
+30. **A fighter's photograph never reached their video.** Nothing generated a cutout on upload — background removal existed only in `npm run assets`, run by hand against curated artwork — and the sequence branched on the cutout alone, so a fighter who sent a photograph appeared in the video as though they had sent nothing. The demo looked right only because the cutouts had been prepared in advance. Two fixes, and they are different in kind: the sequence now falls back to the photograph, and the renderer makes the cutouts. Both are in section 4. **What made this survivable for as long as it did is that the seeded card is the one card where every fighter already has a cutout**, so every check of the centrepiece was a check of the one state that was never in question. Anything only ever exercised against the demo data is worth re-checking against a fighter who has just filled the form in.
+31. **The exporter screenshotted before newly mounted images had painted.** Found while proving the above and it had been latent all along: `seek` set the frame and took the picture, which was fine for 480 frames of images that were already in the document and not fine the first time a scene mounted one. The first generated cutout came back correct in R2, served correctly over curl, loaded in a standalone Chrome — and was a blank space in the mp4. It now waits a frame for React to commit, `decode()`s every image in the document, then waits two more frames for the paint. **A pure composition guarantees the same markup per frame; it does not guarantee the pixels are there when you photograph it.**
+
 ---
 
 ## 15. Environment notes
@@ -582,8 +605,13 @@ npx opennextjs-cloudflare build
 npx wrangler dev --port 8788 --local     # the real Workers runtime
 npm run e2e -- --base http://localhost:8788
 
-npm run assets                                       # cutouts, from assets-src/
+npm run assets                                       # curated artwork, from assets-src/
 npm run icons                                        # favicon, apple icon, manifest icons
+
+# Cutouts from fighters' own uploads. Folded into npm run render; alone when you
+# have just collected a run of photographs and want to see which ones worked.
+npm run cutouts -- --slug cage-county-12 --remote
+npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
 
 # Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
 # deployed site. Section 6c.
