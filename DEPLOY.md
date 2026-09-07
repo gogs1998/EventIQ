@@ -9,7 +9,8 @@ secret in place before anything is uploaded.
 > **Status: live at https://eventiq.win.** The D1 permission arrived, so the
 > database was created, migrated and seeded, and the Worker is deployed with the
 > custom domain attached. Every step below has been run against the real
-> account, and the whole product has been walked end to end in production with
+> account except where it says otherwise, and the whole product has been walked
+> end to end in production with
 > `npm run e2e -- --base https://eventiq.win` (25 steps, all passing).
 >
 > **Before a real promoter's card goes on here, work through
@@ -247,7 +248,11 @@ about on a show night.
 
 Because `wrangler d1 migrations apply` reports success on a no-op as readily as
 on real work, the script then reads the list back and refuses if anything is
-still unapplied.
+still unapplied. Worth saying plainly: the individual commands have all been run
+against this account, but **the reordered deploy has not been through a real
+run** — it was written and checked against the migrations list output rather than
+by deploying. `npm run deploy -- --dry-run` is the cheap way to see what it will
+do before it does it.
 
 Variations:
 

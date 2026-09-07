@@ -13,7 +13,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. 700 lines, and the most valuable thing in the repo. Section 14 is 31 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 800 lines, and the most valuable thing in the repo. Section 14 is 31 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 
@@ -36,6 +36,8 @@ npm run lint
 npm run typecheck
 npm run build
 ```
+
+Those four run on every push and every pull request — [.github/workflows/ci.yml](.github/workflows/ci.yml), on the Node version in [.nvmrc](.nvmrc) — so run them before pushing rather than after.
 
 Three environment traps, all of which have cost real time:
 
@@ -88,7 +90,7 @@ lib/            derivation and helpers, all pure and unit-tested
 lib/db/         the only files that know what the tables look like
 db/             schema.ts is the single description; migrations are generated
 data/event.ts   the demo card — now only the seed, nothing reads it at runtime
-scripts/        renderer, cutouts, seed, e2e, deploy, screenshots, sales tour
+scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
 ```
 
 The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the original fixture used, and `loadCard()` fetches a whole show in six queries. Everything downstream is a pure function of that `Card` object — `lib/tape.ts` and `lib/promoter.ts` never see a database, which is why they kept every test through the move from fixture to D1. Keep new derivation on that side of the line.
@@ -152,37 +154,8 @@ The conversation that produced this, in order, because several of the decisions 
 
 ## What is outstanding
 
-The reasoning lives in [HANDOVER.md](HANDOVER.md) section 19. This is the short version of that list, split into what needs a person and what needs a commit. Numbers in each list are local; the handover is the canonical order.
+**The list lives in [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next), and only there.** It used to be summarised here as well, which meant two orderings of the same work drifting apart — and the summary is the one that goes stale, because the reasoning that would tell you an item had moved is in the handover and not in the precis.
 
-**Needs the originator, not code:**
+What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
 
-1. **Get a single real show onto the platform.** Not code. Free if necessary. This is the first item on the roadmap: until one promoter runs one real card, every subsequent ordering is a guess. Blocked by the next item, not parallel with it.
-2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** Blocker on item 1. The demo is invented people so nothing applies; the moment real amateur fighters' photographs, ages and hometowns are collected and published, with sponsor monetisation attached, it has to be in place first. The questionnaire is the natural consent point — design it in rather than bolting it on.
-3. **Turn on "Always Use HTTPS"** in the Cloudflare dashboard, under SSL/TLS → Edge Certificates. Files under `public/` and `_next/` are served by the assets binding without the Worker running, so the app-level redirect in `proxy.ts` cannot reach them and `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. The deploy token cannot set this.
-4. **Rotate the Cloudflare API token**, which was handled in chat during this build and should be treated as known. The promoter password and `SESSION_SECRET` have already been rotated; the token has not. While in there, drop **Cloudflare Pages · Edit** from its scopes, which nothing uses. [DEPLOY.md](DEPLOY.md#what-is-left-to-do) keeps the live list.
-5. **Decide where `RENDER_KEY` lives.** Nobody holds it today: it is set on the Worker, cannot be read back, and whoever wants to render mints a fresh one. That is fine while one person renders on their own laptop and is the wrong shape the moment two people or a cron job need to. A password manager entry, not a file in the repository.
-6. **What does FightIQ.win do?** A strapline would also even up the sponsor strip.
-7. **Real fighter photographs**, with permission, from one local gym. The generated portraits demonstrate the idea but a promoter who recognises nobody will notice.
-8. **The commercial model**: a per-event fee, a share of bout sponsorship, or a free programme with the post-event sponsor report as the paid upsell.
-9. **Reprint the table card from the live URL.** The QR encodes the origin it was served from, so one printed from a laptop is useless at a venue.
-10. **Decide the tenancy model before promoter number two.** One promoter, created by the seed, and no signup. With a second, `RENDER_KEY` becomes a cross-tenant read and the global `fighters` table becomes a data-sharing and consent question. Cheap to decide now, expensive later. HANDOVER section 19 item 11.
-
-**Code work, in rough order of value per unit of effort:**
-
-1. **Error reporting, and a D1 export that is actually a backup.** Small. Nothing phones home today; a 500 on show night stays a 500 until somebody logs in. D1 time travel is 30 days and is not a backup. HANDOVER section 19 item 3, section 20.
-2. **A `cancelled` flag on a published bout.** Small. Withdrawals happen on every amateur card and there is no way to say "this bout is off" once spectators are reading it; deleting it destroys the sponsor placement and the analytics history. A struck-through bout and a "withdrawn" line. This is not "live on the night". HANDOVER section 19 item 4.
-3. **Give the promoter the record importer.** The endpoint exists and works; it needs a paste box in the card editor. The valuable version is the promoter pasting links for the thirty fighters who never reply. Biggest lever on the weakest part of the product.
-4. **Make the fighter's share loop deliberate.** The "Download for Instagram" link already exists wherever an mp4 does; nothing prompts a fighter to use it, nothing burns the event into the video, and nothing records whether anyone ever has. Cheapest growth available.
-5. **Re-record the sales demo.** The committed cut predates the database and no longer shows the strongest thing there is to show: a fighter's entry landing on the card and the counts going up. `scripts/tour.mjs` scripts it; HANDOVER section 17 has the hard-won recording details, every one of which cost a re-record.
-6. **Send the invites.** They are copied and pasted by hand today. `sentAt` already exists to record it.
-7. **An audience scorecard.** Crowd opinion, never a result; switchable off per event; scored once after the bout, not live judging. Speculative until a real show has run. Feeds the sponsor report. HANDOVER section 19 item 9 for the risk, which is load-bearing.
-8. **The post-event sponsor report.** The counting is done; what is missing is a one-page thing a promoter can hand a sponsor. Probably the thing they would actually pay more for. Wants the scorecard's numbers in it.
-9. **Tenancy before promoter two**, of which a change-password form is the small piece of code and understates the decision above. Per-promoter render keys; whether fighters are shared.
-10. **Returning fighters.** The schema already keeps fighters across events; what is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. Across promoters this waits on the tenancy decision and on consent.
-11. **Cache the public programme for the show window.** Small. Several hundred spectators, ninety minutes, six D1 queries per load, and the card does not change.
-12. **An accessibility pass.** Small. Contrast, focus order, screen-reader labelling. Nobody has checked.
-13. **Render on a schedule.** `--stale` makes this a one-line cron on any machine with ffmpeg. Cheap version that still needs the laptop.
-14. **Render the remaining ten bouts** so no bout in the demo is a dead end.
-15. **Put the renderer on Cloudflare Containers.** Architectural, not a config change. HANDOVER section 11. Do not confuse it with Browser Rendering, which remains the wrong tool.
-
-Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The cancelled-flag item above is the exception that proves that, not a weakening of it.
+Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The cancelled-bout flag in section 19 is the exception that proves that, not a weakening of it.

@@ -77,7 +77,7 @@ An independent audit after that found three more, all fixed: **the capture page 
 - **Next.js 16.3 App Router, TypeScript, Tailwind 4.** Single app at repo root.
 - **Cloudflare Workers via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare).** `@cloudflare/next-on-pages` is deprecated and Pages is the wrong product for an app with server actions and a database.
 - **D1** for data, **R2** for photographs and rendered video.
-- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is 260 lines of TypeScript that generates its own migrations.
+- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is 267 lines of TypeScript that generates its own migrations.
 - **No auth dependency.** Web Crypto, which is in the Workers runtime, in Node and in the test environment, so the same code runs everywhere. Section 6.
 - **`devIndicators: false`** in [next.config.ts](next.config.ts). Not cosmetic — the video exporter screenshots the running dev server, and the Next.js dev badge was being burned into every frame.
 - **`images: { unoptimized: true }`** — all imagery is pre-optimised and the Workers image loader would be a cost for no gain.
@@ -501,12 +501,13 @@ The five mp4s committed under `public/renders/` predate the bucket. The seed rec
 
 The build was held up for a while on **Account · D1 · Edit** being missing from the token, which is worth knowing about because the failure is unhelpful: D1 answers **401**, not 403, so it reads like a bad token rather than a token that is fine but scoped for something else. `--check` exists to say which of the four it actually is. The full permission list is in [DEPLOY.md](DEPLOY.md).
 
-Four things that bit, and will bite again on a fresh account:
+Five things that bit, and will bite again on a fresh account:
 
-1. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
-2. **`SESSION_SECRET` and `RENDER_KEY` have to exist before the first deploy.** Without the first the promoter area refuses to serve; without the second nothing can render a video. Neither has a fallback, deliberately, and the second one fails quietly from the outside — the render route just carries on answering 404. `npx wrangler secret list` is the check.
-3. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
-4. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
+1. **Migrations are part of the deploy now.** `npm run deploy` builds, applies any pending D1 migrations and then uploads, in that order, and stops if the migration fails — the Worker going up expects the schema that ships with it, so uploading first means every request in between hits the old tables. It used to be two commands in DEPLOY.md typed in the right order by somebody who remembered.
+2. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
+3. **`SESSION_SECRET` and `RENDER_KEY` have to exist before the first deploy.** Without the first the promoter area refuses to serve; without the second nothing can render a video. Neither has a fallback, deliberately, and the second one fails quietly from the outside — the render route just carries on answering 404. `npx wrangler secret list` is the check.
+4. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
+5. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
 
 `npm run e2e -- --base https://eventiq.win` runs the whole walk against production. It is honest about what it does to the data — it adds a bout, removes it again, and fills in a fighter's profile — so anything it touches needs putting back afterwards, with a re-seed **and** a delete of the photograph it pushed to R2, which the seed does not clear. Running it against a card a promoter is actually using would be rude.
 
@@ -604,7 +605,7 @@ Three more, and the first is the most serious thing found in this project so far
 ## 15. Environment notes
 
 - Node 22, npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
-- Wrangler 4.126.0 via `npx wrangler`, no install needed.
+- Wrangler 4.126.0 and `@opennextjs/cloudflare` 1.20.3, both pinned to exact versions in package.json because they decide what a deploy does. The scripts run the copy in `node_modules` through [scripts/local-bin.mjs](scripts/local-bin.mjs) rather than through `npx`, which on Windows cannot be spawned at all and elsewhere is free to offer a different version.
 - Rendering one bout takes about **60 seconds**. All 15 would be ~15 minutes.
 - `X` display is `:1`, 1920x1200, XFCE, `xdotool` available. Only needed for the sales recording.
 - Videos are encoded at **crf 28**, visually indistinguishable from crf 20 on this material at a third of the size (~1.7MB per 16s clip).
@@ -621,13 +622,23 @@ npm run typecheck
 
 npm run db:generate          # migrations from db/schema.ts
 npm run db:migrate           # apply them locally
+npm run db:migrate:remote    # apply them to the live database without a deploy
 npm run db:seed              # the demo card, with fresh invite tokens
 npm run db:reset             # both
 npm run db:studio -- "select count(*) from fighters"
 
+# The live database. A rewrite rather than an insert, so it wants the flag spelled
+# out and refuses if any promoter but the seeded one is on there.
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
+
+npm run db:backup                                   # export the live D1 into R2
+npm run db:restore-rehearsal -- --date 2026-09-07   # load one back and count the rows
+
+npm run preview                          # build for Workers and serve it
 npx opennextjs-cloudflare build
 npx wrangler dev --port 8788 --local     # the real Workers runtime
 npm run e2e -- --base http://localhost:8788
+npm run cf-typegen                       # cloudflare-env.d.ts, when debugging a binding type
 
 npm run assets                                       # curated artwork, from assets-src/
 npm run icons                                        # favicon, apple icon, manifest icons
@@ -645,8 +656,9 @@ npm run render -- --slug cage-county-12 --stale --publish
 
 npm run shots                            # gallery screenshots + the Open Graph card
 node scripts/deploy.mjs --check          # what the token can and cannot do
+npm run deploy -- --dry-run              # that, plus pending migrations and the plan
 npx wrangler secret list                 # SESSION_SECRET and RENDER_KEY, both required
-npm run deploy                           # build and push the Worker
+npm run deploy                           # build, migrate, push the Worker
 npm run e2e -- --base https://eventiq.win --password '...'
 ```
 
@@ -704,7 +716,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** This is not a parallel task for later. The demo collects nothing that applies; the moment real amateur fighters' photographs, ages and hometowns are collected and published, with sponsor monetisation attached, it has to be in place first. The questionnaire is the natural consent point — design it in rather than bolting it on. Section 18, section 20. Until this exists, item 1 is a way of putting real people's data on a public page with no sentence they agreed to.
 
-3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. Separately, D1 has time travel for 30 days, which is not a backup strategy (section 20). An export job — D1 to a file in R2 on a schedule, with a restore path that has been run once — is the actual thing, and it wants to exist before the first real fighter's profile is the only copy.
+3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. The backup half of this item is now done: `npm run db:backup` exports D1 to a file in R2 and `npm run db:restore-rehearsal` proves one restores, both described in [DEPLOY.md](DEPLOY.md#backups), with the schedule as a cron line rather than a workflow. What is left of this item is the error reporting.
 
 4. **A `cancelled` flag on a published bout.** Small, and the one slice of "live on the night" that cannot be deferred. Withdrawals happen on every amateur card, from weight, injury or a no-show. The `bouts` table has no such state ([db/schema.ts](db/schema.ts) carries id, event, number, discipline, weight, class, title, `womens`, rounds, minutes, billing, the two corners and a sponsor, and nothing that can mean "this bout is off"). `removeBout()` in [app/promoter/actions.ts](app/promoter/actions.ts) is thought through — it closes the numbering gap only while the show is unpublished, because once spectators are reading the card the bout numbers are what analytics rows are keyed on and what the MC is calling out — but there is no way to mark a bout withdrawn once the programme is public. Deleting it is the wrong remedy: it destroys the sponsor placement and the analytics history, and leaves the programme wrong for the whole show at the one moment several hundred people are actually reading it. A cancelled flag, a struck-through bout and a "withdrawn" line is the minimum. Item 18 below is still the larger product and is still deferred; this is not a foot in that door.
 
@@ -766,7 +778,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Remotion licensing** if the render harness is ever swapped. Section 4.
 - **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
 - **No error reporting of any kind.** If the promoter's dashboard returns a 500 on show night, nobody finds out. Section 14 records that exactly this class of thing — the PBKDF2 production 500 (bug 16) — stayed invisible until somebody tried to log in. Once item 1 of section 19 puts a real show on the platform this is no longer a development inconvenience. The corresponding work is the first half of that section's item 3.
-- **No backups.** D1 has time travel for 30 days, which is not the same as a backup strategy and should be said out loud before there is real data in it. The corresponding work is the second half of section 19's item 3: an export job, not a note that time travel exists.
+- **Backups exist now and are only as good as the schedule nobody has set.** `npm run db:backup` exports D1 to a plain .sql file in R2 and `npm run db:restore-rehearsal` proves one restores — D1's own time travel is 30 days, lives in the same account and cannot be inspected without restoring, which is a recovery mechanism rather than a backup. Two things about this stay risks. The bucket is in the same Cloudflare account as the database, so it covers a bad migration and not a lost account; `--out` on a machine somebody controls is the other half and is a habit rather than a mechanism. And nothing runs it: the cron line is in [DEPLOY.md](DEPLOY.md#scheduling-it), and until somebody installs it the capability is not the same as the backup. Check the bucket, not the schedule.
 - **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
 - **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
 - **The demo card is a live database, not a fixture.** Anything run against production — the end-to-end suite especially — edits the card the pitch depends on. Re-seed afterwards, every time.

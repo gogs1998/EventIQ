@@ -45,13 +45,21 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 203 unit tests
+npm test           # 203 unit tests in 15 files, about a second
 npm run lint
 npm run typecheck
 npm run build
 ```
 
+Those four are what [CI](.github/workflows/ci.yml) runs on every push and every pull request, on the Node version in [`.nvmrc`](.nvmrc), so a green tick means the same thing there as it does here. Use `npm run typecheck` rather than `tsc --noEmit`: it runs `next typegen` first, and without that a clean checkout reports eight errors about `PageProps` that have nothing to do with your change.
+
 To run against the actual Workers runtime rather than Node:
+
+```bash
+npm run preview    # opennextjs-cloudflare build, then its own preview server
+```
+
+or the two halves separately, which is what you want if you are rebuilding repeatedly:
 
 ```bash
 npx opennextjs-cloudflare build
@@ -59,6 +67,8 @@ npx wrangler dev --port 8788 --local
 ```
 
 **Not at the same time as `npm run dev`** — both open the same local SQLite file and the second one takes the first down.
+
+`npm run cf-typegen` regenerates `cloudflare-env.d.ts` from `wrangler.jsonc`. It is not part of any other command and the file it writes is gitignored: [`env.d.ts`](env.d.ts) declares the bindings by hand instead, because the generated version is 580KB of runtime declarations for a handful of bindings that change about once a year. Run it when you are debugging a binding type and want to see what wrangler thinks it is.
 
 ## The end-to-end walkthrough
 
@@ -108,14 +118,32 @@ The card editor writes: event details, bouts, fighters, sponsors, invite links a
 ## The database
 
 ```bash
-npm run db:generate    # migrations from db/schema.ts
-npm run db:migrate     # apply them to the local database
-npm run db:seed        # the demo card, with fresh invite tokens
-npm run db:reset       # both
+npm run db:generate         # migrations from db/schema.ts
+npm run db:migrate          # apply them to the local database
+npm run db:migrate:remote    # apply them to the live one
+npm run db:seed             # the demo card, with fresh invite tokens
+npm run db:reset            # both
 npm run db:studio -- "select count(*) from fighters"
 ```
 
 [`db/schema.ts`](db/schema.ts) is the single description of the schema. The seed is generated from `data/event.ts` at run time and never committed, because it contains working invite tokens.
+
+`db:migrate:remote` is there for a schema change that needs applying without a deploy. It is not the usual path: `npm run deploy` applies pending migrations itself, before the Worker goes up, because the Worker expects the schema that ships with it. See [DEPLOY.md](DEPLOY.md).
+
+Seeding the live database is deliberately awkward, because it is a rewrite rather than an insert — it deletes the promoter, their sponsors, the show and its fighters, and reissues every invite token. It wants a password, a flag spelled out in full, and a live database that still holds nobody but the seeded promoter:
+
+```bash
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
+```
+
+### Backups
+
+```bash
+npm run db:backup                                   # export the live D1 into R2, as backups/<date>.sql
+npm run db:restore-rehearsal -- --date 2026-09-07   # load it into a scratch database and count the rows
+```
+
+D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the cron line and the R2 lifecycle rule.
 
 ## Rendering video
 
@@ -143,10 +171,15 @@ npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
 ## Regenerating assets
 
 ```bash
-npm run assets     # optimisation of the curated art in assets-src/ (gitignored)
+npm run assets     # optimisation of the curated art in assets-src/
+npm run icons      # favicon, apple icon and the manifest icons
 ```
 
-Only the optimised output in `public/` is committed. This is for the demo card's artwork; cutouts for photographs a fighter actually sends are made by the renderer, above.
+Only the optimised output in `public/` is committed. `npm run icons` is the exception to everything below it: the mark is a geometry definition inside [`scripts/make-icons.mjs`](scripts/make-icons.mjs) and every icon is emitted from it, so that one can always be rerun.
+
+**`assets-src/` is gitignored, so on a fresh clone `npm run assets` has nothing to work on.** The sources exist on the machine the demo artwork was made on and nowhere else, which means the committed files in `public/` cannot be regenerated from this repository — a new portrait or a re-crop needs the originals from that machine, or new originals. That was a reasonable trade while the inputs were large generated images and the outputs were the only thing anyone needed; it stops being reasonable the moment somebody has to change one. It is written down here rather than quietly discovered.
+
+This is for the demo card's artwork. Cutouts for photographs a fighter actually sends are made by the renderer, above, from what is in R2 — that path does not depend on `assets-src/` at all.
 
 ## Recording the sales demo
 
