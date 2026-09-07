@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq, max } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { newId, newToken } from "@/lib/auth";
 import { getDb, type Db } from "@/lib/db";
 import { requirePromoter } from "@/lib/session";
+import { hasSlug, slugify } from "@/lib/slug";
 
 /**
  * Everything the promoter can change.
@@ -39,15 +41,6 @@ function number(form: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A slug a promoter can read off a printed card and type into a phone. */
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
 // ------------------------------------------------------------------- events
 
 export async function createEvent(_state: string | null, form: FormData): Promise<string | null> {
@@ -55,6 +48,15 @@ export async function createEvent(_state: string | null, form: FormData): Promis
   const name = text(form, "name", 80);
   const date = text(form, "date", 10);
   if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "A show needs a name and a date.";
+  // A name made only of punctuation slugifies to nothing, and the row written
+  // from it was a programme addressed at `/e/`: unreachable, and the second show
+  // named that way collided with the first.
+  if (!hasSlug(name)) {
+    return (
+      "A show name needs at least one letter or number in it, because the address for " +
+      "the programme is made from the name."
+    );
+  }
 
   const db = await getDb();
   const slug = slugify(name);
@@ -133,6 +135,12 @@ export async function setPublished(slug: string, published: boolean): Promise<vo
  * reading a matchmaking sheet with both names on the same line. Splitting this
  * into "create fighter, create fighter, create bout" would be three screens for
  * something that is one line of the sheet.
+ *
+ * All five rows go in as one `db.batch`, which D1 runs as a single transaction.
+ * As five separate statements, a failure partway through left a fighter with no
+ * bout and no invite: invisible on every screen, because everything is derived
+ * from the running order, and still in the table when somebody next counted.
+ * Same fix and same reasoning as `saveDraft` in the fighter's actions (bug 24).
  */
 export async function addBout(slug: string, form: FormData): Promise<void> {
   const db = await getDb();
@@ -149,41 +157,52 @@ export async function addBout(slug: string, form: FormData): Promise<void> {
 
   const now = Date.now();
   const fighterIds: string[] = [];
+  const writes: BatchItem<"sqlite">[] = [];
+
   for (const [name, gymKey] of [
     [redName, "redGym"],
     [blueName, "blueGym"],
   ] as const) {
-    const id = await uniqueFighterId(db, name);
+    // Chosen before the batch rather than inside it: an id has to be unique
+    // against rows that already exist, and a batch is a list of writes with
+    // nothing read back between them.
+    const id = await uniqueFighterId(db, name, fighterIds);
     fighterIds.push(id);
-    await db.insert(schema.fighters).values({
-      id,
-      name,
-      gym: text(form, gymKey, 60) || "Gym to confirm",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(schema.invites).values({
-      id: newId("in"),
-      token: newToken(),
-      eventId: event.id,
-      fighterId: id,
-      createdAt: now,
-    });
+    writes.push(
+      db.insert(schema.fighters).values({
+        id,
+        name,
+        gym: text(form, gymKey, 60) || "Gym to confirm",
+        createdAt: now,
+        updatedAt: now,
+      }),
+      db.insert(schema.invites).values({
+        id: newId("in"),
+        token: newToken(),
+        eventId: event.id,
+        fighterId: id,
+        createdAt: now,
+      }),
+    );
   }
 
-  await db.insert(schema.bouts).values({
-    id: newId("bo"),
-    eventId: event.id,
-    number: (highest ?? 0) + 1,
-    discipline: text(form, "discipline", 20) || "MMA",
-    weightKg: number(form, "weightKg") ?? 70,
-    classLabel: text(form, "classLabel", 30) || null,
-    womens: form.get("womens") === "on",
-    rounds: number(form, "rounds") ?? 3,
-    roundMinutes: number(form, "roundMinutes") ?? 3,
-    redId: fighterIds[0],
-    blueId: fighterIds[1],
-  });
+  writes.push(
+    db.insert(schema.bouts).values({
+      id: newId("bo"),
+      eventId: event.id,
+      number: (highest ?? 0) + 1,
+      discipline: text(form, "discipline", 20) || "MMA",
+      weightKg: number(form, "weightKg") ?? 70,
+      classLabel: text(form, "classLabel", 30) || null,
+      womens: form.get("womens") === "on",
+      rounds: number(form, "rounds") ?? 3,
+      roundMinutes: number(form, "roundMinutes") ?? 3,
+      redId: fighterIds[0],
+      blueId: fighterIds[1],
+    }),
+  );
+
+  await db.batch(writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
   revalidatePath(`/promoter/e/${slug}`);
   revalidatePath(`/e/${slug}`);
@@ -193,11 +212,17 @@ export async function addBout(slug: string, form: FormData): Promise<void> {
  * Fighters are shared across shows, so ids have to be unique globally rather
  * than within one card. A readable id keeps the profile URL something a fighter
  * will actually put in an Instagram bio, which is the whole point of it.
+ *
+ * `taken` carries the ids this same call has already settled on but not yet
+ * written. Both corners go in one batch now, so the database cannot report the
+ * first one while the second is being chosen — which is the card where two
+ * namesakes are matched against each other.
  */
-async function uniqueFighterId(db: Db, name: string): Promise<string> {
+async function uniqueFighterId(db: Db, name: string, taken: string[] = []): Promise<string> {
   const base = slugify(name) || "fighter";
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const id = attempt === 0 ? base : `${base}-${attempt + 1}`;
+  for (let n = 0; n < 20; n += 1) {
+    const id = n === 0 ? base : `${base}-${n + 1}`;
+    if (taken.includes(id)) continue;
     const [clash] = await db
       .select({ id: schema.fighters.id })
       .from(schema.fighters)
