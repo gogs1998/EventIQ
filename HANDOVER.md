@@ -512,6 +512,41 @@ Four things that bit, and will bite again on a fresh account:
 
 ---
 
+## 12a. Reading the logs
+
+Nothing phoned home for the whole of this project's first life. The PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to sign in, and the risk register said so out loud in section 20. What follows is the cheap half of section 19's item 3: every failure now goes through one function, in one shape, to somewhere it can be searched.
+
+**Where it is written.** [lib/log.ts](lib/log.ts) is the only thing in the codebase that reports a failure. It hands `console.error` an object rather than a formatted string, because Workers Logs indexes the top-level keys of a structured log and cannot search inside a sentence:
+
+```
+{ level: "error", event: "addBout", route: "/promoter/e/cage-county-12/card",
+  promoterId: "pr_…", message: "D1_ERROR: …", stack: "…", at: "2026-…" }
+```
+
+`event` is the field to filter on and is named after the action or the boundary that wrote it. The error boundaries write `event: "render"` with the route and the **digest** — in production Next.js replaces a server error's message with a digest before it reaches the browser, so logging the digest from both ends is the only thing that joins the page the promoter was looking at to the server log with the stack in it. It is on the screen too, in small type, so a promoter on the phone can read it out.
+
+**Where to read it.** Cloudflare dashboard → Workers & Pages → **eventiq** → **Logs**. The live tail is that tab with nothing else set; the stored ones are **Workers Logs**, queryable for whatever retention the plan gives. Useful filters, in the order they are usually wanted:
+
+- `$metadata.level = error` — everything this app has reported.
+- `event = createEvent`, and so on — one action, across every promoter.
+- `promoterId = pr_…` — one promoter's afternoon.
+- The **Invocations** view for status codes and CPU time, which is where a 500 that never reached our code shows up. That is what `invocation_logs` in the observability block buys.
+
+From a terminal, `npx wrangler tail eventiq --format pretty` is the same stream and is the fastest way to watch a deploy. `--status error` narrows it.
+
+**What the settings mean.** `head_sampling_rate` is 1 rather than the Cloudflare default. Sampling exists for Workers taking millions of requests; this one takes a few hundred spectators for ninety minutes on the night and one promoter the rest of the time, so sampling would save nothing worth having and would lose the single request that went wrong. Revisit it once a real show has put load through this, not before.
+
+**`/api/health`** answers `{ok, d1, r2}` — 200 when both bindings answer, 503 naming the one that did not — and is deliberately the two cheapest calls that prove anything, because an uptime checker hits it every minute. It says nothing else on purpose: it is unauthenticated by definition, so it must not become a way of finding out what is in the database.
+
+**What this still is not.** Logs are a place to look after somebody has noticed. Nothing pages anyone, and nothing keeps a history beyond the retention window. Two ways out of that, neither taken yet and neither needing a change to a single call site, because everything already goes through `logError`:
+
+- **A Tail Worker.** A second Worker named in a `tail_consumers` binding on this one, handed every log event as an array and free to forward it anywhere — a webhook, a queue, an Analytics Engine dataset for a longer history. It runs outside the request, so nothing it does can slow a page down, and it is the Cloudflare-native answer. One new Worker and four lines of `wrangler.jsonc`; no dependency.
+- **Sentry.** `@sentry/cloudflare` with the DSN as a secret, initialised once in the Worker entry, and `Sentry.captureException` inside `logError`. That buys grouping, release tracking and an alert that reaches a phone, at the cost of a dependency in the bundle and a third party holding stack traces. **Not added now**, and not only for bundle size: an error report can carry a fighter's invite token in a URL, and this project has an open item on consent and a privacy notice (section 19 item 2) that wants settling before stack traces leave the account.
+
+Whichever is chosen, the shape above is the interface. Keep `event` stable — it is what any filter, alert or grouping rule will be written against.
+
+---
+
 ## 13. Local development
 
 ```bash
@@ -765,7 +800,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission.
 - **Remotion licensing** if the render harness is ever swapped. Section 4.
 - **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
-- **No error reporting of any kind.** If the promoter's dashboard returns a 500 on show night, nobody finds out. Section 14 records that exactly this class of thing — the PBKDF2 production 500 (bug 16) — stayed invisible until somebody tried to log in. Once item 1 of section 19 puts a real show on the platform this is no longer a development inconvenience. The corresponding work is the first half of that section's item 3.
+- **Nothing tells anybody a failure has happened.** Every failure is written in one shape now and is searchable in the Cloudflare dashboard (section 12a), and `/api/health` says whether D1 and R2 are answering. That is the half of section 19's item 3 that needed no decision. The half that is left is the one that matters on show night: nothing pages anyone, so if the promoter's dashboard returns a 500 at first bell it is still true that nobody finds out until somebody looks. Section 14 records this exact class of thing — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. Section 12a has the two routes to alerting and why neither is taken yet.
 - **No backups.** D1 has time travel for 30 days, which is not the same as a backup strategy and should be said out loud before there is real data in it. The corresponding work is the second half of section 19's item 3: an export job, not a note that time travel exists.
 - **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
 - **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
