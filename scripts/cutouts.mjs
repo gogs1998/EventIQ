@@ -35,6 +35,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { localBin } from "./local-bin.mjs";
 
 const DATABASE = "eventiq";
 const BUCKET = "eventiq-media";
@@ -129,6 +130,8 @@ export const lit = (value) => `'${String(value).replaceAll("'", "''")}'`;
 // --------------------------------------------------------------- plumbing
 
 function run(command, args, { binary = false } = {}) {
+  // "npx" is a batch file on Windows and cannot be spawned directly; see local-bin.mjs.
+  if (command === "npx") [command, args] = localBin(args);
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     const out = [];

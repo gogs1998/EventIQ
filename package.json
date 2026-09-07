@@ -50,5 +50,18 @@
     "typescript": "^5",
     "vitest": "^4.1.11",
     "wrangler": "^4.126.0"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.4": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.28.1": true,
+    "sharp@0.32.6": true,
+    "sharp@0.35.2": true,
+    "sharp@0.35.4": true,
+    "onnxruntime-node@1.17.3": true,
+    "unrs-resolver@1.12.2": true,
+    "workerd@1.20260825.1": true
   }
 }

@@ -23,6 +23,7 @@ import { event, fighters, sponsors } from "@/data/event";
 import { hashPassword } from "@/lib/auth";
 import { buildSeed } from "@/lib/seed";
 import { devVars } from "./dev-vars.mjs";
+import { localBin } from "./local-bin.mjs";
 
 const remote = process.argv.includes("--remote");
 
@@ -70,8 +71,7 @@ writeFileSync(file, sql);
 // statements buries the invite links this script exists to show. Swallowed on
 // success, surfaced by execFileSync throwing on failure.
 execFileSync(
-  "npx",
-  ["wrangler", "d1", "execute", "eventiq", remote ? "--remote" : "--local", "--file", file, "--yes"],
+  ...localBin(["wrangler", "d1", "execute", "eventiq", remote ? "--remote" : "--local", "--file", file, "--yes"]),
   { stdio: ["inherit", "ignore", "inherit"] },
 );
 

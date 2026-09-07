@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { alphaVerdict, cutoutKey, lit, needsCutout, photoSource } from "./cutouts.mjs";
 
@@ -21,7 +22,7 @@ describe("photoSource", () => {
   it("reads a seeded photograph off disk", () => {
     expect(photoSource("/fighters/nadia-farrukh.webp")).toEqual({
       kind: "static",
-      path: "public/fighters/nadia-farrukh.webp",
+      path: path.join("public", "fighters", "nadia-farrukh.webp"),
     });
   });
 

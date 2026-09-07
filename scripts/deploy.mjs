@@ -17,6 +17,7 @@
  */
 import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { localBin } from "./local-bin.mjs";
 
 const NAME = "eventiq";
 const DATABASE = "eventiq";
@@ -34,6 +35,8 @@ function fail(message) {
 }
 
 function sh(command, commandArgs, { capture = false, env = {} } = {}) {
+  // "npx" is a batch file on Windows and cannot be spawned directly; see local-bin.mjs.
+  if (command === "npx") [command, commandArgs] = localBin(commandArgs);
   return new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, {
       stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",

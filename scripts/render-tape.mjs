@@ -36,6 +36,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { ensureCutouts, needsCutout } from "./cutouts.mjs";
 import { devVars } from "./dev-vars.mjs";
+import { localBin } from "./local-bin.mjs";
 
 const CHROME =
   process.env.CHROME_PATH ??
@@ -84,6 +85,8 @@ const scope = remote ? "--remote" : "--local";
 // --------------------------------------------------------------- plumbing
 
 function run(command, commandArgs, { capture = false } = {}) {
+  // "npx" is a batch file on Windows and cannot be spawned directly; see local-bin.mjs.
+  if (command === "npx") [command, commandArgs] = localBin(commandArgs);
   return new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, {
       stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
