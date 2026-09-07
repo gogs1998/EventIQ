@@ -15,9 +15,9 @@ import {
   boutFormat,
   buildHooks,
   buildTape,
-  firstName,
   formatRecord,
   lastName,
+  leadName,
 } from "@/lib/tape";
 import type { Bout, Corner, Fighter } from "@/lib/types";
 
@@ -47,9 +47,12 @@ function FighterSide({
         >
           {corner === "red" ? "Red" : "Blue"}
         </span>
-        <span className="text-ash truncate text-[0.7rem] uppercase tracking-wider">
-          {firstName(fighter)}
-        </span>
+        {/* Nothing above the big line for a fighter who goes by one name. */}
+        {leadName(fighter) ? (
+          <span className="text-ash truncate text-[0.7rem] uppercase tracking-wider">
+            {leadName(fighter)}
+          </span>
+        ) : null}
         <span className="display text-chalk w-full truncate text-2xl leading-none">
           {lastName(fighter)}
         </span>

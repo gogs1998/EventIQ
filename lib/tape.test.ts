@@ -7,9 +7,12 @@ import {
   buildTape,
   completeness,
   finishRate,
+  firstName,
   formatRecord,
   isDebut,
   isUndefeated,
+  lastName,
+  leadName,
   tapeGapsBehind,
   totalFights,
 } from "@/lib/tape";
@@ -72,6 +75,49 @@ describe("record formatting", () => {
       finishes: { ko: 2, sub: 2 },
     };
     expect(finishRate(f)).toBe(1);
+  });
+});
+
+/**
+ * Amateur cards carry fighters known by one word. The name block sets the lead
+ * name above the big one, so a single token used for both printed "Bones Bones"
+ * on the card and in the video.
+ */
+describe("names", () => {
+  it("uses a single-word name once", () => {
+    const f: Fighter = { id: "n1", name: "Bones", gym: "G" };
+    expect(lastName(f)).toBe("Bones");
+    expect(firstName(f)).toBe("Bones");
+    expect(leadName(f)).toBeUndefined();
+  });
+
+  it("splits an ordinary name into a lead and a surname", () => {
+    const f: Fighter = { id: "n2", name: "Ada Long", gym: "G" };
+    expect(leadName(f)).toBe("Ada");
+    expect(lastName(f)).toBe("Long");
+  });
+
+  it("keeps the middle names on the lead line rather than dropping them", () => {
+    const f: Fighter = { id: "n3", name: "Ada Mary Long", gym: "G" };
+    expect(leadName(f)).toBe("Ada Mary");
+    expect(lastName(f)).toBe("Long");
+    expect(firstName(f)).toBe("Ada");
+  });
+
+  it("copes with the spacing a form actually receives", () => {
+    const f: Fighter = { id: "n4", name: "  Ada   Long  ", gym: "G" };
+    expect(leadName(f)).toBe("Ada");
+    expect(lastName(f)).toBe("Long");
+  });
+
+  it("names a single-word debutant once in the hook", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "Bones", record: { w: 0, l: 0, d: 0 } }),
+      fighter({ name: "Ada Long", record: { w: 4, l: 1, d: 0 } }),
+    );
+
+    expect(hooks).toContain("Bones is making their debut.");
   });
 });
 

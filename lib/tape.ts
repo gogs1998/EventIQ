@@ -89,17 +89,41 @@ export function isUndefeated(f: Fighter): boolean {
   return !!f.record && f.record.l === 0 && f.record.w > 0;
 }
 
+/**
+ * Names, split for the two lines the card and the video set them on.
+ *
+ * Plenty of amateurs go by one word. The name block puts the lead name in small
+ * type above the surname in large, and a single token answering to both printed
+ * it twice — "Bones Bones" — on the card, in the reveal and in the head to head.
+ * So the lead line is optional and the big line is the whole name where there is
+ * no surname to take.
+ */
+function nameParts(f: Fighter): string[] {
+  return f.name.trim().split(/\s+/).filter(Boolean);
+}
+
 export function fullName(f: Fighter): string {
-  return f.name;
+  return nameParts(f).join(" ") || f.name;
 }
 
+/** The big line: the surname, or the whole name where that is all there is. */
 export function lastName(f: Fighter): string {
-  const parts = f.name.trim().split(/\s+/);
-  return parts[parts.length - 1];
+  const parts = nameParts(f);
+  return parts[parts.length - 1] ?? f.name;
 }
 
+/** What to call them. A one-word name is the word. */
 export function firstName(f: Fighter): string {
-  return f.name.trim().split(/\s+/)[0];
+  return nameParts(f)[0] ?? f.name;
+}
+
+/**
+ * The small line above the big one, or nothing. Middle names stay on it rather
+ * than being dropped, because a fighter who gave three is entitled to all three.
+ */
+export function leadName(f: Fighter): string | undefined {
+  const parts = nameParts(f);
+  return parts.length > 1 ? parts.slice(0, -1).join(" ") : undefined;
 }
 
 // ---------------------------------------------------------------- tape rows
@@ -268,7 +292,7 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
     const debutant = redDebut ? red : blue;
     hooks.push({
       weight: 70,
-      text: `${firstName(debutant)} ${lastName(debutant)} is making their debut.`,
+      text: `${fullName(debutant)} is making their debut.`,
     });
   }
 
