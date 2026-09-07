@@ -2,7 +2,7 @@
 
 Written so this can be picked up in a fresh session with no prior context. Covers what exists, why it is the way it is, what was tried and rejected, what is still open, and what to do next.
 
-Companion to the [README](README.md), which covers how to run things. This document covers *why*.
+Companion to the [README](README.md), which covers how to run things, and to [CLAUDE.md](CLAUDE.md), which is the short version for somebody about to change something: the rules that are load-bearing, the traps in the environment, the copy and tone the originator asked for, and how the conversation that produced this went. This document covers *why*, at length.
 
 ---
 
@@ -501,6 +501,8 @@ npm run dev                        # http://localhost:3000
 
 `next dev` gets real local D1 and R2 through `initOpenNextCloudflareForDev()`, so server actions, uploads and counting all work without deploying anything. State lives under `.wrangler/`, which is gitignored.
 
+**`tsc` alone does not typecheck this app.** `PageProps` and `LayoutProps` are globals Next.js writes into `.next/types` during `next typegen`, which `next build` runs for you — so on a clean checkout `tsc --noEmit` reports eight `Cannot find name 'PageProps'` errors in files nobody has touched. That reads as a broken repository and is a missing build step. `npm run typecheck` runs typegen first for exactly this reason; use the script rather than `tsc`.
+
 To exercise the actual Workers runtime rather than Node:
 
 ```bash
@@ -591,7 +593,7 @@ Three more, and the first is the most serious thing found in this project so far
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 172 unit tests
+npm test                     # 203 unit tests
 npm run lint
 npm run typecheck
 

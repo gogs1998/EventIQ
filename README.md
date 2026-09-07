@@ -2,7 +2,7 @@
 
 Digital fight programmes for amateur MMA. Running at **https://eventiq.win**.
 
-> Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things.
+> Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things, and [CLAUDE.md](CLAUDE.md) covers working in here: the rules that are load-bearing, the environment traps, and how the project got its shape.
 
 Spectators scan a QR code at the venue and open the full running order for that show. Every bout expands into a tale of the tape, and the ones that matter come with a broadcast-style video built from the fighters' own photos.
 
@@ -45,7 +45,7 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 172 unit tests
+npm test           # 203 unit tests
 npm run lint
 npm run typecheck
 npm run build
