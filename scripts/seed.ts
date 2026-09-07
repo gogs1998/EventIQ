@@ -2,7 +2,11 @@
  * Seeds the database from the demo fixture.
  *
  *   npm run db:seed              # local Miniflare D1 under .wrangler
- *   npm run db:seed:remote       # the real D1 database
+ *   npm run db:seed:remote -- --i-understand-this-rewrites-production
+ *
+ * The remote form wants that flag, a SEED_PROMOTER_PASSWORD, and a live database
+ * holding nobody but the seeded promoter. All three are there because this is a
+ * rewrite rather than an insert — see checkRemoteIsStillTheDemo below.
  *
  * The SQL is generated here and piped straight into wrangler rather than being
  * written to a file in the repository. Invite tokens are the entire security of
@@ -21,11 +25,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { event, fighters, sponsors } from "@/data/event";
 import { hashPassword } from "@/lib/auth";
-import { buildSeed } from "@/lib/seed";
+import { buildSeed, SEED_PROMOTER_SLUG } from "@/lib/seed";
 import { devVars } from "./dev-vars.mjs";
 import { localBin } from "./local-bin.mjs";
 
 const remote = process.argv.includes("--remote");
+
+/**
+ * The flag that has to be typed out in full before this touches a live database.
+ *
+ * This script is a rewrite, not an insert: it deletes the promoter, their
+ * sponsors, their show and its fighters before it puts the demo card back. On
+ * the local database that is the point of it. On the remote one it is the
+ * difference between refreshing a demo and losing a promoter's card the
+ * afternoon before their show, and the two commands differ by one word.
+ */
+const CONFIRM = "--i-understand-this-rewrites-production";
 
 /**
  * Development default. Fine for a local database that only ever holds invented
@@ -48,6 +63,111 @@ if (!password) {
   );
   process.exit(1);
 }
+
+function refuse(...lines: string[]): never {
+  console.error(`\n${lines.join("\n")}\n`);
+  process.exit(1);
+}
+
+/**
+ * Two things have to be true before this writes to the live database, and they
+ * guard different mistakes.
+ *
+ * The flag guards the deliberate command typed in the wrong terminal: it is
+ * long, it cannot be reached by tab-completing `npm run db:seed`, and typing it
+ * out is the moment somebody notices which database they are pointed at.
+ *
+ * The promoter check guards the case the flag cannot: somebody who does mean to
+ * re-seed, on an instance that has since acquired a real promoter. There is no
+ * self-service signup, so the demo instance holds exactly one promoter and it is
+ * the seeded one. Anything else is an account somebody made on purpose, and this
+ * script would delete their sponsors and their show on the way to putting Cage
+ * County 12 back. It asks the database rather than assuming, because the whole
+ * point is that the instance changed and nobody updated the note.
+ */
+function checkRemoteIsStillTheDemo(): void {
+  if (!process.argv.includes(CONFIRM)) {
+    refuse(
+      "Refusing to seed the remote database.",
+      "",
+      "This rewrites it: the promoter, their sponsors, the show and its fighters",
+      "are deleted and rebuilt from the demo card. Nothing is recoverable and the",
+      "invite tokens are reissued, so every link already sent out stops working.",
+      "",
+      "If that is what you want, say so:",
+      "",
+      `  SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- ${CONFIRM}`,
+    );
+  }
+
+  console.log("Checking the remote database still holds only the demo promoter");
+  let out: string;
+  try {
+    out = execFileSync(
+      ...localBin([
+        "wrangler",
+        "d1",
+        "execute",
+        "eventiq",
+        "--remote",
+        "--json",
+        "--command",
+        "SELECT slug FROM promoters",
+      ]),
+      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+    );
+  } catch {
+    refuse(
+      "Could not read the promoters table on the remote database, so there is no",
+      "way to tell whether seeding it would destroy somebody's work. Refusing.",
+      "",
+      "Check CLOUDFLARE_API_TOKEN is set and that the migrations have been applied:",
+      "",
+      "  npm run db:migrate:remote",
+    );
+  }
+
+  // --json prints one result object per statement and no banner.
+  let slugs: string[];
+  try {
+    const results = JSON.parse(out) as { results?: { slug?: string }[] }[];
+    slugs = (results[0]?.results ?? []).map((row) => row.slug ?? "");
+  } catch {
+    refuse(
+      "Could not make sense of what wrangler returned for the promoters table, so",
+      "there is no way to tell whether seeding would destroy somebody's work.",
+      "Refusing. What it printed:",
+      "",
+      out.slice(0, 500),
+    );
+  }
+
+  const strangers = slugs.filter((slug) => slug !== SEED_PROMOTER_SLUG);
+  if (strangers.length > 0) {
+    refuse(
+      `Refusing to seed: the remote database holds ${strangers.length === 1 ? "a promoter" : "promoters"} this seed did not create.`,
+      "",
+      ...strangers.map((slug) => `  ${slug}`),
+      "",
+      `Only "${SEED_PROMOTER_SLUG}" is expected. Seeding deletes a promoter's`,
+      "sponsors, show and fighters before rebuilding the demo card, so on an",
+      "instance with a real account on it this is data loss rather than a refresh.",
+      "",
+      "If the demo card really does need putting back, do it by hand against the",
+      "one promoter, or take an export first:",
+      "",
+      "  npm run db:backup",
+    );
+  }
+
+  console.log(
+    slugs.length === 0
+      ? "  empty — nothing to overwrite"
+      : `  only "${SEED_PROMOTER_SLUG}", as expected`,
+  );
+}
+
+if (remote) checkRemoteIsStillTheDemo();
 
 const renderedBouts = event.bouts
   .map((bout) => bout.number)

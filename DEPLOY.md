@@ -175,12 +175,32 @@ The database is empty. Seeding it puts the Cage County 12 demo card in, along
 with a promoter account you can sign in as:
 
 ```bash
-SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
 ```
 
-It refuses to run remotely without a password rather than falling back to a
-development default, because a known password on a reachable promoter account is
-the same as no password at all.
+Three things have to be true before it will touch the live database, and each
+guards a different way of getting this wrong.
+
+**A password, rather than the development default.** A known password on a
+reachable promoter account is the same as no password at all.
+
+**That flag, typed out.** The seed is a *rewrite*: it deletes the promoter,
+their sponsors, the show and its fighters and builds the demo card again, and it
+reissues every invite token, so every link already sent out stops working. The
+local command and the remote one otherwise differ by one word, and the flag is
+the moment you notice which terminal you are in.
+
+**A pre-check that the database still holds nobody but the seeded promoter.**
+The flag cannot help somebody who does mean to re-seed on an instance that has
+since acquired a real account. There is no self-service signup, so the demo
+instance holds exactly one promoter and it is `cage-county`; anything else was
+created deliberately and this script would delete their sponsors on the way
+past. So it asks — `SELECT slug FROM promoters` over
+`wrangler d1 execute --remote --json` — and refuses by name if the answer
+surprises it. It also refuses if it cannot read the table at all, because "I
+could not tell" and "it is safe" are different answers.
+
+Take an export first if there is any doubt: `npm run db:backup`.
 
 It prints the invite links once. They are not recoverable afterwards — they are
 generated fresh each time and nothing stores the plaintext anywhere else — but
@@ -279,7 +299,7 @@ look and did nothing, because that is the one the chase list exists to catch.
 the uploaded photograph has to go separately:
 
 ```bash
-SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
 npx wrangler r2 object delete eventiq-media/fighters/chloe-baines-<hash>.jpg --remote
 ```
 

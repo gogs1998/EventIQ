@@ -22,6 +22,16 @@ import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
 const DAY = 86_400_000;
 
 /**
+ * The slug of the one promoter this seed creates.
+ *
+ * Exported because the remote seed checks the live database for it before it
+ * writes anything. A database holding any other promoter is somebody's real
+ * account, and re-seeding over the top of it would delete their sponsors on the
+ * way past. See scripts/seed.ts.
+ */
+export const SEED_PROMOTER_SLUG = "cage-county";
+
+/**
  * How far out the demo show sits when it is seeded.
  *
  * A fortnight is the moment the dashboard is worth looking at: the invites have
@@ -205,7 +215,7 @@ export function buildSeed({
   statements.push(
     row("promoters", {
       id: promoterId,
-      slug: "cage-county",
+      slug: SEED_PROMOTER_SLUG,
       name: event.promoter.name,
       mark: event.promoter.mark,
       instagram: event.promoter.instagram,
