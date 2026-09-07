@@ -35,6 +35,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { localBin } from "./local-bin.mjs";
 
 const DATABASE = "eventiq";
@@ -158,6 +159,26 @@ function d1(sql, scope) {
     "--command",
     sql,
   ]).then((raw) => JSON.parse(raw)[0]?.results ?? []);
+}
+
+/**
+ * ffmpeg, before a model that takes three and a half seconds a fighter.
+ *
+ * Every step here goes through it — normalising the upload, measuring the alpha,
+ * writing the WebP — so without it every fighter on the card fails one at a time
+ * with a message about a spawn. Said once, in terms of what is missing.
+ */
+export async function requireFfmpeg() {
+  try {
+    await run("ffmpeg", ["-version"]);
+  } catch {
+    throw new Error(
+      "ffmpeg is not on PATH, and every cutout goes through it.\n" +
+        "  macOS: brew install ffmpeg\n" +
+        "  Debian: apt-get install -y ffmpeg\n" +
+        "  Windows: winget install Gyan.FFmpeg",
+    );
+  }
 }
 
 function withTimeout(promise, ms, what) {
@@ -301,6 +322,7 @@ export async function ensureCutouts({
   const summary = { considered: all.length, attempted: wanted.length, made: 0, failed: 0 };
   if (!wanted.length) return summary;
 
+  await requireFfmpeg();
   log(`cutouts: ${wanted.length} to make (about ${(wanted.length * 3.5).toFixed(0)}s)`);
 
   const work = await mkdtemp(path.join(tmpdir(), "eventiq-cutout-"));
@@ -436,7 +458,9 @@ async function main() {
   );
 }
 
-// Only when run directly, so the renderer can import ensureCutouts.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// Only when run directly, so the renderer can import ensureCutouts. Through
+// pathToFileURL because a Windows path is not a file URL: comparing the two as
+// strings never matched, so `npm run cutouts` printed nothing and exited 0.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }
