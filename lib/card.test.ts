@@ -9,7 +9,7 @@ import {
   type Card,
 } from "@/lib/card";
 import { DONE_AT } from "@/lib/promoter";
-import { completeness } from "@/lib/tape";
+import { boutBillingLabel, completeness } from "@/lib/tape";
 
 const card: Card = { event, fighters, sponsors };
 
@@ -26,6 +26,39 @@ const boutless: Card = { event: { ...event, bouts: [] }, fighters: {}, sponsors 
 describe("featuredBout", () => {
   it("leads on the main event", () => {
     expect(featuredBout(card)?.number).toBe(15);
+  });
+
+  /**
+   * boutBillingLabel reads the billing and this read the bout number, so a
+   * promoter who flagged a mid-card bout MAIN got one main event at the top of
+   * the page and a different one wearing the label.
+   */
+  it("leads on the bout billed as the main event, wherever it sits on the card", () => {
+    const mid: Card = {
+      ...card,
+      event: {
+        ...event,
+        bouts: event.bouts.map((bout) =>
+          bout.number === 15
+            ? { ...bout, billing: undefined }
+            : bout.number === 9
+              ? { ...bout, billing: "MAIN" as const }
+              : bout,
+        ),
+      },
+    };
+
+    expect(featuredBout(mid)?.number).toBe(9);
+    expect(boutBillingLabel(featuredBout(mid)!)).toBe("Main Event");
+  });
+
+  it("falls back to the top of the running order when nothing is billed main", () => {
+    const unbilled: Card = {
+      ...card,
+      event: { ...event, bouts: event.bouts.map((bout) => ({ ...bout, billing: undefined })) },
+    };
+
+    expect(featuredBout(unbilled)?.number).toBe(15);
   });
 
   it("has nothing to lead on where there are no bouts", () => {

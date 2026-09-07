@@ -51,9 +51,16 @@ export function boutsTopDown(card: Card): Bout[] {
  * cope with there not being one yet: this returns undefined and the caller
  * leaves the space out, rather than handing an absent bout to something that
  * will read a number off it.
+ *
+ * The billing decides it, because boutBillingLabel already does: this used to
+ * take the highest number instead, so a promoter who flagged a mid-card bout as
+ * the main event got one bout at the top of the page and a different one wearing
+ * the words "Main Event". The number is only the fallback, for the ordinary card
+ * where nobody has billed anything.
  */
 export function featuredBout(card: Card): Bout | undefined {
-  return boutsTopDown(card)[0];
+  const running = boutsTopDown(card);
+  return running.find((bout) => bout.billing === "MAIN") ?? running[0];
 }
 
 export function cornersOf(card: Card, bout: Bout): { red: Fighter; blue: Fighter } {
