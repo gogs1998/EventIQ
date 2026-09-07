@@ -498,7 +498,13 @@ Nothing is blocking the site. The token now answers 200 on all four account
 endpoints the deploy needs, the database is provisioned, migrated and seeded,
 and `https://eventiq.win` serves the card out of D1.
 
-What remains is operational rather than technical:
+This list is operational. The product roadmap — starting with getting a real
+show onto the platform, with consent as the gate — lives in
+[HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next). Putting the
+render pipeline on Cloudflare Containers is a roadmap item there and in
+section 11, not something a deploy does.
+
+What remains on the account:
 
 1. **Turn on "Always Use HTTPS" for the zone.** Static files are still served
    over plain http and no application code can fix that. See
@@ -512,14 +518,18 @@ What remains is operational rather than technical:
    was served from, so one printed from a laptop is useless at a venue.
 5. **Render the tapes into R2.** The programme falls back to playing the
    sequence live in the browser where no mp4 exists, so this is a quality step
-   rather than a fix. See [video rendering](#video-rendering).
+   rather than a fix. See [video rendering](#video-rendering). Still a job
+   run from a machine that has Chrome and ffmpeg; Containers is the likely
+   longer answer, not a thing this deploy grows into.
 6. **Decide whether `RENDER_KEY` should live somewhere shared.** Today nobody
    holds it: it is set on the Worker, cannot be read back, and whoever wants to
    render mints a fresh one — see
    [the operator mints their own render key](#the-operator-mints-their-own-render-key).
    That is fine while one person renders on their own machine and is the wrong
    shape the moment two people or a cron job need to. A password manager entry
-   is the answer, not a file in the repository.
+   is the answer, not a file in the repository. It is also one of the things
+   that wants deciding before a second promoter exists — HANDOVER section 19
+   item 11.
 
 Done since this list was last written: the `eventiq-photos` bucket has been
 deleted (it held one orphaned photograph from an end-to-end run against a
