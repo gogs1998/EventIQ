@@ -1,4 +1,4 @@
-import { GYM_TO_CONFIRM } from "@/lib/copy";
+import { GYM_TO_CONFIRM, fewerLossesEdge, winsEdge } from "@/lib/copy";
 import type { Bout, Corner, Discipline, Fighter } from "@/lib/types";
 
 /**
@@ -148,8 +148,48 @@ type RowSpec = {
   display: (f: Fighter) => string | undefined;
   /** Whether a bigger number is an advantage. */
   contested?: boolean;
+  /** For rows where one number is not the whole story. Wins the contest. */
+  contest?: (red: Fighter, blue: Fighter) => { leader: Corner; edge: string } | undefined;
   unit?: string;
 };
+
+/**
+ * One more win is noise on an amateur record, so a lead has to be worth saying
+ * out loud before the row claims one.
+ */
+const RECORD_MARGIN = 2;
+
+/**
+ * Who is ahead on records, or nobody.
+ *
+ * Contesting wins alone had 10-9 leading 3-0, which anyone in the room can see
+ * is wrong, and gave a fighter with two bouts an "edge" over a debutant, which
+ * is worse: a debut is not a worse record, it is the absence of one, and there
+ * is nothing there to compare. So a lead is declared only where both have told
+ * us their record, neither is a debut, and one of them is genuinely ahead —
+ * clear on wins without being behind on losses, or level on wins and clearly
+ * cleaner. Anything else is two records the room can read for itself.
+ */
+export function recordLead(
+  red: Fighter,
+  blue: Fighter,
+): { leader: Corner; edge: string } | undefined {
+  if (!red.record || !blue.record) return undefined;
+  if (isDebut(red) || isDebut(blue)) return undefined;
+
+  const wins = red.record.w - blue.record.w;
+  const losses = red.record.l - blue.record.l;
+
+  if (wins >= RECORD_MARGIN && losses <= 0) return { leader: "red", edge: winsEdge(wins) };
+  if (-wins >= RECORD_MARGIN && -losses <= 0) return { leader: "blue", edge: winsEdge(-wins) };
+  if (wins === 0 && -losses >= RECORD_MARGIN) {
+    return { leader: "red", edge: fewerLossesEdge(-losses) };
+  }
+  if (wins === 0 && losses >= RECORD_MARGIN) {
+    return { leader: "blue", edge: fewerLossesEdge(losses) };
+  }
+  return undefined;
+}
 
 const ROW_SPECS: RowSpec[] = [
   {
@@ -157,7 +197,7 @@ const ROW_SPECS: RowSpec[] = [
     label: "Record",
     value: (f) => (f.record ? f.record.w : undefined),
     display: (f) => formatRecord(f),
-    contested: true,
+    contest: recordLead,
   },
   {
     key: "age",
@@ -224,7 +264,9 @@ export function buildTape(red: Fighter, blue: Fighter): TapeRow[] {
 
     let leader: Corner | undefined;
     let edge: string | undefined;
-    if (
+    if (spec.contest) {
+      ({ leader, edge } = spec.contest(red, blue) ?? { leader: undefined, edge: undefined });
+    } else if (
       spec.contested &&
       redValue !== undefined &&
       blueValue !== undefined &&

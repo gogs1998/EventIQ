@@ -5,11 +5,13 @@ import {
   EMPTY_PROGRAMME,
   boutCountLabel,
   chaseNote,
+  fewerLossesEdge,
   programmeLinkNote,
   sponsorNote,
   sponsorTapNote,
   tableCardNote,
   tapeForEveryBout,
+  winsEdge,
 } from "@/lib/copy";
 
 /**
@@ -148,6 +150,29 @@ describe("sponsorTapNote", () => {
 
   it("says nothing has been tapped rather than counting across none", () => {
     expect(sponsorTapNote(0)).toBe("No sponsor has been tapped yet");
+  });
+});
+
+/**
+ * The record row's edge is read out with both fighters standing in the room, so
+ * it says the size of the gap and nothing about the fighter on the other side of
+ * it. The row only asks for one where there genuinely is one, so neither of
+ * these is ever handed a nought.
+ */
+describe("the record edge", () => {
+  it("agrees with itself about one and several", () => {
+    expect(winsEdge(1)).toBe("+1 win");
+    expect(winsEdge(7)).toBe("+7 wins");
+    expect(fewerLossesEdge(1)).toBe("1 fewer loss");
+    expect(fewerLossesEdge(2)).toBe("2 fewer losses");
+  });
+
+  it("states the gap without characterising the other fighter", () => {
+    for (const line of [winsEdge(3), fewerLossesEdge(3)]) {
+      expect(line).not.toMatch(/loser|worse|weak|only|just|!/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b/i);
+      expect(line.trim()).toBe(line);
+    }
   });
 });
 

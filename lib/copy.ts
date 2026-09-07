@@ -98,6 +98,22 @@ export function tableCardNote(bouts: number): string {
 }
 
 /**
+ * The record row's edge on the tale of the tape.
+ *
+ * Inside the programme, where fight idiom belongs, so it is set the way a card
+ * sets a reach advantage: the size of the gap and what it is a gap in. Neither
+ * says anything about the other fighter, because the row is read out with both
+ * of them standing in the room.
+ */
+export function winsEdge(wins: number): string {
+  return `+${wins} ${wins === 1 ? "win" : "wins"}`;
+}
+
+export function fewerLossesEdge(losses: number): string {
+  return `${losses} fewer ${losses === 1 ? "loss" : "losses"}`;
+}
+
+/**
  * The promoter's dashboard, where an empty card is most likely to be somebody's
  * first five minutes with the product. It replaces the readiness figures rather
  * than showing them as zeroes, because "0/0 bouts ready" and a chase list

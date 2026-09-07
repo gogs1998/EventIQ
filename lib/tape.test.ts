@@ -288,6 +288,89 @@ describe("buildHooks", () => {
   });
 });
 
+/**
+ * The record row used to contest wins alone, which is not what a record means.
+ * It made 10-9 lead 3-0, and it put an edge on a two-fight opponent over a
+ * debutant — a line the room corrects out loud.
+ */
+describe("the record row", () => {
+  function recordRow(red: Fighter, blue: Fighter) {
+    return buildTape(red, blue).find((r) => r.key === "record");
+  }
+
+  it("does not call a busy loser the leader over a clean short record", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 10, l: 9, d: 0 } }),
+      fighter({ name: "B", record: { w: 3, l: 0, d: 0 } }),
+    );
+
+    expect(row?.red).toBe("10-9");
+    expect(row?.leader).toBeUndefined();
+    expect(row?.edge).toBeUndefined();
+  });
+
+  it("reads Debut with no leader and no edge against a fighter with fights", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 0, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.red).toBe("Debut");
+    expect(row?.leader).toBeUndefined();
+    expect(row?.edge).toBeUndefined();
+  });
+
+  it("leads on more wins where the losses do not contradict it", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 9, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.leader).toBe("red");
+    expect(row?.edge).toBe("+7 wins");
+  });
+
+  it("separates two fighters level on wins by their losses", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 3, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 3, l: 2, d: 0 } }),
+    );
+
+    expect(row?.leader).toBe("red");
+    expect(row?.edge).toBe("2 fewer losses");
+  });
+
+  it("says nothing about a single win between them", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 3, l: 1, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.leader).toBeUndefined();
+  });
+
+  it("declares nothing where only one corner has given a record", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 6, l: 0, d: 0 } }),
+      fighter({ name: "B" }),
+    );
+
+    expect(row?.red).toBe("6-0");
+    expect(row?.blue).toBeUndefined();
+    expect(row?.leader).toBeUndefined();
+  });
+
+  it("keeps the row shape the components read", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 9, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.redValue).toBe(9);
+    expect(row?.blueValue).toBe(2);
+  });
+});
+
 describe("a field nobody has answered", () => {
   it("leaves the gym row empty rather than reading the placeholder as a gym", () => {
     const row = buildTape(
