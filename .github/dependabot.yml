@@ -1,0 +1,33 @@
+# Weekly dependency updates, grouped so this arrives as two or three pull
+# requests a week rather than twenty.
+#
+# wrangler and @opennextjs/cloudflare are pinned to exact versions in
+# package.json because they decide how a deploy behaves, so their updates are
+# separated out: a bump to either one is a change to the deploy and wants
+# reading, not merging on a green tick. Everything else is grouped by whether it
+# can reach production.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cloudflare:
+        patterns:
+          - wrangler
+          - "@opennextjs/cloudflare"
+          - "@cloudflare/*"
+      production:
+        dependency-type: production
+        exclude-patterns:
+          - wrangler
+          - "@opennextjs/cloudflare"
+      development:
+        dependency-type: development
+        exclude-patterns:
+          - wrangler
+          - "@opennextjs/cloudflare"
+          - "@cloudflare/*"
