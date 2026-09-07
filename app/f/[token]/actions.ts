@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
+import { isLinkPreviewBot } from "@/lib/bots";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
@@ -170,8 +172,15 @@ export async function submitProfile(token: string, input: unknown): Promise<void
  * This is the promoter's warmest signal — "he looked at it and bailed" is a
  * different conversation from "he never saw it" — so it is written on the way in
  * rather than inferred later from how full the profile looks.
+ *
+ * Which is exactly why the unfurler has to be left out. An invite pasted into a
+ * group chat is fetched by WhatsApp before anybody has read the message, and a
+ * timestamp written for that says a fighter looked at their form when nobody
+ * has. See lib/bots.ts for which way the guess is made to fall.
  */
 export async function markOpened(token: string): Promise<void> {
+  if (isLinkPreviewBot((await headers()).get("user-agent"))) return;
+
   const db = await getDb();
   await db
     .update(schema.invites)

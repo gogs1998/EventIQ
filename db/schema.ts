@@ -31,6 +31,15 @@ export const promoters = sqliteTable("promoters", {
   instagram: text("instagram"),
   /** PBKDF2 verifier, `iterations:salt:hash` in base64. Never the password. */
   passwordHash: text("password_hash"),
+  /**
+   * Failed sign-ins in the window that began at `firstFailedLoginAt`, and the
+   * whole of the per-account lockout. The limiter at the edge counts callers,
+   * and a password guessed from a thousand addresses is not a caller — so the
+   * account has to hold a count of its own. Cleared by a sign-in that works.
+   * See lib/lockout.ts.
+   */
+  failedLogins: integer("failed_logins").notNull().default(0),
+  firstFailedLoginAt: integer("first_failed_login_at"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -68,37 +77,44 @@ export const sponsors = sqliteTable("sponsors", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const fighters = sqliteTable("fighters", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  gym: text("gym").notNull(),
-  nickname: text("nickname"),
-  hometown: text("hometown"),
-  age: integer("age"),
-  heightCm: integer("height_cm"),
-  reachCm: integer("reach_cm"),
-  stance: text("stance"),
-  photo: text("photo"),
-  cutout: text("cutout"),
-  instagram: text("instagram"),
-  /**
-   * Null across all three means the fighter has not given us a record, which is
-   * different from 0-0-0 meaning a debut. Keeping them separate is the whole
-   * point of isDebut and the database must not blur it.
-   */
-  recordW: integer("record_w"),
-  recordL: integer("record_l"),
-  recordD: integer("record_d"),
-  finishKo: integer("finish_ko"),
-  finishSub: integer("finish_sub"),
-  walkoutTitle: text("walkout_title"),
-  walkoutArtist: text("walkout_artist"),
-  bio: text("bio"),
-  /** JSON array. Free text chosen from a fixed list, so a table would not earn its keep. */
-  styleTags: text("style_tags"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+export const fighters = sqliteTable(
+  "fighters",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    gym: text("gym").notNull(),
+    nickname: text("nickname"),
+    hometown: text("hometown"),
+    age: integer("age"),
+    heightCm: integer("height_cm"),
+    reachCm: integer("reach_cm"),
+    stance: text("stance"),
+    photo: text("photo"),
+    cutout: text("cutout"),
+    instagram: text("instagram"),
+    /**
+     * Null across all three means the fighter has not given us a record, which is
+     * different from 0-0-0 meaning a debut. Keeping them separate is the whole
+     * point of isDebut and the database must not blur it.
+     */
+    recordW: integer("record_w"),
+    recordL: integer("record_l"),
+    recordD: integer("record_d"),
+    finishKo: integer("finish_ko"),
+    finishSub: integer("finish_sub"),
+    walkoutTitle: text("walkout_title"),
+    walkoutArtist: text("walkout_artist"),
+    bio: text("bio"),
+    /** JSON array. Free text chosen from a fixed list, so a table would not earn its keep. */
+    styleTags: text("style_tags"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  // /media looks a stored object back up by the path on the fighter, because a
+  // key cannot be read for an id that is itself hyphenated. That happens once
+  // per photograph on a page, so it must not be a scan of the table.
+  (table) => [index("fighters_photo").on(table.photo), index("fighters_cutout").on(table.cutout)],
+);
 
 export const bouts = sqliteTable(
   "bouts",

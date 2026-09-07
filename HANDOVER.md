@@ -267,6 +267,8 @@ So [lib/image-type.ts](lib/image-type.ts) reads the first few bytes and decides 
 
 Proved rather than reasoned about: an SVG carrying `alert(document.domain)` was pushed at the live server action twice, once declared `image/jpeg` and once declared `image/svg+xml`, and refused both times with nothing written to R2; a real photograph still uploads and comes back `image/jpeg`, `inline`; and an SVG planted directly in the bucket is served `application/octet-stream` as an attachment.
 
+All of that decided what an object would be served **as**. What it did not decide is whether it should be served at all, and for a while the answer was "to anybody who can name the key". That is 6d.
+
 ---
 
 ## 6c. The render key, and why the renderer could not use the publish check
@@ -299,6 +301,37 @@ Four decisions in it worth keeping:
 `scripts/render-tape.mjs` sends the header with `page.setExtraHTTPHeaders`, so every request the capture page makes carries it, and reads the key from the shell first and `.dev.vars` second — the same file the local server reads, so nothing has to be exported to render locally. The header name is written out in that script rather than imported, because it is plain Node and cannot import a TypeScript module; the status check is what stops that duplication turning into a silent 480-frame capture of a 404 page.
 
 Proved against production after deploying: anonymous request 404 and nothing leaked, wrong key 404, empty key 404, correct key 200, owning promoter's session 200 — and then bout 15 rendered end to end at 1080x1920, 480 frames, 16.000 seconds, 1.6MB. Closing a hole by breaking the video pipeline would have been a bad trade, so the pipeline was run rather than assumed.
+
+---
+
+## 6d. The gate on `/media`, and the three limiters
+
+**`/media/[...key]` served the whole bucket to anybody who could name a key.** The hardening in 6b decided what an object would be served *as*; nothing decided *whether*. The keys carry a random suffix, so nothing was enumerable — which is precisely the argument that left the capture page open in 6c, and it is no better the second time. A draft show's rendered mp4 is the draft show: the event name, both fighters, their gyms and records, sixteen seconds of it.
+
+So the same rule applies, and it lives in the same file. `mediaVisibleTo` in [lib/visibility.ts](lib/visibility.ts) is pure and sits beside `visibleTo`, and the route asks it before it touches R2. A refused object is the same 404 as a missing one.
+
+Working out which show an object belongs to is the only interesting part, and the two prefixes answer it differently:
+
+- **`renders/<slug>/…`** carries the slug, so it is one narrow query on `events`.
+- **`fighters/…` and `cutouts/…`** cannot be read back for a fighter id — ids are hyphenated slugs, so `fighters/owen-pryce-ab12.jpg` cannot be split into the two parts it was built from. They are looked up by the path the fighter row stores, joined through `bouts` to every show the fighter is on, and migration `0002` indexes `fighters.photo` and `fighters.cutout` for it. One published show is enough: the photograph is already on a page anybody can open. A key of any other shape has no rule attached to it, so it is refused rather than served.
+
+Three credentials get past a draft, and the third is the one worth explaining. The render key and the owning promoter's session are the same two as 6c. The third is **the fighter's own invite token, taken from the referrer** of the image request. A fighter is shown their photograph back in the questionnaire, and on a card that is not published they hold neither of the other two: there is no fighter account, and the token that is their whole authorisation is in the address of the page rather than in the request the `<img>` makes. It is not a new way in — anybody who can write that header at will already holds the token, and the token has to belong to the fighter the object is of.
+
+One consequence to keep in mind: the answer now depends on who asked, so an object only the promoter may see goes out `private` rather than `public`. The one-year immutable cache is unchanged for everything on a published card, which is the case that matters in a hall with poor signal.
+
+Proved locally against a draft card: stranger 404 on both a photograph and an mp4, wrong render key 404, correct render key 200 `private`, the fighter's own invite in the referrer 200 `private`, another fighter's invite 404 — and every one of them 200 `public` again once the show was published.
+
+**The limiters.** `ratelimits` in wrangler.jsonc, one binding each, counted at the edge for the reason in [lib/rate-limit.ts](lib/rate-limit.ts): a counter in D1 answers a flood with a database write per request, which is the shape of the problem rather than the fix.
+
+| Binding | Bounds | Allowance |
+| --- | --- | --- |
+| `IMPORT_LOOKUPS` | `/api/import-record`, open by design | 10 a minute per caller |
+| `LOGIN_ATTEMPTS` | the login form, asked before the password is checked | 10 a minute per caller |
+| `TRACK_WRITES` | `/api/track`, which writes a row per interaction | 60 a minute per caller |
+
+A missing binding refuses in production and allows in development, where a limiter that is not there would otherwise take the login form with it. Locally the binding does exist and does count: a burst of 90 posts at `/api/track` put 59 rows in the table and lost the rest.
+
+The per-caller limiter is **not** the bound that matters most on the login form, because there is one promoter and one password, so a patient guess from a thousand addresses is a thousand callers each well inside their allowance. [lib/lockout.ts](lib/lockout.ts) is the other half: ten failures within fifteen minutes and the account takes no password at all until the window closes. The window does **not** extend while the door is shut, deliberately — a lockout an attacker can keep renewing is a way of keeping a promoter out of their own dashboard on show night, and there is nobody to ring for a reset. Failures are counted on the promoter row (`failed_logins`, `first_failed_login_at`, migration `0003`) and cleared by a sign-in that works. A locked account gives the same message and takes the same time as a wrong password, because a lockout that announces itself tells an attacker that the guessing is working.
 
 ---
 
@@ -421,6 +454,10 @@ The table is append-only and unaggregated, because the value to a promoter is a 
 The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same query so they cannot end up meaning different things.
 
 **The invented "last show" figures are gone.** They were the most dangerous thing in the demo: plausible numbers that would have been repeated to a sponsor. The panel now shows real counts or explicit zeroes, and says in the footer that nothing on the page is estimated.
+
+Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Four things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme.
+
+None of that changes what is stored. There is still no address, no cookie and nothing identifying a person; `sessionId` is bounded rather than parsed.
 
 ---
 

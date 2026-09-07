@@ -1,5 +1,6 @@
-import { getMedia } from "@/lib/db";
+import { getDb, getMedia } from "@/lib/db";
 import { SERVABLE_TYPES } from "@/lib/image-type";
+import { mediaVisibility } from "@/lib/visibility";
 
 /**
  * Serves an object out of the media bucket.
@@ -11,7 +12,14 @@ import { SERVABLE_TYPES } from "@/lib/image-type";
  * are.
  *
  * A missing object is a 404 rather than an error: a fighter can delete their
- * photo, and pages that reference one already cope with it being absent.
+ * photo, and pages that reference one already cope with it being absent. A
+ * refused object is the same 404, for the reason every other draft route is:
+ * telling the two apart says whether a show exists.
+ *
+ * **Who may read an object is decided in lib/visibility.ts**, beside who may see
+ * the card it belongs to. This route used to serve the whole bucket to anybody
+ * who could name a key, on the strength of the keys carrying a random suffix —
+ * which is the argument the capture page was left open on. See section 6b.
  *
  * The headers below are the second half of the upload check in
  * app/f/[token]/actions.ts and they exist because this is the route that would
@@ -22,11 +30,15 @@ import { SERVABLE_TYPES } from "@/lib/image-type";
  * nosniff and a content policy that permits nothing cost nothing and close the
  * gap if one ever is.
  */
-export async function GET(_request: Request, context: { params: Promise<{ key: string[] }> }) {
+export async function GET(request: Request, context: { params: Promise<{ key: string[] }> }) {
   const { key } = await context.params;
-  const media = await getMedia();
+  const path = key.join("/");
 
-  const object = await media.get(key.join("/"));
+  const access = await mediaVisibility(await getDb(), path, request.headers);
+  if (!access.visible) return new Response("Not found", { status: 404 });
+
+  const media = await getMedia();
+  const object = await media.get(path);
   if (!object) return new Response("Not found", { status: 404 });
 
   // Built by hand rather than with writeHttpMetadata, whose Headers type comes
@@ -45,8 +57,14 @@ export async function GET(_request: Request, context: { params: Promise<{ key: s
   headers.set("content-security-policy", "default-src 'none'; sandbox");
   headers.set("etag", object.httpEtag);
   // Photos are written under a key that changes when the photo does, so this can
-  // be cached hard. That matters on a phone in a hall with poor signal.
-  headers.set("cache-control", "public, max-age=31536000, immutable");
+  // be cached hard. That matters on a phone in a hall with poor signal. What can
+  // no longer be shared is an object only the promoter is entitled to: the
+  // answer now depends on who asked, so a cache in front of us must keep it for
+  // the one browser that asked rather than for the next caller.
+  headers.set(
+    "cache-control",
+    `${access.public ? "public" : "private"}, max-age=31536000, immutable`,
+  );
 
   return new Response(object.body as unknown as ReadableStream, { headers });
 }

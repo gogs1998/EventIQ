@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
@@ -299,6 +299,149 @@ export async function loadInviteByToken(db: Db, token: string) {
     .where(eq(schema.invites.token, token))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Just enough of a show to decide who may see something of it, without loading
+ * the card. `/media` answers a request per photograph on a page, so the gate on
+ * it has to cost one narrow query rather than six.
+ */
+export async function eventVisibility(db: Db, slug: string) {
+  const [row] = await db
+    .select({
+      id: schema.events.id,
+      published: schema.events.published,
+      promoterId: schema.events.promoterId,
+    })
+    .from(schema.events)
+    .where(eq(schema.events.slug, slug))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Whether the bout, fighter and sponsor a count names are actually on this show.
+ *
+ * /api/track takes no credential, so without this the counts are a table anybody
+ * can put a row in — and the counts are what a promoter hands a sponsor. The
+ * checks are separate queries rather than one join because a programme open
+ * names none of the three and runs none of them, and the tap that names all
+ * three is one tap.
+ */
+export async function trackRefsBelong(
+  db: Db,
+  eventId: string,
+  refs: { boutNumber: number | null; fighterId: string | null; sponsorId: string | null },
+): Promise<boolean> {
+  if (refs.boutNumber !== null) {
+    const [bout] = await db
+      .select({ redId: schema.bouts.redId, blueId: schema.bouts.blueId })
+      .from(schema.bouts)
+      .where(and(eq(schema.bouts.eventId, eventId), eq(schema.bouts.number, refs.boutNumber)))
+      .limit(1);
+    if (!bout) return false;
+    // Named together, so they have to agree: a tap on a sponsor inside a bout
+    // card carries the corner it was under.
+    if (refs.fighterId !== null && refs.fighterId !== bout.redId && refs.fighterId !== bout.blueId) {
+      return false;
+    }
+  } else if (refs.fighterId !== null && !(await fighterOnEvent(db, eventId, refs.fighterId))) {
+    return false;
+  }
+
+  return refs.sponsorId === null || sponsorOnEvent(db, eventId, refs.sponsorId);
+}
+
+async function fighterOnEvent(db: Db, eventId: string, fighterId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.bouts.id })
+    .from(schema.bouts)
+    .where(
+      and(
+        eq(schema.bouts.eventId, eventId),
+        or(eq(schema.bouts.redId, fighterId), eq(schema.bouts.blueId, fighterId)),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * The three ways a sponsor is on a card, in the order a tap is likely to come
+ * from: the show's own strip, one bout's placement, and a fighter's own backers.
+ */
+async function sponsorOnEvent(db: Db, eventId: string, sponsorId: string): Promise<boolean> {
+  const [onStrip] = await db
+    .select({ sponsorId: schema.eventSponsors.sponsorId })
+    .from(schema.eventSponsors)
+    .where(
+      and(
+        eq(schema.eventSponsors.eventId, eventId),
+        eq(schema.eventSponsors.sponsorId, sponsorId),
+      ),
+    )
+    .limit(1);
+  if (onStrip) return true;
+
+  const [onBout] = await db
+    .select({ id: schema.bouts.id })
+    .from(schema.bouts)
+    .where(and(eq(schema.bouts.eventId, eventId), eq(schema.bouts.sponsorId, sponsorId)))
+    .limit(1);
+  if (onBout) return true;
+
+  const [onFighter] = await db
+    .select({ id: schema.bouts.id })
+    .from(schema.fighterSponsors)
+    .innerJoin(
+      schema.bouts,
+      or(
+        eq(schema.bouts.redId, schema.fighterSponsors.fighterId),
+        eq(schema.bouts.blueId, schema.fighterSponsors.fighterId),
+      ),
+    )
+    .where(and(eq(schema.bouts.eventId, eventId), eq(schema.fighterSponsors.sponsorId, sponsorId)))
+    .limit(1);
+  return !!onFighter;
+}
+
+/**
+ * The shows a stored photograph or cutout appears on, found by the path itself.
+ *
+ * The key cannot be read back for a fighter id: ids are slugs and carry hyphens,
+ * so `fighters/owen-pryce-ab12.jpg` cannot be split into the two parts it was
+ * built from without guessing. The path is what the fighter row stores, so the
+ * path is what it is looked up by, and both columns are indexed for it.
+ *
+ * A fighter on two of the promoter's shows gets a row each, and one published
+ * show is enough: the photograph is already on a page anybody can open.
+ */
+export async function eventsShowingPortrait(db: Db, path: string) {
+  return db
+    .select({ published: schema.events.published, promoterId: schema.events.promoterId })
+    .from(schema.fighters)
+    .innerJoin(
+      schema.bouts,
+      or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
+    )
+    .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
+    .where(or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)));
+}
+
+/** Whether this invite token belongs to the fighter this portrait is of. */
+export async function inviteHoldsPortrait(db: Db, token: string, path: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.invites.id })
+    .from(schema.invites)
+    .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
+    .where(
+      and(
+        eq(schema.invites.token, token),
+        or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }
 
 export async function loadPromoterEvents(db: Db, promoterId: string) {

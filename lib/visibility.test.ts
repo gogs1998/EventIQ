@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { secretMatches } from "@/lib/auth";
-import { renderableTo, visibleTo } from "@/lib/visibility";
+import {
+  inviteTokenFromReferrer,
+  mediaVisibleTo,
+  parseMediaKey,
+  renderableTo,
+  visibleTo,
+} from "@/lib/visibility";
 
 const live = { published: true, promoterId: "cage-county" };
 const draft = { published: false, promoterId: "cage-county" };
@@ -81,5 +87,135 @@ describe("renderableTo", () => {
   it("refuses another promoter's session", () => {
     expect(renderableTo(card, { keyMatched: false, viewerId: "another-promoter" })).toBe(false);
     expect(renderableTo({ promoterId: "" }, { keyMatched: false, viewerId: "" })).toBe(false);
+  });
+});
+
+/**
+ * `/media` served every object in the bucket to anybody who could name a key.
+ * The keys carry a random suffix, so nothing was enumerable — which is the exact
+ * argument that left the capture page open, and section 6c is what came of it. A
+ * draft show's video and a photograph on a card nobody has published are the
+ * same secret as the card, so they go behind the same rule.
+ */
+describe("parseMediaKey", () => {
+  it("reads a portrait as the path the fighter row stores", () => {
+    expect(parseMediaKey("fighters/owen-pryce-ab12.jpg")).toEqual({
+      kind: "portrait",
+      path: "/media/fighters/owen-pryce-ab12.jpg",
+    });
+    expect(parseMediaKey("cutouts/owen-pryce-cd34.webp")).toEqual({
+      kind: "portrait",
+      path: "/media/cutouts/owen-pryce-cd34.webp",
+    });
+  });
+
+  it("reads a render as the show it is of", () => {
+    expect(parseMediaKey("renders/cage-county-12/bout-15.mp4")).toEqual({
+      kind: "render",
+      slug: "cage-county-12",
+    });
+  });
+
+  it("refuses a key with no rule attached to it, rather than serving it", () => {
+    expect(parseMediaKey("secrets/backup.sql")).toBeNull();
+    expect(parseMediaKey("fighters")).toBeNull();
+    expect(parseMediaKey("fighters/sub/dir.jpg")).toBeNull();
+    expect(parseMediaKey("renders/cage-county-12")).toBeNull();
+    expect(parseMediaKey("")).toBeNull();
+  });
+
+  it("refuses traversal and anything that is not a plain key", () => {
+    expect(parseMediaKey("fighters/../secrets.sql")).toBeNull();
+    expect(parseMediaKey("../fighters/a.jpg")).toBeNull();
+    expect(parseMediaKey("/fighters/a.jpg")).toBeNull();
+    expect(parseMediaKey("fighters/a b.jpg")).toBeNull();
+    expect(parseMediaKey("fighters/a%2f.jpg")).toBeNull();
+  });
+});
+
+describe("mediaVisibleTo", () => {
+  const stranger = { keyMatched: false, viewerId: null };
+  const live = [{ published: true, promoterId: "cage-county" }];
+  const draft = [{ published: false, promoterId: "cage-county" }];
+
+  it("serves anything on a published show to anybody, and lets it be cached", () => {
+    expect(mediaVisibleTo({ events: live }, stranger)).toEqual({ visible: true, public: true });
+  });
+
+  it("refuses a draft show's object to a stranger", () => {
+    expect(mediaVisibleTo({ events: draft }, stranger)).toEqual({ visible: false, public: false });
+    expect(mediaVisibleTo({ events: draft }, { keyMatched: false })).toEqual({
+      visible: false,
+      public: false,
+    });
+  });
+
+  /**
+   * The one this exists for. `/render/probe-gate-2/1` was closed and the mp4 it
+   * produced was not: the video of an unpublished show is the show.
+   */
+  it("refuses a draft show's rendered video to a stranger who names the key", () => {
+    expect(mediaVisibleTo({ events: draft }, stranger).visible).toBe(false);
+  });
+
+  it("gives the owning promoter their own draft, privately", () => {
+    expect(mediaVisibleTo({ events: draft }, { keyMatched: false, viewerId: "cage-county" })).toEqual(
+      { visible: true, public: false },
+    );
+  });
+
+  it("refuses another promoter's session", () => {
+    expect(
+      mediaVisibleTo({ events: draft }, { keyMatched: false, viewerId: "another-promoter" }).visible,
+    ).toBe(false);
+  });
+
+  it("accepts the render key, which is what the exporter holds", () => {
+    expect(mediaVisibleTo({ events: draft }, { keyMatched: true, viewerId: null })).toEqual({
+      visible: true,
+      public: false,
+    });
+  });
+
+  /**
+   * A fighter is shown their own photograph back in the questionnaire, and on a
+   * draft card they hold none of the credentials above — only the token that is
+   * their whole authorisation, in the address of the page the image is on.
+   */
+  it("shows a fighter their own photograph on a card that is not published", () => {
+    expect(mediaVisibleTo({ events: draft, heldByInvite: true }, stranger)).toEqual({
+      visible: true,
+      public: false,
+    });
+  });
+
+  it("refuses an object that hangs off no show at all", () => {
+    expect(mediaVisibleTo({ events: [] }, stranger).visible).toBe(false);
+    expect(mediaVisibleTo({ events: [] }, { keyMatched: false, viewerId: "cage-county" }).visible).toBe(
+      false,
+    );
+  });
+
+  it("takes one published show out of several as enough", () => {
+    expect(mediaVisibleTo({ events: [...draft, ...live] }, stranger)).toEqual({
+      visible: true,
+      public: true,
+    });
+  });
+});
+
+describe("inviteTokenFromReferrer", () => {
+  const token = "Vv8xQ2h1oQm7cJ0Nl4pRt6yWz3sB9dFgHjKlMnOpQrS";
+
+  it("finds the token the questionnaire was opened with", () => {
+    expect(inviteTokenFromReferrer(`https://eventiq.win/f/${token}`)).toBe(token);
+    expect(inviteTokenFromReferrer(`https://eventiq.win/f/${token}?saved=1`)).toBe(token);
+  });
+
+  it("finds nothing anywhere else, so no other page can lend its address", () => {
+    expect(inviteTokenFromReferrer("https://eventiq.win/e/cage-county-12")).toBeNull();
+    expect(inviteTokenFromReferrer("https://eventiq.win/f/short")).toBeNull();
+    expect(inviteTokenFromReferrer(null)).toBeNull();
+    expect(inviteTokenFromReferrer(undefined)).toBeNull();
   });
 });

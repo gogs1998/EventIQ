@@ -48,6 +48,28 @@
         "limit": 10,
         "period": 60
       }
+    },
+    {
+      // Bounds guessing at the promoter's password. This counts callers; the
+      // per-account lockout in lib/lockout.ts is what covers a guess spread
+      // across a lot of them.
+      "name": "LOGIN_ATTEMPTS",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    },
+    {
+      // Bounds /api/track, which every spectator's programme posts to and which
+      // writes a row each time. Loose enough for a hall of people behind one
+      // venue address.
+      "name": "TRACK_WRITES",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
     }
   ],
   "observability": {
