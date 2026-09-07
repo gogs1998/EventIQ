@@ -2,8 +2,9 @@
  * Deploys EventIQ to Cloudflare Workers.
  *
  *   node scripts/deploy.mjs --check           # what works and what is missing
+ *   node scripts/deploy.mjs --dry-run         # that, plus what is about to happen
  *   node scripts/deploy.mjs --provision       # create D1 and R2, run migrations
- *   node scripts/deploy.mjs                   # build and deploy
+ *   node scripts/deploy.mjs                   # migrate, build and deploy
  *   node scripts/deploy.mjs --attach-domain   # point eventiq.win at the Worker
  *
  * This used to push a folder of files to Pages. It cannot any more: the app has
@@ -213,6 +214,81 @@ async function provision() {
   );
 }
 
+// -------------------------------------------------------------- migrations
+
+/**
+ * What `wrangler d1 migrations list` says about the remote database.
+ *
+ * Returns the migration filenames it is still waiting to apply, or null when
+ * the output is not in a shape this understands — which is a different answer
+ * from "none", and the caller treats it as one.
+ */
+async function pendingMigrations() {
+  const out = await sh("npx", ["wrangler", "d1", "migrations", "list", DATABASE, "--remote"], {
+    capture: true,
+  });
+  if (/no migrations to apply/i.test(out)) return [];
+  const names = [...out.matchAll(/(\d+_[\w-]+\.sql)/g)].map((m) => m[1]);
+  return names.length > 0 ? names : null;
+}
+
+/**
+ * Applies pending migrations, then checks none are left.
+ *
+ * This runs before the Worker goes up, because the code being uploaded expects
+ * the schema that ships with it: upload first and every request in between hits
+ * the old tables. It runs *after* the build, so a build that was going to fail
+ * fails without having touched a live database. Migrations are additive here and
+ * there is no down path, which is what makes that order safe — for the few
+ * seconds in between it is the old Worker against a wider schema, which it
+ * cannot notice.
+ *
+ * A failure stops the deploy rather than warning. Half a schema change with a
+ * new Worker on top of it is the state nobody can reason about at ten to seven
+ * on a show night.
+ */
+async function migrate() {
+  console.log("\nApplying any pending D1 migrations to the remote database");
+  try {
+    await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote"]);
+  } catch (error) {
+    fail(
+      [
+        `Migrations failed, so nothing has been deployed: ${error.message}`,
+        "",
+        "The Worker about to go up expects the schema those migrations create, so",
+        "uploading it now would put new code on old tables. Fix the migration and",
+        "run this again.",
+      ].join("\n"),
+    );
+  }
+
+  // Belt and braces: apply reports success on a no-op as readily as on real
+  // work, so the state is read back rather than inferred from an exit code.
+  const pending = await pendingMigrations();
+  if (pending === null) {
+    console.log(
+      "  could not read the migrations list back; check it by hand with\n" +
+        `  npx wrangler d1 migrations list ${DATABASE} --remote`,
+    );
+    return;
+  }
+  if (pending.length > 0) {
+    fail(
+      [
+        "Migrations were applied and the remote database still reports these as",
+        "unapplied:",
+        "",
+        ...pending.map((name) => `  ${name}`),
+        "",
+        "Nothing has been deployed. Either the migrations table is in a state",
+        "wrangler cannot reconcile, or this is pointed at a database nobody meant.",
+      ].join("\n"),
+    );
+  }
+  console.log("  up to date");
+}
+
 // ------------------------------------------------------------------ domain
 
 /**
@@ -275,12 +351,43 @@ async function main() {
     fail("wrangler.jsonc has no database id yet. Run with --provision first.");
   }
 
+  if (has("dry-run")) {
+    // Every step here is a read. Nothing is built, no migration is applied and
+    // no Worker is uploaded — the point is to see what a real run would do
+    // against this account before finding out by doing it.
+    const pending = await pendingMigrations();
+    console.log("\nPending D1 migrations:");
+    if (pending === null) {
+      console.log("  could not read the list; run the command by hand");
+    } else if (pending.length === 0) {
+      console.log("  none");
+    } else {
+      for (const name of pending) console.log(`  ${name}`);
+    }
+    console.log(
+      [
+        "",
+        "A real run would, in this order:",
+        has("skip-build") ? "  skip the build (--skip-build)" : `  build for ${SITE_URL}`,
+        `  apply those migrations to the remote ${DATABASE} database`,
+        `  upload the Worker as ${NAME}`,
+        ...(has("attach-domain") ? [`  point ${DOMAIN} at it`] : []),
+        "",
+        "Nothing has changed. Drop --dry-run to do it.",
+      ].join("\n"),
+    );
+    return;
+  }
+
   if (!has("skip-build")) {
     console.log(`\nBuilding for ${SITE_URL}`);
     // Nested under `env`, because that is where sh() looks. Passed flat it was
     // silently dropped, so SITE_DOMAIN appeared to work and never did.
     await sh("npx", ["opennextjs-cloudflare", "build"], { env: { NEXT_PUBLIC_SITE_URL: SITE_URL } });
   }
+
+  // Before the upload, and after the build. See migrate().
+  await migrate();
 
   await sh("npx", ["opennextjs-cloudflare", "deploy"]);
 

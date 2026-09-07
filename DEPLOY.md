@@ -221,26 +221,41 @@ no self-service signup; with one operator that is the right amount of ceremony.
 
 ## 6. Deploy
 
-Apply any migrations first, because the Worker that goes up expects the schema
-that comes with it:
-
 ```bash
-npx wrangler d1 migrations apply eventiq --remote
 npm run deploy
 ```
 
 [scripts/deploy.mjs](scripts/deploy.mjs) checks the permissions, builds with
-`NEXT_PUBLIC_SITE_URL=https://eventiq.win`, and runs `opennextjs-cloudflare
-deploy`. The first deploy prints a `*.workers.dev` URL, which is a working link
-before DNS is sorted.
+`NEXT_PUBLIC_SITE_URL=https://eventiq.win`, **applies any pending D1 migrations**,
+and then runs `opennextjs-cloudflare deploy`. The first deploy prints a
+`*.workers.dev` URL, which is a working link before DNS is sorted.
+
+That ordering is the point and it used to be two commands typed in the right
+order by somebody who remembered. The Worker being uploaded expects the schema
+that ships with it, so uploading first means every request in between hits the
+old tables. Migrating happens *after* the build, so a build that was going to
+fail fails without having touched the live database, and migrations here are
+additive with no down path — which is what makes the few seconds of old Worker
+against a wider schema safe. **A migration failure stops the deploy.** Half a
+schema change with a new Worker on top of it is the state nobody can reason
+about on a show night.
+
+Because `wrangler d1 migrations apply` reports success on a no-op as readily as
+on real work, the script then reads the list back and refuses if anything is
+still unapplied.
 
 Variations:
 
 ```bash
 npm run deploy -- --check            # permissions only, changes nothing
+npm run deploy -- --dry-run          # that, plus the pending migrations and the plan
 npm run deploy -- --skip-build       # redeploy the existing .open-next/
 npm run deploy -- --attach-domain    # also point eventiq.win at the Worker
 ```
+
+`--dry-run` is all reads: it probes the token, lists what the remote database is
+waiting for, and prints the steps a real run would take. Worth a few seconds
+before a deploy you have not done in a while.
 
 ## 7. Attach eventiq.win
 
