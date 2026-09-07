@@ -10,9 +10,14 @@ secret in place before anything is uploaded.
 > database was created, migrated and seeded, and the Worker is deployed with the
 > custom domain attached. Every step below has been run against the real
 > account, and the whole product has been walked end to end in production with
-> `npm run e2e -- --base https://eventiq.win` (22 checks, all passing).
+> `npm run e2e -- --base https://eventiq.win` (25 steps, all passing).
 >
-> One thing is still outstanding and it is not something code can fix: **"Always
+> **Before a real promoter's card goes on here, work through
+> [Before the first real show](#before-the-first-real-show).** It is the list of
+> things that live in a dashboard or a password manager and that no script in
+> this repository can do for you.
+>
+> One of them is outstanding and is not something code can fix: **"Always
 > Use HTTPS" is off for the zone**, so static files are reachable over plain
 > http. See [HTTPS at the edge](#https-at-the-edge). Before changing anything in
 > `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
@@ -622,6 +627,56 @@ protected and is never `localhost`.
 Open Graph tags and the WhatsApp chase messages. It deliberately does **not**
 feed the QR code, which reads the origin it is being served from, so the printed
 card still works off a laptop screen in a meeting.
+
+## Before the first real show
+
+Everything above is a command. This is the other list: the things that live in a
+dashboard, a password manager or somebody's calendar, which no script here can
+do and which nobody will think of at six o'clock on the night. Work through it
+once, before a promoter's card and a room full of spectators depend on it.
+
+- [ ] **Rotate the Cloudflare API token, and drop Cloudflare Pages · Edit while
+      you are in there.** The current token was handled in chat during the build,
+      so treat it as known. Pages is a different product and nothing in this
+      repository calls it; the deploy has been run end to end on a token without
+      it. Scopes are in [section 1](#1-create-an-api-token), and
+      `node scripts/deploy.mjs --check` will tell you the new one is complete
+      before you find out mid-upload.
+- [ ] **Turn on "Always Use HTTPS"** — SSL/TLS → Edge Certificates, for
+      `eventiq.win`. One toggle. Static files under `public/` and `_next/` are
+      answered by the assets binding before the Worker runs, so the redirect in
+      `proxy.ts` cannot reach them and `http://eventiq.win/fighters/*.webp`
+      answers 200 over plain http today. The deploy token gets 403 on every zone
+      setting, so this cannot be scripted from here.
+      [The detail](#https-at-the-edge).
+- [ ] **Put `RENDER_KEY` and `SESSION_SECRET` in a password manager.** Neither
+      can be read back out of the Worker and there is no copy of either
+      anywhere. That is survivable while one person renders on their own laptop
+      and is the wrong shape the moment two people, a second machine or a cron
+      job need one. Rotating `RENDER_KEY` costs nothing else; rotating
+      `SESSION_SECRET` signs the promoter out, which is the whole of the
+      revocation story and is deliberate.
+- [ ] **Point an external uptime check at `/api/health`.** Anything that will
+      send a message to a phone — a free tier is fine. Nothing here phones home,
+      so a 500 on show night stays a 500 until somebody happens to log in, and
+      that has already happened once: the PBKDF2 failure was live and invisible
+      until a person tried to sign in. It has to be *external*; a check running
+      on the same thing it is checking answers no useful question. (The route
+      itself is being added separately — confirm it answers before relying on
+      it.)
+- [ ] **Confirm the nightly backup actually ran**, rather than that it is
+      scheduled. `npm run db:restore-rehearsal -- --date <yesterday>` is the
+      version of that question worth asking, because it also proves the file
+      restores. [Backups](#backups). Set the
+      [lifecycle rule](#the-r2-lifecycle-rule) at the same time, or the bucket
+      keeps every export forever.
+- [ ] **Reprint the table card from the live URL.** The QR encodes the origin it
+      was served from, so one printed off a laptop is useless at a venue.
+
+The product side of "before a real show" — consent wording, a privacy notice, a
+lawful basis and a retention policy — is not on this list because it is not
+operational, and it is a blocker rather than a nicety. [HANDOVER.md section
+19](HANDOVER.md#19-what-to-build-next) items 1 and 2.
 
 ## What is left to do
 
