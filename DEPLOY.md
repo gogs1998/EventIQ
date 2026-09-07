@@ -433,6 +433,102 @@ Verified against production after the key went in: bout 15 of `cage-county-12`
 renders in 58 seconds to 1080x1920, 480 frames at 30fps, 16.000 seconds exactly,
 1.6MB.
 
+## Backups
+
+**D1's time travel is a recovery mechanism, not a backup.** It goes back thirty
+days, it lives in the same account as the database, it cannot be inspected
+without restoring it, and it tells you nothing about a database that has been
+quietly wrong for a fortnight. Once a real promoter's card is on here, the
+difference matters.
+
+```bash
+npm run db:backup                       # export, then put it in R2 as backups/<date>.sql
+npm run db:backup -- --out backups      # and keep a copy on this machine
+npm run db:backup -- --dry-run          # export and check it, upload nothing
+```
+
+[scripts/backup.mjs](scripts/backup.mjs) runs `wrangler d1 export eventiq
+--remote`, checks the file is not empty and does look like a schema — an empty
+file and a file full of an error message both exit zero somewhere in a
+pipeline — and then `wrangler r2 object put` under `backups/<date>.sql`. The date
+is UTC, so a backup taken either side of midnight in two timezones does not land
+on yesterday's key.
+
+Two honest limits.
+
+**R2 is in the same Cloudflare account as D1.** This protects against a bad
+migration, a wrong `DELETE` and a re-seed nobody meant; it does not protect
+against losing the account. `--out <dir>` keeps a copy wherever it is run, which
+is the other half and belongs on a machine somebody controls. Note that an
+export carries every live invite token, every fighter's details and the
+promoter's password verifier — it is the most sensitive file this project
+produces. `/backups/` is gitignored for that reason.
+
+**Nothing prunes.** See [the R2 lifecycle rule](#the-r2-lifecycle-rule) below.
+
+### Rehearsing the restore
+
+A backup nobody has restored is a hope.
+
+```bash
+npm run db:restore-rehearsal -- --date 2026-09-07     # fetch it from R2 first
+npm run db:restore-rehearsal -- --file backups/2026-09-07.sql
+```
+
+[scripts/restore-rehearsal.mjs](scripts/restore-rehearsal.mjs) loads the backup
+into a **scratch Miniflare database in a temporary directory** — never the local
+development one, which the export's `CREATE TABLE` statements would collide with
+— and then counts the rows. It fails if `promoters`, `events`, `bouts`,
+`fighters` or `invites` come back empty, which is the failure worth catching: an
+export carrying the schema and none of the data restores without an error and
+hands you a database with no show in it.
+
+**A D1 export cannot be fed straight back in**, and that was worth finding out
+before the night it mattered. `wrangler d1 export` writes one table at a time in
+alphabetical order, so `bouts` rows arrive before the `sponsors` table they point
+at exists. The file opens with `PRAGMA defer_foreign_keys=TRUE` for exactly this,
+and `wrangler d1 execute --file` runs each statement in its own transaction, so
+the pragma is spent by the second one; `PRAGMA foreign_keys=OFF` is ignored
+outright. The rehearsal therefore reorders the statements — every `CREATE`
+first, then the inserts parents-first, with the order worked out from the
+`REFERENCES` clauses in the file rather than from a list somebody has to
+remember to update. **A real restore has to do the same thing**, so use the
+script's reordering rather than piping the raw export at a database.
+
+### Scheduling it
+
+There is deliberately no workflow for this. The job needs a token with D1 and R2
+edit rights, and this repository holds no credentials otherwise; a nightly cron
+on any machine that already has the token is the smaller thing to secure.
+
+```cron
+# 03:15 UTC nightly. Runs as whoever owns the token.
+15 3 * * *  cd /path/to/EventIQ && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run db:backup >> /var/log/eventiq-backup.log 2>&1
+```
+
+On Windows the equivalent is a Task Scheduler entry running the same command.
+Either way, **check the log the first week and then check the bucket monthly** —
+a backup job nobody looks at is the classic way to find out on the one day it
+matters that it stopped working in March.
+
+### The R2 lifecycle rule
+
+Nothing in the backup script deletes anything, on purpose: a script that prunes
+is a script that can prune the wrong thing. R2 does it instead, and it only
+needs saying once:
+
+```bash
+npx wrangler r2 bucket lifecycle add eventiq-media eventiq-backups backups/ --expire-days 90
+npx wrangler r2 bucket lifecycle list eventiq-media
+```
+
+The prefix matters. Without `backups/` the rule would expire fighter
+photographs and rendered mp4s along with it, which is the whole bucket.
+Ninety days is a starting point rather than a considered retention period —
+that is a question for the privacy notice and the retention policy, which are
+[HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) item 2, and it wants
+answering before real fighters' details are in these files.
+
 ## The PBKDF2 ceiling, and why local tests cannot see it
 
 **The deployed Workers runtime refuses PBKDF2 above 100,000 iterations.** Ask

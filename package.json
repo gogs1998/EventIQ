@@ -22,6 +22,8 @@
     "db:seed:remote": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/ts-alias-loader-register.mjs scripts/seed.ts -- --remote",
     "db:reset": "npm run db:migrate && npm run db:seed",
     "db:studio": "wrangler d1 execute eventiq --local --command",
+    "db:backup": "node scripts/backup.mjs",
+    "db:restore-rehearsal": "node scripts/restore-rehearsal.mjs",
     "assets": "node scripts/prepare-assets.mjs",
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
