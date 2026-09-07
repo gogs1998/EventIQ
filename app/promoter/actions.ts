@@ -215,10 +215,23 @@ async function uniqueFighterId(db: Db, name: string): Promise<string> {
  */
 export async function updateBout(slug: string, boutNumber: number, form: FormData): Promise<void> {
   const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
+  const { promoter, event } = await ownedEvent(db, slug);
 
   const sponsorId = text(form, "sponsorId", 60);
   const billing = text(form, "billing", 10);
+
+  // The show is checked to be this promoter's and the sponsor was not: an id
+  // typed into the form put another promoter's sponsor on the bout, and the
+  // programme sets a sponsor's name in its own typography, so it would have
+  // been published under their client's card. Sponsors are per promoter.
+  if (sponsorId) {
+    const [owned] = await db
+      .select({ id: schema.sponsors.id })
+      .from(schema.sponsors)
+      .where(and(eq(schema.sponsors.id, sponsorId), eq(schema.sponsors.promoterId, promoter.id)))
+      .limit(1);
+    if (!owned) throw new Error("No such sponsor");
+  }
 
   await db
     .update(schema.bouts)
