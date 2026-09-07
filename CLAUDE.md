@@ -31,7 +31,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 203 unit tests in 15 files, ~1s
+npm test           # 240 unit tests in 18 files, ~1s
 npm run lint
 npm run typecheck
 npm run build
@@ -55,7 +55,9 @@ Each of these looks like an improvement from the outside and is a regression. Ne
 
 **Decide what an upload is from its bytes.** `lib/image-type.ts` reads magic numbers; `file.type` is a string the caller writes and is never read. An `image/svg+xml` upload satisfied every check the old code had, and an SVG is a document that can carry `<script>` which then runs at our own origin with our cookies in scope (bug 21, HANDOVER section 6b). The browser's JPEG re-encode in the questionnaire is not a control — the server action behind it is reachable directly.
 
-**`lib/visibility.ts` is the only thing that decides who may see a card.** Public pages get a card through `loadVisibleCard` and the renderer's capture page through `loadRenderableCard`. Do not call `loadCard` from a route. A rule written inline in the one place somebody thought of is a rule three other places are free to forget (bugs 23, 27).
+**`lib/visibility.ts` is the only thing that decides who may see a card.** Public pages get a card through `loadVisibleCard` and the renderer's capture page through `loadRenderableCard`. Do not call `loadCard` from a route. A rule written inline in the one place somebody thought of is a rule three other places are free to forget (bugs 23, 27). **The objects belong to the card too**: `/media` asks `mediaVisibility` in the same file before it touches the bucket, because a draft show's mp4 is the draft show. A key shape with no rule written for it is refused rather than served, so a new prefix has to come here and say who may read it (HANDOVER section 6d).
+
+**An endpoint anybody can reach accepts only what it can verify, and is counted.** `/api/track` takes no credential by design, so it writes nothing for an unpublished show and nothing naming a bout, fighter or sponsor that is not on the card — the counts are what a promoter hands a sponsor, so a table anybody can put a row in is not evidence. The login form, the record importer and the counter each have a `ratelimits` binding, and the login form also has a per-account lockout, because ten a minute per caller does not bound one password guessed from a thousand addresses. HANDOVER sections 6d and 9.
 
 **"This one is different" is where the next hole will be.** The worst thing found in this project was `/render/[slug]/[bout]` serving unpublished shows to anyone who could guess a slug. It had a legitimate reason not to use the publish gate — the renderer works on drafts, which is the point of it — and a comment saying so, and that comment was where the thinking stopped. Anything that opts out of a general rule needs its own rule, not none.
 
