@@ -4,4 +4,12 @@ Allow: /
 # The capture surface the video exporter screenshots. Not a page for people.
 Disallow: /render/
 
+# A fighter's questionnaire. The token in the address is the whole of its
+# authorisation, so an address in an index is an address anybody can edit from.
+Disallow: /f/
+
+# The promoter's own working copy. Every page under it checks the session, so
+# this is about not fetching them rather than about keeping them shut.
+Disallow: /promoter/
+
 Sitemap: https://eventiq.win/sitemap.xml
