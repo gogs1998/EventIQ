@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { InviteLink } from "@/app/promoter/e/[slug]/InviteLink";
 import { PublishToggle } from "@/app/promoter/e/[slug]/PublishToggle";
+import { RenderAgainButton } from "@/app/promoter/e/[slug]/RenderAgainButton";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
@@ -11,12 +12,21 @@ import {
   analyticsTotals,
   loadCard,
   loadInvites,
+  loadRenderJobs,
   loadRenders,
   previousShow,
   sponsorTaps,
   type AnalyticsTotals,
 } from "@/lib/db/queries";
-import { EMPTY_DASHBOARD, boutCountLabel, sponsorTapNote } from "@/lib/copy";
+import { jobsByBout, loadBoutFingerprints } from "@/lib/db/render-jobs";
+import {
+  EMPTY_DASHBOARD,
+  RENDER_SECTION,
+  RENDER_STATE_COPY,
+  boutCountLabel,
+  renderCountLabel,
+  sponsorTapNote,
+} from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
   DONE_AT,
@@ -29,6 +39,7 @@ import {
   sponsorFor,
   sponsorInventory,
 } from "@/lib/promoter";
+import { renderState, type RenderState } from "@/lib/renders";
 import { currentPromoter } from "@/lib/session";
 import { SITE_URL } from "@/lib/site";
 import { boutBillingLabel, boutClassLine, formatEventDate, lastName } from "@/lib/tape";
@@ -156,6 +167,21 @@ function Counts({
   );
 }
 
+/**
+ * Six states, three of which are a machine's business rather than the
+ * promoter's, so only "worth remaking" is coloured as something to act on.
+ * A render that stopped early is the pipeline's problem and reads as neutral:
+ * the video the programme was playing is still playing.
+ */
+const RENDER_STYLE: Record<RenderState, string> = {
+  current: "text-gold border-gold/40",
+  stale: "text-red-corner-hot border-red-corner/40",
+  queued: "text-ash border-hairline",
+  running: "text-ash border-hairline",
+  failed: "text-ash border-hairline",
+  missing: "text-ash-dim border-hairline",
+};
+
 const STATE_STYLE = {
   ready: { label: "Ready", className: "text-gold border-gold/40" },
   lopsided: { label: "One side missing", className: "text-red-corner-hot border-red-corner/40" },
@@ -280,6 +306,10 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
 
   const invites = await loadInvites(db, card.eventId);
   const renders = await loadRenders(db, card.eventId);
+  // The jobs say what the renderer has been doing; the fingerprints say what the
+  // card looks like now. A video is only current where the two agree.
+  const jobs = jobsByBout(await loadRenderJobs(db, card.eventId));
+  const fingerprints = await loadBoutFingerprints(db, card.eventId);
   const progress = eventProgress(card, invites);
   const chase = chaseList(card, invites);
   const bouts = boutReadiness(card, invites);
@@ -433,6 +463,68 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                       Sponsor unsold
                     </span>
                   )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* -------------------------------------------------------- the videos */}
+      <section className="mt-10">
+        <div className="border-hairline mb-3 flex flex-wrap items-end justify-between gap-2 border-b pb-2">
+          <h2 className="display text-2xl">{RENDER_SECTION.heading}</h2>
+          <span className="label">
+            {renderCountLabel(
+              bouts.filter(
+                ({ bout }) =>
+                  renderState(
+                    jobs[bout.number] ?? null,
+                    fingerprints[bout.number] ?? "",
+                  ) === "current",
+              ).length,
+              bouts.length,
+            )}
+          </span>
+        </div>
+        <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
+
+        <div className="border-hairline divide-hairline divide-y border">
+          {bouts.map(({ bout }) => {
+            const job = jobs[bout.number] ?? null;
+            const state = renderState(job, fingerprints[bout.number] ?? "");
+            const copy = RENDER_STATE_COPY[state];
+            return (
+              <div key={bout.number} className="p-3 sm:flex sm:items-center sm:gap-4">
+                <div className="flex items-center justify-between gap-3 sm:w-56 sm:shrink-0 sm:justify-start">
+                  <div className="display text-chalk w-24 shrink-0 text-sm">
+                    {boutBillingLabel(bout)}
+                  </div>
+                  <Badge className={RENDER_STYLE[state]}>{copy.label}</Badge>
+                </div>
+
+                <div className="mt-1.5 min-w-0 sm:mt-0 sm:flex-1">
+                  <div className="text-ash text-xs leading-relaxed">{copy.note}</div>
+                  {/* What the renderer said, verbatim. It is written for whoever
+                      runs the pipeline rather than for the promoter, so it is set
+                      quietly and never as the headline. */}
+                  {state === "failed" && job?.error ? (
+                    <div className="text-ash-dim mt-1 font-mono text-[0.6rem] break-words">
+                      {job.error}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-2 flex items-center gap-3 sm:mt-0 sm:shrink-0">
+                  {renders[bout.number] ? (
+                    <Link
+                      href={renders[bout.number]}
+                      className="label text-ash-dim hover:text-chalk transition-colors"
+                    >
+                      Watch
+                    </Link>
+                  ) : null}
+                  <RenderAgainButton slug={event.slug} bout={bout.number} />
                 </div>
               </div>
             );
