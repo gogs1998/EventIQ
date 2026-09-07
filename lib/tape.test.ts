@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GYM_TO_CONFIRM } from "@/lib/copy";
 import type { Bout, Fighter } from "@/lib/types";
 import {
   boutClassLine,
@@ -177,6 +178,38 @@ describe("buildHooks", () => {
     expect(hooks.join(" ")).toContain("Same gym");
   });
 
+  it("says nothing about a gym neither of them has given yet", () => {
+    // Both corners carry the placeholder the card editor writes, so the old
+    // equality test announced a gym clash on a freshly entered card.
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", gym: GYM_TO_CONFIRM }),
+      fighter({ name: "B", gym: GYM_TO_CONFIRM }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("Same gym");
+  });
+
+  it("says nothing about a gym that is a box of spaces", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", gym: "   " }),
+      fighter({ name: "B", gym: "" }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("Same gym");
+  });
+
+  it("does not make a derby out of two blank hometowns", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", hometown: "  " }),
+      fighter({ name: "B", hometown: "  " }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("derby");
+  });
+
   it("returns nothing rather than inventing a story from an empty pair", () => {
     expect(
       buildHooks(bout(), fighter({ name: "R", gym: "A" }), fighter({ name: "B", gym: "B" })),
@@ -206,6 +239,40 @@ describe("buildHooks", () => {
     );
 
     expect(hooks.length).toBe(3);
+  });
+});
+
+describe("a field nobody has answered", () => {
+  it("leaves the gym row empty rather than reading the placeholder as a gym", () => {
+    const row = buildTape(
+      fighter({ name: "R", gym: GYM_TO_CONFIRM }),
+      fighter({ name: "B", gym: "Ironworks MMA" }),
+    ).find((r) => r.key === "gym");
+
+    expect(row?.red).toBeUndefined();
+    expect(row?.blue).toBe("Ironworks MMA");
+  });
+
+  it("drops the hometown row when both are whitespace", () => {
+    const keys = buildTape(
+      fighter({ name: "R", hometown: " " }),
+      fighter({ name: "B", hometown: "" }),
+    ).map((r) => r.key);
+
+    expect(keys).not.toContain("hometown");
+  });
+
+  it("does not score a placeholder or a blank as something they told us", () => {
+    const placeheld: Fighter = { id: "p1", name: "R", gym: GYM_TO_CONFIRM, hometown: "  " };
+    const blank: Fighter = { id: "p2", name: "R", gym: "" };
+    expect(completeness(placeheld).missing).toContain("Hometown");
+    expect(completeness(placeheld).score).toBe(completeness(blank).score);
+  });
+
+  it("counts a line the opponent has genuinely answered, not the placeholder", () => {
+    const mine: Fighter = { id: "p3", name: "A", gym: "Bryn" };
+    const theirs: Fighter = { id: "p4", name: "B", gym: GYM_TO_CONFIRM, hometown: "Bolton" };
+    expect(tapeGapsBehind(mine, theirs)).toEqual(["From"]);
   });
 });
 

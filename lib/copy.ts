@@ -19,6 +19,18 @@
  * anything takes, or tells a fighter what they have failed to do.
  */
 
+/**
+ * What a card carries where a gym has not been given yet.
+ *
+ * A promoter enters a running order off a matchmaking sheet that often has only
+ * two names on a line, so this stands in until somebody fills the box. It is a
+ * prompt, never a fact: it lives here, and `stated()` in lib/tape.ts treats it
+ * exactly like a blank, so no derivation can read it as a gym. Written in one
+ * place because it used to be typed in two and compared in a third, which is how
+ * a freshly entered card came to announce "Same gym. Both out of Gym to confirm."
+ */
+export const GYM_TO_CONFIRM = "Gym to confirm";
+
 /** "15 bouts", "1 bout", or the honest version of neither. */
 export function boutCountLabel(bouts: number): string {
   if (bouts <= 0) return "No bouts yet";

@@ -4,6 +4,7 @@ import {
   completeness,
   firstName,
   formatEventDateShort,
+  stated,
   tapeGapsBehind,
 } from "@/lib/tape";
 import type { Bout, Corner, FightEvent, Fighter, Invite, InviteStatus } from "@/lib/types";
@@ -180,8 +181,14 @@ export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string):
   const { fighter, opponent, bout, behind, invite } = row;
   const link = invite ? `${baseUrl}/f/${invite.token}` : `${baseUrl}/f/demo`;
 
+  // The opponent's gym is named only where somebody has given one. A card typed
+  // in an hour ago carries a placeholder there, and "out of Gym to confirm" tells
+  // the fighter about the promoter's paperwork rather than about their bout.
+  const gym = stated(opponent.gym);
+  const against = gym ? `${opponent.name} out of ${gym}` : opponent.name;
+
   const lines = [
-    `Hi ${firstName(fighter)} — you're on ${boutBillingLabel(bout).toLowerCase()} at ${event.name}, ${formatEventDateShort(event.date)}, against ${opponent.name} out of ${opponent.gym}.`,
+    `Hi ${firstName(fighter)} — you're on ${boutBillingLabel(bout).toLowerCase()} at ${event.name}, ${formatEventDateShort(event.date)}, against ${against}.`,
   ];
 
   if (behind.length >= 2) {

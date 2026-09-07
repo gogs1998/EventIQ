@@ -1,3 +1,4 @@
+import { GYM_TO_CONFIRM } from "@/lib/copy";
 import type { Bout, Corner, Discipline, Fighter } from "@/lib/types";
 
 /**
@@ -16,6 +17,23 @@ export const DISCIPLINE_LABEL: Record<Discipline, string> = {
   K1: "K1",
   GRAPPLING: "Grappling",
 };
+
+/**
+ * Text somebody has actually given us, or nothing.
+ *
+ * A blank box, a box of spaces and a placeholder the card editor wrote are the
+ * same state — nobody has said — and none of them may come back out as a fact.
+ * The placeholders are listed here rather than checked at each reader so the
+ * next one somebody adds has one obvious place to be declared: the gym clash
+ * fired on two empty gyms and put "Same gym. Both out of Gym to confirm." on a
+ * card the promoter had only just typed in.
+ */
+const PLACEHOLDERS = new Set([GYM_TO_CONFIRM.toLowerCase()]);
+
+export function stated(value: string | undefined | null): string | undefined {
+  const trimmed = (value ?? "").trim();
+  return trimmed && !PLACEHOLDERS.has(trimmed.toLowerCase()) ? trimmed : undefined;
+}
 
 export function boutClassLine(bout: Bout): string {
   const parts = [`${bout.weightKg}kg`];
@@ -156,13 +174,13 @@ const ROW_SPECS: RowSpec[] = [
     key: "gym",
     label: "Gym",
     value: () => undefined,
-    display: (f) => f.gym,
+    display: (f) => stated(f.gym),
   },
   {
     key: "hometown",
     label: "From",
     value: () => undefined,
-    display: (f) => f.hometown,
+    display: (f) => stated(f.hometown),
   },
 ];
 
@@ -278,12 +296,14 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
     }
   }
 
-  if (red.gym === blue.gym) {
-    hooks.push({ weight: 85, text: `Same gym. Both out of ${red.gym}.` });
+  const gym = stated(red.gym);
+  if (gym && gym === stated(blue.gym)) {
+    hooks.push({ weight: 85, text: `Same gym. Both out of ${gym}.` });
   }
 
-  if (red.hometown && red.hometown === blue.hometown) {
-    hooks.push({ weight: 65, text: `${red.hometown} derby.` });
+  const hometown = stated(red.hometown);
+  if (hometown && hometown === stated(blue.hometown)) {
+    hooks.push({ weight: 65, text: `${hometown} derby.` });
   }
 
   const redFights = totalFights(red);
@@ -329,17 +349,19 @@ const COMPLETENESS_FIELDS: { key: string; label: string; weight: number; has: (f
   [
     { key: "photo", label: "Photo", weight: 30, has: (f) => !!f.photo },
     { key: "record", label: "Record", weight: 12, has: (f) => !!f.record },
-    { key: "hometown", label: "Hometown", weight: 6, has: (f) => !!f.hometown },
+    // Scored through stated(), so a placeholder or a box of spaces reads as the
+    // hole it is rather than as a line the fighter has answered.
+    { key: "hometown", label: "Hometown", weight: 6, has: (f) => !!stated(f.hometown) },
     { key: "age", label: "Age", weight: 6, has: (f) => !!f.age },
     { key: "height", label: "Height", weight: 8, has: (f) => !!f.heightCm },
     { key: "reach", label: "Reach", weight: 8, has: (f) => !!f.reachCm },
     { key: "stance", label: "Stance", weight: 4, has: (f) => !!f.stance },
-    { key: "nickname", label: "Nickname", weight: 6, has: (f) => !!f.nickname },
+    { key: "nickname", label: "Nickname", weight: 6, has: (f) => !!stated(f.nickname) },
     // "Story" rather than "Their story", because this list is read back both to
     // the promoter about a fighter and to the fighter about themselves.
-    { key: "bio", label: "Story", weight: 8, has: (f) => !!f.bio },
-    { key: "instagram", label: "Instagram", weight: 6, has: (f) => !!f.instagram },
-    { key: "walkout", label: "Walkout song", weight: 3, has: (f) => !!f.walkoutSong },
+    { key: "bio", label: "Story", weight: 8, has: (f) => !!stated(f.bio) },
+    { key: "instagram", label: "Instagram", weight: 6, has: (f) => !!stated(f.instagram) },
+    { key: "walkout", label: "Walkout song", weight: 3, has: (f) => !!stated(f.walkoutSong?.title) },
     { key: "sponsors", label: "Sponsors", weight: 3, has: (f) => !!f.sponsorIds?.length },
   ];
 
