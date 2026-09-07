@@ -338,7 +338,10 @@ export function buildSeed({
         event_id: eventId,
         bout_number: boutNumber,
         status: "done",
-        r2_key: `/renders/bout-${boutNumber}.mp4`,
+        // No current_hash: these predate fingerprinting, so nothing can say they
+        // are of the card as it stands. They play, and they read as wanting a
+        // render again, which is the honest pair of answers.
+        current_r2_key: `/renders/bout-${boutNumber}.mp4`,
         requested_at: now,
         finished_at: now,
       }),

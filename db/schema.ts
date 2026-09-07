@@ -190,8 +190,16 @@ export const invites = sqliteTable(
 
 /**
  * Video rendering runs outside Workers, so this table is the whole interface
- * between the app and the renderer: the app writes a request, the renderer polls
- * for it, and the app reads back the key. See scripts/render-tape.mjs.
+ * between the app and the renderer: the app queues a request, a runner claims
+ * it, and the app reads back the key. See scripts/render-tape.mjs.
+ *
+ * The row holds two things that used to be one, and keeping them apart is the
+ * point of the shape. `status`, `error`, `attempts` and `leaseUntil` describe
+ * the *job* — what a runner is doing about this bout. `currentR2Key` and
+ * `currentHash` describe the *video* — what the programme plays. A render that
+ * is running, or one that has just failed, must never take a working video off a
+ * published card, and now it cannot: nothing but a successful publish touches
+ * those two columns.
  */
 export const renderJobs = sqliteTable(
   "render_jobs",
@@ -201,17 +209,29 @@ export const renderJobs = sqliteTable(
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
     boutNumber: integer("bout_number").notNull(),
-    /** queued | running | done | failed */
+    /** queued | running | done | failed. The job, not the video. */
     status: text("status").notNull(),
-    /** Key in the media bucket once it exists. */
-    r2Key: text("r2_key"),
     error: text("error"),
     /**
-     * Fingerprint of the two fighters at request time, so a finished render can
-     * be invalidated when either of them changes their details rather than
-     * silently showing a video of last week's record.
+     * Fingerprint of the bout the current attempt is for, so a queued job
+     * records what it was queued about.
      */
     inputHash: text("input_hash"),
+    /**
+     * The video the programme plays, and the fingerprint it was made from.
+     * Written only by a successful publish. Comparing `currentHash` with the
+     * bout as it stands now is what "stale" means.
+     */
+    currentR2Key: text("current_r2_key"),
+    currentHash: text("current_hash"),
+    /**
+     * While a runner holds this bout, when its claim lapses. One UPDATE takes
+     * the lease, so two runners cannot render the same bout, and a runner that
+     * dies releases it by running out of time rather than by tidying up.
+     */
+    leaseUntil: integer("lease_until"),
+    /** Attempts since it was last asked for. Enqueuing it again resets this. */
+    attempts: integer("attempts").notNull().default(0),
     requestedAt: integer("requested_at").notNull(),
     finishedAt: integer("finished_at"),
   },
