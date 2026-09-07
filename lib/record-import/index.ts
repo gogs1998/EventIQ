@@ -1,7 +1,7 @@
 import { eq, gt, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
-import { parseProfileUrl, type ImportOutcome } from "@/lib/fighter-import";
+import { parseProfileUrl, type ImportOutcome, type ImportedTape } from "@/lib/fighter-import";
 import { parseSherdog } from "@/lib/record-import/sherdog";
 
 /**
@@ -79,6 +79,26 @@ const IMPORTER_AT_CAPACITY: ImportOutcome = {
     "We're reading as many record pages as we're willing to just now, so new lookups are paused. Try again later, or fill the boxes in below.",
 };
 
+/**
+ * What a cached row actually holds, or nothing.
+ *
+ * We wrote the payload, so it should always parse. If it does not — a truncated
+ * write, a row edited by hand — the fighter should get a fresh lookup rather
+ * than a 500 on the questionnaire, so an unreadable payload is treated as no
+ * cache at all and the fetch below overwrites it. The hourly ceiling and the
+ * per-address limiter still bound how often that can happen.
+ */
+export function cachedTape(payload: string): ImportedTape | undefined {
+  try {
+    const parsed: unknown = JSON.parse(payload);
+    return parsed && typeof parsed === "object" && "source" in parsed
+      ? (parsed as ImportedTape)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isChallenge(html: string): boolean {
   return html.includes("Just a moment...") || html.includes("cf-browser-verification");
 }
@@ -135,14 +155,19 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
     .limit(1);
 
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
-    return cached.payload
-      ? { ok: true, tape: JSON.parse(cached.payload) }
-      : {
-          ok: false,
-          kind: "unreadable",
-          source: ref.source,
-          reason: "We couldn't read anything off that page. Fill the boxes in below instead.",
-        };
+    if (!cached.payload) {
+      return {
+        ok: false,
+        kind: "unreadable",
+        source: ref.source,
+        reason: "We couldn't read anything off that page. Fill the boxes in below instead.",
+      };
+    }
+    // A payload that will not parse falls through to the fetch, which rewrites
+    // the row. Serving a broken cache for the rest of the week would be worse,
+    // and so would answering a fighter's link with a 500.
+    const tape = cachedTape(cached.payload);
+    if (tape) return { ok: true, tape };
   }
 
   // Only asked on the way to a fetch, so a cached lookup stays one row read and

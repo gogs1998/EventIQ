@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
-import { boutsTopDown, fighterOf, showSponsors } from "@/lib/card";
+import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card";
 import { EMPTY_PROGRAMME, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
@@ -36,7 +36,9 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   const { event } = card;
   const renders = await loadRenders(db, card.eventId);
   const bouts = boutsTopDown(card);
-  const main = bouts[0];
+  // The bout the card calls the main event, not just the top of the list, so the
+  // names under the show's own title are the pair wearing the label below.
+  const main = featuredBout(card);
 
   return (
     <main className="mx-auto w-full max-w-xl">
@@ -111,7 +113,8 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
       <section className="px-3 pb-10">
         <div className="border-hairline mb-3 flex items-end justify-between border-b px-2 pb-2">
           <h2 className="display text-xl">Running Order</h2>
-          <span className="label">{boutCountLabel(event.bouts.length)}</span>
+          {/* Counts what is listed below rather than what is in the table. */}
+          <span className="label">{boutCountLabel(bouts.length)}</span>
         </div>
 
         {/* A show can be published before its running order is entered, so the

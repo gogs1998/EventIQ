@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import {
+  boutOf,
   boutsTopDown,
   cardCompleteness,
   emptiestEntry,
@@ -9,7 +10,7 @@ import {
   type Card,
 } from "@/lib/card";
 import { DONE_AT } from "@/lib/promoter";
-import { completeness } from "@/lib/tape";
+import { boutBillingLabel, completeness } from "@/lib/tape";
 
 const card: Card = { event, fighters, sponsors };
 
@@ -28,9 +29,78 @@ describe("featuredBout", () => {
     expect(featuredBout(card)?.number).toBe(15);
   });
 
+  /**
+   * boutBillingLabel reads the billing and this read the bout number, so a
+   * promoter who flagged a mid-card bout MAIN got one main event at the top of
+   * the page and a different one wearing the label.
+   */
+  it("leads on the bout billed as the main event, wherever it sits on the card", () => {
+    const mid: Card = {
+      ...card,
+      event: {
+        ...event,
+        bouts: event.bouts.map((bout) =>
+          bout.number === 15
+            ? { ...bout, billing: undefined }
+            : bout.number === 9
+              ? { ...bout, billing: "MAIN" as const }
+              : bout,
+        ),
+      },
+    };
+
+    expect(featuredBout(mid)?.number).toBe(9);
+    expect(boutBillingLabel(featuredBout(mid)!)).toBe("Main Event");
+  });
+
+  it("falls back to the top of the running order when nothing is billed main", () => {
+    const unbilled: Card = {
+      ...card,
+      event: { ...event, bouts: event.bouts.map((bout) => ({ ...bout, billing: undefined })) },
+    };
+
+    expect(featuredBout(unbilled)?.number).toBe(15);
+  });
+
   it("has nothing to lead on where there are no bouts", () => {
     expect(featuredBout(boutless)).toBeUndefined();
     expect(boutsTopDown(boutless)).toEqual([]);
+  });
+});
+
+/**
+ * A bout naming a fighter who is not on the card is a broken database, and
+ * fighterOf still says so. What it must not do is take the show down with it:
+ * one dangling id threw inside every page that walks the running order, so the
+ * programme, the dashboard and every other bout on the card went with it. The
+ * running order leaves that bout out instead, which is what a promoter would do
+ * with a bout that has lost a corner.
+ */
+describe("a bout naming a fighter who is not on the card", () => {
+  const dangling: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: [...event.bouts, { ...event.bouts[0], number: 16, blueId: "nobody-at-all" }],
+    },
+  };
+
+  it("leaves the bout out of the running order rather than throwing", () => {
+    expect(boutsTopDown(dangling).map((bout) => bout.number)).not.toContain(16);
+    expect(boutsTopDown(dangling).length).toBe(event.bouts.length);
+  });
+
+  it("does not let it become the bout the page leads on", () => {
+    expect(featuredBout(dangling)?.number).toBe(15);
+  });
+
+  it("cannot be reached by number either", () => {
+    expect(boutOf(dangling, 16)).toBeUndefined();
+    expect(boutOf(dangling, 15)?.number).toBe(15);
+  });
+
+  it("scores the card on the bouts that are actually there", () => {
+    expect(cardCompleteness(dangling, DONE_AT)).toEqual(cardCompleteness(card, DONE_AT));
   });
 });
 

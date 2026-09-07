@@ -19,6 +19,18 @@
  * anything takes, or tells a fighter what they have failed to do.
  */
 
+/**
+ * What a card carries where a gym has not been given yet.
+ *
+ * A promoter enters a running order off a matchmaking sheet that often has only
+ * two names on a line, so this stands in until somebody fills the box. It is a
+ * prompt, never a fact: it lives here, and `stated()` in lib/tape.ts treats it
+ * exactly like a blank, so no derivation can read it as a gym. Written in one
+ * place because it used to be typed in two and compared in a third, which is how
+ * a freshly entered card came to announce "Same gym. Both out of Gym to confirm."
+ */
+export const GYM_TO_CONFIRM = "Gym to confirm";
+
 /** "15 bouts", "1 bout", or the honest version of neither. */
 export function boutCountLabel(bouts: number): string {
   if (bouts <= 0) return "No bouts yet";
@@ -83,6 +95,22 @@ export function sponsorNote(sold: number, bouts: number): string {
 export function tableCardNote(bouts: number): string {
   const all = bouts > 0 ? `All ${bouts} bouts.` : "The whole running order.";
   return `${all} Every fighter’s record, gym and story, with a tale of the tape for all of them.`;
+}
+
+/**
+ * The record row's edge on the tale of the tape.
+ *
+ * Inside the programme, where fight idiom belongs, so it is set the way a card
+ * sets a reach advantage: the size of the gap and what it is a gap in. Neither
+ * says anything about the other fighter, because the row is read out with both
+ * of them standing in the room.
+ */
+export function winsEdge(wins: number): string {
+  return `+${wins} ${wins === 1 ? "win" : "wins"}`;
+}
+
+export function fewerLossesEdge(losses: number): string {
+  return `${losses} fewer ${losses === 1 ? "loss" : "losses"}`;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { GYM_TO_CONFIRM, fewerLossesEdge, winsEdge } from "@/lib/copy";
 import type { Bout, Corner, Discipline, Fighter } from "@/lib/types";
 
 /**
@@ -17,8 +18,52 @@ export const DISCIPLINE_LABEL: Record<Discipline, string> = {
   GRAPPLING: "Grappling",
 };
 
+/**
+ * Text somebody has actually given us, or nothing.
+ *
+ * A blank box, a box of spaces and a placeholder the card editor wrote are the
+ * same state — nobody has said — and none of them may come back out as a fact.
+ * The placeholders are listed here rather than checked at each reader so the
+ * next one somebody adds has one obvious place to be declared: the gym clash
+ * fired on two empty gyms and put "Same gym. Both out of Gym to confirm." on a
+ * card the promoter had only just typed in.
+ */
+const PLACEHOLDERS = new Set([GYM_TO_CONFIRM.toLowerCase()]);
+
+export function stated(value: string | undefined | null): string | undefined {
+  const trimmed = (value ?? "").trim();
+  return trimmed && !PLACEHOLDERS.has(trimmed.toLowerCase()) ? trimmed : undefined;
+}
+
+/** Nothing on an amateur card is heavier than this, and nothing weighs nothing. */
+const WEIGHT_LIMIT_KG = 300;
+
+/**
+ * The weight as a card prints it: a decimal only where the weight has one.
+ *
+ * Catchweights on these bills are agreed at the half kilo, so 61.5kg has to
+ * survive to the page, and 70kg must not turn into 70.0kg on the way. Anything
+ * finer than a tenth is a stored value nobody agreed to, so it is not printed.
+ */
+export function weightLabel(kg: number): string {
+  const tenths = Math.round(kg * 10) / 10;
+  return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)}kg`;
+}
+
+/**
+ * A weight off the promoter's entry form. The one number on a matchmaking sheet
+ * that is not whole, which is why it is parsed here rather than with the rounds
+ * and the round minutes: rounding it printed 61.5kg bouts as 61kg, a weight
+ * neither corner agreed to make.
+ */
+export function parseWeightKg(value: string): number | undefined {
+  const kg = Math.round(Number(value.trim()) * 10) / 10;
+  if (!value.trim() || !Number.isFinite(kg)) return undefined;
+  return kg > 0 && kg <= WEIGHT_LIMIT_KG ? kg : undefined;
+}
+
 export function boutClassLine(bout: Bout): string {
-  const parts = [`${bout.weightKg}kg`];
+  const parts = [weightLabel(bout.weightKg)];
   if (bout.womens) parts.push("Women's");
   if (bout.classLabel) parts.push(bout.classLabel);
   parts.push(DISCIPLINE_LABEL[bout.discipline]);
@@ -56,9 +101,19 @@ export function formatRecord(f: Fighter): string | undefined {
   return d > 0 ? `${w}-${l}-${d}` : `${w}-${l}`;
 }
 
+/**
+ * Wins that ended early, never more than there are wins.
+ *
+ * The questionnaire keeps the boxes inside the record now, but rows written
+ * before it did are still in the database and an import can disagree with
+ * itself too. A tape row reading "5" beside a record of 2-0, or a hook saying
+ * five of two wins were finished, is a contradiction the room can see, so the
+ * count is held to the record wherever there is one to hold it to.
+ */
 export function finishCount(f: Fighter): number {
   if (!f.finishes) return 0;
-  return f.finishes.ko + f.finishes.sub;
+  const claimed = Math.max(0, f.finishes.ko) + Math.max(0, f.finishes.sub);
+  return f.record ? Math.min(claimed, f.record.w) : claimed;
 }
 
 /** Share of wins that ended early, 0..1. Undefined when we cannot know. */
@@ -71,17 +126,41 @@ export function isUndefeated(f: Fighter): boolean {
   return !!f.record && f.record.l === 0 && f.record.w > 0;
 }
 
+/**
+ * Names, split for the two lines the card and the video set them on.
+ *
+ * Plenty of amateurs go by one word. The name block puts the lead name in small
+ * type above the surname in large, and a single token answering to both printed
+ * it twice — "Bones Bones" — on the card, in the reveal and in the head to head.
+ * So the lead line is optional and the big line is the whole name where there is
+ * no surname to take.
+ */
+function nameParts(f: Fighter): string[] {
+  return f.name.trim().split(/\s+/).filter(Boolean);
+}
+
 export function fullName(f: Fighter): string {
-  return f.name;
+  return nameParts(f).join(" ") || f.name;
 }
 
+/** The big line: the surname, or the whole name where that is all there is. */
 export function lastName(f: Fighter): string {
-  const parts = f.name.trim().split(/\s+/);
-  return parts[parts.length - 1];
+  const parts = nameParts(f);
+  return parts[parts.length - 1] ?? f.name;
 }
 
+/** What to call them. A one-word name is the word. */
 export function firstName(f: Fighter): string {
-  return f.name.trim().split(/\s+/)[0];
+  return nameParts(f)[0] ?? f.name;
+}
+
+/**
+ * The small line above the big one, or nothing. Middle names stay on it rather
+ * than being dropped, because a fighter who gave three is entitled to all three.
+ */
+export function leadName(f: Fighter): string | undefined {
+  const parts = nameParts(f);
+  return parts.length > 1 ? parts.slice(0, -1).join(" ") : undefined;
 }
 
 // ---------------------------------------------------------------- tape rows
@@ -106,8 +185,48 @@ type RowSpec = {
   display: (f: Fighter) => string | undefined;
   /** Whether a bigger number is an advantage. */
   contested?: boolean;
+  /** For rows where one number is not the whole story. Wins the contest. */
+  contest?: (red: Fighter, blue: Fighter) => { leader: Corner; edge: string } | undefined;
   unit?: string;
 };
+
+/**
+ * One more win is noise on an amateur record, so a lead has to be worth saying
+ * out loud before the row claims one.
+ */
+const RECORD_MARGIN = 2;
+
+/**
+ * Who is ahead on records, or nobody.
+ *
+ * Contesting wins alone had 10-9 leading 3-0, which anyone in the room can see
+ * is wrong, and gave a fighter with two bouts an "edge" over a debutant, which
+ * is worse: a debut is not a worse record, it is the absence of one, and there
+ * is nothing there to compare. So a lead is declared only where both have told
+ * us their record, neither is a debut, and one of them is genuinely ahead —
+ * clear on wins without being behind on losses, or level on wins and clearly
+ * cleaner. Anything else is two records the room can read for itself.
+ */
+export function recordLead(
+  red: Fighter,
+  blue: Fighter,
+): { leader: Corner; edge: string } | undefined {
+  if (!red.record || !blue.record) return undefined;
+  if (isDebut(red) || isDebut(blue)) return undefined;
+
+  const wins = red.record.w - blue.record.w;
+  const losses = red.record.l - blue.record.l;
+
+  if (wins >= RECORD_MARGIN && losses <= 0) return { leader: "red", edge: winsEdge(wins) };
+  if (-wins >= RECORD_MARGIN && -losses <= 0) return { leader: "blue", edge: winsEdge(-wins) };
+  if (wins === 0 && -losses >= RECORD_MARGIN) {
+    return { leader: "red", edge: fewerLossesEdge(-losses) };
+  }
+  if (wins === 0 && losses >= RECORD_MARGIN) {
+    return { leader: "blue", edge: fewerLossesEdge(losses) };
+  }
+  return undefined;
+}
 
 const ROW_SPECS: RowSpec[] = [
   {
@@ -115,7 +234,7 @@ const ROW_SPECS: RowSpec[] = [
     label: "Record",
     value: (f) => (f.record ? f.record.w : undefined),
     display: (f) => formatRecord(f),
-    contested: true,
+    contest: recordLead,
   },
   {
     key: "age",
@@ -156,13 +275,13 @@ const ROW_SPECS: RowSpec[] = [
     key: "gym",
     label: "Gym",
     value: () => undefined,
-    display: (f) => f.gym,
+    display: (f) => stated(f.gym),
   },
   {
     key: "hometown",
     label: "From",
     value: () => undefined,
-    display: (f) => f.hometown,
+    display: (f) => stated(f.hometown),
   },
 ];
 
@@ -182,7 +301,9 @@ export function buildTape(red: Fighter, blue: Fighter): TapeRow[] {
 
     let leader: Corner | undefined;
     let edge: string | undefined;
-    if (
+    if (spec.contest) {
+      ({ leader, edge } = spec.contest(red, blue) ?? { leader: undefined, edge: undefined });
+    } else if (
       spec.contested &&
       redValue !== undefined &&
       blueValue !== undefined &&
@@ -250,7 +371,7 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
     const debutant = redDebut ? red : blue;
     hooks.push({
       weight: 70,
-      text: `${firstName(debutant)} ${lastName(debutant)} is making their debut.`,
+      text: `${fullName(debutant)} is making their debut.`,
     });
   }
 
@@ -278,12 +399,14 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
     }
   }
 
-  if (red.gym === blue.gym) {
-    hooks.push({ weight: 85, text: `Same gym. Both out of ${red.gym}.` });
+  const gym = stated(red.gym);
+  if (gym && gym === stated(blue.gym)) {
+    hooks.push({ weight: 85, text: `Same gym. Both out of ${gym}.` });
   }
 
-  if (red.hometown && red.hometown === blue.hometown) {
-    hooks.push({ weight: 65, text: `${red.hometown} derby.` });
+  const hometown = stated(red.hometown);
+  if (hometown && hometown === stated(blue.hometown)) {
+    hooks.push({ weight: 65, text: `${hometown} derby.` });
   }
 
   const redFights = totalFights(red);
@@ -329,17 +452,19 @@ const COMPLETENESS_FIELDS: { key: string; label: string; weight: number; has: (f
   [
     { key: "photo", label: "Photo", weight: 30, has: (f) => !!f.photo },
     { key: "record", label: "Record", weight: 12, has: (f) => !!f.record },
-    { key: "hometown", label: "Hometown", weight: 6, has: (f) => !!f.hometown },
+    // Scored through stated(), so a placeholder or a box of spaces reads as the
+    // hole it is rather than as a line the fighter has answered.
+    { key: "hometown", label: "Hometown", weight: 6, has: (f) => !!stated(f.hometown) },
     { key: "age", label: "Age", weight: 6, has: (f) => !!f.age },
     { key: "height", label: "Height", weight: 8, has: (f) => !!f.heightCm },
     { key: "reach", label: "Reach", weight: 8, has: (f) => !!f.reachCm },
     { key: "stance", label: "Stance", weight: 4, has: (f) => !!f.stance },
-    { key: "nickname", label: "Nickname", weight: 6, has: (f) => !!f.nickname },
+    { key: "nickname", label: "Nickname", weight: 6, has: (f) => !!stated(f.nickname) },
     // "Story" rather than "Their story", because this list is read back both to
     // the promoter about a fighter and to the fighter about themselves.
-    { key: "bio", label: "Story", weight: 8, has: (f) => !!f.bio },
-    { key: "instagram", label: "Instagram", weight: 6, has: (f) => !!f.instagram },
-    { key: "walkout", label: "Walkout song", weight: 3, has: (f) => !!f.walkoutSong },
+    { key: "bio", label: "Story", weight: 8, has: (f) => !!stated(f.bio) },
+    { key: "instagram", label: "Instagram", weight: 6, has: (f) => !!stated(f.instagram) },
+    { key: "walkout", label: "Walkout song", weight: 3, has: (f) => !!stated(f.walkoutSong?.title) },
     { key: "sponsors", label: "Sponsors", weight: 3, has: (f) => !!f.sponsorIds?.length },
   ];
 

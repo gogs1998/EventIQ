@@ -13,6 +13,7 @@ import {
   finishCount,
   formatEventDateShort,
   formatRecord,
+  stated,
   totalFights,
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
@@ -62,7 +63,9 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
     { label: "Height", value: fighter.heightCm ? `${fighter.heightCm}cm` : undefined },
     { label: "Reach", value: fighter.reachCm ? `${fighter.reachCm}cm` : undefined },
     { label: "Stance", value: fighter.stance },
-    { label: "From", value: fighter.hometown },
+    // Through stated(), or a box of spaces survives the filter below as an
+    // empty stat headed "From".
+    { label: "From", value: stated(fighter.hometown) },
   ].filter((s) => s.value);
 
   return (

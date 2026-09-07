@@ -5,8 +5,10 @@ import { redirect } from "next/navigation";
 import { and, eq, max } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { newId, newToken } from "@/lib/auth";
+import { GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
 import { requirePromoter } from "@/lib/session";
+import { parseWeightKg } from "@/lib/tape";
 
 /**
  * Everything the promoter can change.
@@ -158,7 +160,7 @@ export async function addBout(slug: string, form: FormData): Promise<void> {
     await db.insert(schema.fighters).values({
       id,
       name,
-      gym: text(form, gymKey, 60) || "Gym to confirm",
+      gym: text(form, gymKey, 60) || GYM_TO_CONFIRM,
       createdAt: now,
       updatedAt: now,
     });
@@ -176,7 +178,9 @@ export async function addBout(slug: string, form: FormData): Promise<void> {
     eventId: event.id,
     number: (highest ?? 0) + 1,
     discipline: text(form, "discipline", 20) || "MMA",
-    weightKg: number(form, "weightKg") ?? 70,
+    // Weights are the one number here that is not whole: catchweights on these
+    // cards are agreed at the half kilo, so this is not rounded like the rounds.
+    weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
     classLabel: text(form, "classLabel", 30) || null,
     womens: form.get("womens") === "on",
     rounds: number(form, "rounds") ?? 3,
@@ -224,7 +228,7 @@ export async function updateBout(slug: string, boutNumber: number, form: FormDat
     .update(schema.bouts)
     .set({
       discipline: text(form, "discipline", 20) || "MMA",
-      weightKg: number(form, "weightKg") ?? 70,
+      weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
       classLabel: text(form, "classLabel", 30) || null,
       titleLabel: text(form, "titleLabel", 60) || null,
       womens: form.get("womens") === "on",
@@ -284,7 +288,8 @@ export async function removeBout(slug: string, boutNumber: number): Promise<void
  * Name and gym come off the promoter's own entry form, so they can fix them.
  *
  * A name is the one field on a fighter that nothing can stand in for. An empty
- * gym becomes "Gym to confirm", a missing record is simply absent, but a blank
+ * gym becomes the placeholder in lib/copy.ts, which every derivation reads as
+ * silence rather than as a gym, a missing record is simply absent, but a blank
  * name renders as a gap on the public programme and reads out as silence in the
  * video, so it is refused rather than saved. Returns the message to show, or null
  * where the save went through.
@@ -305,7 +310,7 @@ export async function updateFighter(
     .update(schema.fighters)
     .set({
       name,
-      gym: text(form, "gym", 60) || "Gym to confirm",
+      gym: text(form, "gym", 60) || GYM_TO_CONFIRM,
       updatedAt: Date.now(),
     })
     .where(eq(schema.fighters.id, fighterId));

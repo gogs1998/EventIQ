@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { markOpened, saveDraft, submitProfile, uploadPhoto } from "@/app/f/[token]/actions";
 import { Questionnaire } from "@/components/Questionnaire";
-import { cornersOf } from "@/lib/card";
+import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadCard, loadInviteByToken } from "@/lib/db/queries";
 
@@ -28,7 +28,9 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   const card = await loadCard(db, row.event.slug);
   if (!card) notFound();
 
-  const bout = card.event.bouts.find(
+  // Through the running order, so a bout whose other corner is not on the card
+  // is a page that is not there rather than a fighter's own link answering 500.
+  const bout = boutsTopDown(card).find(
     (b) => b.redId === row.fighter.id || b.blueId === row.fighter.id,
   );
   if (!bout) notFound();

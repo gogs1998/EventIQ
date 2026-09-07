@@ -58,7 +58,8 @@ export function AddBoutForm({ slug }: { slug: string }) {
           </select>
         </Field>
         <Field label="Weight kg">
-          <input name="weightKg" inputMode="numeric" className={inputClass} placeholder="70" />
+          {/* Decimal, because catchweights are agreed at the half kilo. */}
+          <input name="weightKg" inputMode="decimal" className={inputClass} placeholder="70" />
         </Field>
         <Field label="Grade">
           <input name="classLabel" className={inputClass} placeholder="C CLASS" />

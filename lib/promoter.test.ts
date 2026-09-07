@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import type { Card } from "@/lib/card";
+import { GYM_TO_CONFIRM } from "@/lib/copy";
 import {
   DONE_AT,
   boutReadiness,
@@ -160,6 +161,22 @@ describe("sponsorInventory", () => {
   });
 });
 
+describe("a bout missing a corner", () => {
+  const dangling: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: [...event.bouts, { ...event.bouts[0], number: 16, redId: "nobody-at-all" }],
+    },
+  };
+
+  it("leaves a gap in the chase list rather than taking the dashboard down", () => {
+    expect(chaseList(dangling, invites)).toEqual(chaseList(card, invites));
+    expect(eventProgress(dangling, invites)).toEqual(eventProgress(card, invites));
+    expect(boutReadiness(dangling, invites).length).toBe(event.bouts.length);
+  });
+});
+
 describe("nudgeMessage", () => {
   const rows = chaseList(card, invites);
 
@@ -202,6 +219,21 @@ describe("nudgeMessage", () => {
         /you haven'?t|hasn'?t|you have not|failed|still light/i,
       );
     }
+  });
+
+  /**
+   * The gym a promoter has not filled in yet is a placeholder, and a message
+   * reading "against Chloe Baines out of Gym to confirm" says the promoter has
+   * not finished rather than saying anything about the bout.
+   */
+  it("names the opponent's gym only when there is one", () => {
+    const row = rows[0];
+    const placeheld = { ...row, opponent: { ...row.opponent, gym: GYM_TO_CONFIRM } };
+    const message = nudgeMessage(placeheld, event, "https://eventiq.win");
+
+    expect(message).not.toContain(GYM_TO_CONFIRM);
+    expect(message).toContain(placeheld.opponent.name);
+    expect(message).not.toContain("out of");
   });
 
   it("promises no time to complete, because that is not ours to promise", () => {

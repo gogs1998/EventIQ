@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { GYM_TO_CONFIRM } from "@/lib/copy";
 import type { Bout, Fighter } from "@/lib/types";
 import {
   boutClassLine,
   buildHooks,
   buildTape,
   completeness,
+  finishCount,
   finishRate,
+  firstName,
   formatRecord,
   isDebut,
   isUndefeated,
+  lastName,
+  leadName,
+  parseWeightKg,
   tapeGapsBehind,
   totalFights,
 } from "@/lib/tape";
@@ -62,6 +68,39 @@ describe("record formatting", () => {
     expect(isUndefeated(f)).toBe(false);
   });
 
+  /**
+   * Rows written before the questionnaire clamped these still exist, so the
+   * tape has to cope with a record and a set of finishes that contradict it
+   * rather than reading out "5 finishes" beside "2-0".
+   */
+  it("never counts more finishes than wins", () => {
+    const f: Fighter = {
+      id: "t7",
+      name: "T",
+      gym: "G",
+      record: { w: 2, l: 0, d: 0 },
+      finishes: { ko: 3, sub: 2 },
+    };
+    expect(finishCount(f)).toBe(2);
+    expect(buildTape(f, f).find((r) => r.key === "finishes")?.red).toBe("2");
+  });
+
+  it("says nothing about a finish hook it cannot stand behind", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", record: { w: 2, l: 0, d: 0 }, finishes: { ko: 9, sub: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("9");
+    expect(hooks.join(" ")).toContain("finished 2 of 2 wins");
+  });
+
+  it("counts nothing where the fighter has no record to count against", () => {
+    const f: Fighter = { id: "t8", name: "T", gym: "G", finishes: { ko: 2, sub: 1 } };
+    expect(finishCount(f)).toBe(3);
+  });
+
   it("caps finish rate at 1 even if the data disagrees with itself", () => {
     const f: Fighter = {
       id: "t6",
@@ -71,6 +110,49 @@ describe("record formatting", () => {
       finishes: { ko: 2, sub: 2 },
     };
     expect(finishRate(f)).toBe(1);
+  });
+});
+
+/**
+ * Amateur cards carry fighters known by one word. The name block sets the lead
+ * name above the big one, so a single token used for both printed "Bones Bones"
+ * on the card and in the video.
+ */
+describe("names", () => {
+  it("uses a single-word name once", () => {
+    const f: Fighter = { id: "n1", name: "Bones", gym: "G" };
+    expect(lastName(f)).toBe("Bones");
+    expect(firstName(f)).toBe("Bones");
+    expect(leadName(f)).toBeUndefined();
+  });
+
+  it("splits an ordinary name into a lead and a surname", () => {
+    const f: Fighter = { id: "n2", name: "Ada Long", gym: "G" };
+    expect(leadName(f)).toBe("Ada");
+    expect(lastName(f)).toBe("Long");
+  });
+
+  it("keeps the middle names on the lead line rather than dropping them", () => {
+    const f: Fighter = { id: "n3", name: "Ada Mary Long", gym: "G" };
+    expect(leadName(f)).toBe("Ada Mary");
+    expect(lastName(f)).toBe("Long");
+    expect(firstName(f)).toBe("Ada");
+  });
+
+  it("copes with the spacing a form actually receives", () => {
+    const f: Fighter = { id: "n4", name: "  Ada   Long  ", gym: "G" };
+    expect(leadName(f)).toBe("Ada");
+    expect(lastName(f)).toBe("Long");
+  });
+
+  it("names a single-word debutant once in the hook", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "Bones", record: { w: 0, l: 0, d: 0 } }),
+      fighter({ name: "Ada Long", record: { w: 4, l: 1, d: 0 } }),
+    );
+
+    expect(hooks).toContain("Bones is making their debut.");
   });
 });
 
@@ -177,6 +259,38 @@ describe("buildHooks", () => {
     expect(hooks.join(" ")).toContain("Same gym");
   });
 
+  it("says nothing about a gym neither of them has given yet", () => {
+    // Both corners carry the placeholder the card editor writes, so the old
+    // equality test announced a gym clash on a freshly entered card.
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", gym: GYM_TO_CONFIRM }),
+      fighter({ name: "B", gym: GYM_TO_CONFIRM }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("Same gym");
+  });
+
+  it("says nothing about a gym that is a box of spaces", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", gym: "   " }),
+      fighter({ name: "B", gym: "" }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("Same gym");
+  });
+
+  it("does not make a derby out of two blank hometowns", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", hometown: "  " }),
+      fighter({ name: "B", hometown: "  " }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("derby");
+  });
+
   it("returns nothing rather than inventing a story from an empty pair", () => {
     expect(
       buildHooks(bout(), fighter({ name: "R", gym: "A" }), fighter({ name: "B", gym: "B" })),
@@ -206,6 +320,123 @@ describe("buildHooks", () => {
     );
 
     expect(hooks.length).toBe(3);
+  });
+});
+
+/**
+ * The record row used to contest wins alone, which is not what a record means.
+ * It made 10-9 lead 3-0, and it put an edge on a two-fight opponent over a
+ * debutant — a line the room corrects out loud.
+ */
+describe("the record row", () => {
+  function recordRow(red: Fighter, blue: Fighter) {
+    return buildTape(red, blue).find((r) => r.key === "record");
+  }
+
+  it("does not call a busy loser the leader over a clean short record", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 10, l: 9, d: 0 } }),
+      fighter({ name: "B", record: { w: 3, l: 0, d: 0 } }),
+    );
+
+    expect(row?.red).toBe("10-9");
+    expect(row?.leader).toBeUndefined();
+    expect(row?.edge).toBeUndefined();
+  });
+
+  it("reads Debut with no leader and no edge against a fighter with fights", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 0, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.red).toBe("Debut");
+    expect(row?.leader).toBeUndefined();
+    expect(row?.edge).toBeUndefined();
+  });
+
+  it("leads on more wins where the losses do not contradict it", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 9, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.leader).toBe("red");
+    expect(row?.edge).toBe("+7 wins");
+  });
+
+  it("separates two fighters level on wins by their losses", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 3, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 3, l: 2, d: 0 } }),
+    );
+
+    expect(row?.leader).toBe("red");
+    expect(row?.edge).toBe("2 fewer losses");
+  });
+
+  it("says nothing about a single win between them", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 3, l: 1, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.leader).toBeUndefined();
+  });
+
+  it("declares nothing where only one corner has given a record", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 6, l: 0, d: 0 } }),
+      fighter({ name: "B" }),
+    );
+
+    expect(row?.red).toBe("6-0");
+    expect(row?.blue).toBeUndefined();
+    expect(row?.leader).toBeUndefined();
+  });
+
+  it("keeps the row shape the components read", () => {
+    const row = recordRow(
+      fighter({ name: "R", record: { w: 9, l: 0, d: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(row?.redValue).toBe(9);
+    expect(row?.blueValue).toBe(2);
+  });
+});
+
+describe("a field nobody has answered", () => {
+  it("leaves the gym row empty rather than reading the placeholder as a gym", () => {
+    const row = buildTape(
+      fighter({ name: "R", gym: GYM_TO_CONFIRM }),
+      fighter({ name: "B", gym: "Ironworks MMA" }),
+    ).find((r) => r.key === "gym");
+
+    expect(row?.red).toBeUndefined();
+    expect(row?.blue).toBe("Ironworks MMA");
+  });
+
+  it("drops the hometown row when both are whitespace", () => {
+    const keys = buildTape(
+      fighter({ name: "R", hometown: " " }),
+      fighter({ name: "B", hometown: "" }),
+    ).map((r) => r.key);
+
+    expect(keys).not.toContain("hometown");
+  });
+
+  it("does not score a placeholder or a blank as something they told us", () => {
+    const placeheld: Fighter = { id: "p1", name: "R", gym: GYM_TO_CONFIRM, hometown: "  " };
+    const blank: Fighter = { id: "p2", name: "R", gym: "" };
+    expect(completeness(placeheld).missing).toContain("Hometown");
+    expect(completeness(placeheld).score).toBe(completeness(blank).score);
+  });
+
+  it("counts a line the opponent has genuinely answered, not the placeholder", () => {
+    const mine: Fighter = { id: "p3", name: "A", gym: "Bryn" };
+    const theirs: Fighter = { id: "p4", name: "B", gym: GYM_TO_CONFIRM, hometown: "Bolton" };
+    expect(tapeGapsBehind(mine, theirs)).toEqual(["From"]);
   });
 });
 
@@ -277,6 +508,45 @@ describe("boutClassLine", () => {
     expect(
       boutClassLine(bout({ weightKg: 83, classLabel: "C Class", discipline: "MUAY_THAI" })),
     ).toBe("83kg · C Class · Muay Thai");
+  });
+
+  /**
+   * Amateur cards are full of round catchweights, but a 61.5kg bout was printed
+   * as 61kg — a weight the two of them did not agree to make.
+   */
+  it("keeps the half kilo on a catchweight", () => {
+    expect(boutClassLine(bout({ weightKg: 61.5 }))).toBe("61.5kg · MMA");
+  });
+
+  it("does not put a nought after the point on a whole weight", () => {
+    expect(boutClassLine(bout({ weightKg: 70 }))).toBe("70kg · MMA");
+  });
+
+  it("prints one decimal at most, whatever is stored", () => {
+    expect(boutClassLine(bout({ weightKg: 61.55 }))).toBe("61.6kg · MMA");
+  });
+});
+
+/**
+ * The weight is the one number on a matchmaking sheet that is not whole:
+ * catchweights are agreed at the half kilo. Rounding it on the way in printed a
+ * weight neither corner agreed to make.
+ */
+describe("parseWeightKg", () => {
+  it("keeps the half kilo a catchweight is agreed at", () => {
+    expect(parseWeightKg("61.5")).toBe(61.5);
+    expect(parseWeightKg(" 70 ")).toBe(70);
+  });
+
+  it("holds it to the tenth the card prints", () => {
+    expect(parseWeightKg("61.55")).toBe(61.6);
+  });
+
+  it("has nothing to say about an empty or impossible box", () => {
+    expect(parseWeightKg("")).toBeUndefined();
+    expect(parseWeightKg("heavy")).toBeUndefined();
+    expect(parseWeightKg("-70")).toBeUndefined();
+    expect(parseWeightKg("400")).toBeUndefined();
   });
 
   it("marks a women's bout", () => {

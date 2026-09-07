@@ -17,7 +17,7 @@ import {
   fighterFromDraft,
 } from "@/lib/questionnaire";
 import type { Card } from "@/lib/card";
-import { buildTape, completeness, firstName, lastName, tapeGapsBehind } from "@/lib/tape";
+import { buildTape, completeness, firstName, lastName, stated, tapeGapsBehind } from "@/lib/tape";
 import type { Bout, Fighter, Stance } from "@/lib/types";
 
 /**
@@ -451,7 +451,10 @@ export function Questionnaire({
             {base.name}, you&rsquo;re on bout {bout.number}
           </h1>
           <p className="text-ash mt-3 text-sm leading-relaxed">
-            You&rsquo;re fighting {opponent.name} out of {opponent.gym}. Fill this in and
+            {/* The gym is named only where somebody has given one: a card typed
+                in this morning carries a placeholder there. */}
+            You&rsquo;re fighting {opponent.name}
+            {stated(opponent.gym) ? ` out of ${stated(opponent.gym)}` : ""}. Fill this in and
             you get the card above, on the screen of everyone in the building, plus the
             video to post. It saves as you go.
           </p>

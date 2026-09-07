@@ -33,6 +33,9 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
 
   const { event } = card;
   const sponsors = Object.values(card.sponsors);
+  // The bouts that can actually be listed and edited, so the count at the top
+  // agrees with the rows underneath it.
+  const bouts = boutsTopDown(card);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
@@ -51,10 +54,10 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
       <section className="mt-12">
         <div className="border-hairline mb-4 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">Running order</h2>
-          <span className="label">{boutCountLabel(event.bouts.length)}</span>
+          <span className="label">{boutCountLabel(bouts.length)}</span>
         </div>
 
-        {event.bouts.length ? (
+        {bouts.length ? (
           <>
             <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
               Listed main event first, the way the programme shows it. Bout numbers run the
@@ -62,7 +65,7 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
             </p>
 
             <div className="grid gap-3">
-              {boutsTopDown(card).map((bout) => {
+              {bouts.map((bout) => {
                 const { red, blue } = cornersOf(card, bout);
                 return (
                   <BoutRow

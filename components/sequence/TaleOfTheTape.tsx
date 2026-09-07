@@ -15,10 +15,10 @@ import {
   boutFormat,
   buildHooks,
   buildTape,
-  firstName,
   formatEventDateShort,
   formatRecord,
   lastName,
+  leadName,
   type TapeRow,
 } from "@/lib/tape";
 import { parallaxTravel, plateInitials, portraitOf, type Portrait } from "@/lib/portrait";
@@ -533,11 +533,15 @@ function Reveal({
           gap: 14,
         }}
       >
-        <div style={{ opacity: nameFade }}>
-          <Label size={26} color="#f4f5f7">
-            {firstName(fighter)}
-          </Label>
-        </div>
+        {/* Left out rather than left blank for a fighter who goes by one name:
+            the reveal used to set that name twice, once small and once huge. */}
+        {leadName(fighter) ? (
+          <div style={{ opacity: nameFade }}>
+            <Label size={26} color="#f4f5f7">
+              {leadName(fighter)}
+            </Label>
+          </div>
+        ) : null}
         <div
           className="display"
           style={{
