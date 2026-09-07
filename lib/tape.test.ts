@@ -14,6 +14,7 @@ import {
   isUndefeated,
   lastName,
   leadName,
+  parseWeightKg,
   tapeGapsBehind,
   totalFights,
 } from "@/lib/tape";
@@ -507,6 +508,45 @@ describe("boutClassLine", () => {
     expect(
       boutClassLine(bout({ weightKg: 83, classLabel: "C Class", discipline: "MUAY_THAI" })),
     ).toBe("83kg · C Class · Muay Thai");
+  });
+
+  /**
+   * Amateur cards are full of round catchweights, but a 61.5kg bout was printed
+   * as 61kg — a weight the two of them did not agree to make.
+   */
+  it("keeps the half kilo on a catchweight", () => {
+    expect(boutClassLine(bout({ weightKg: 61.5 }))).toBe("61.5kg · MMA");
+  });
+
+  it("does not put a nought after the point on a whole weight", () => {
+    expect(boutClassLine(bout({ weightKg: 70 }))).toBe("70kg · MMA");
+  });
+
+  it("prints one decimal at most, whatever is stored", () => {
+    expect(boutClassLine(bout({ weightKg: 61.55 }))).toBe("61.6kg · MMA");
+  });
+});
+
+/**
+ * The weight is the one number on a matchmaking sheet that is not whole:
+ * catchweights are agreed at the half kilo. Rounding it on the way in printed a
+ * weight neither corner agreed to make.
+ */
+describe("parseWeightKg", () => {
+  it("keeps the half kilo a catchweight is agreed at", () => {
+    expect(parseWeightKg("61.5")).toBe(61.5);
+    expect(parseWeightKg(" 70 ")).toBe(70);
+  });
+
+  it("holds it to the tenth the card prints", () => {
+    expect(parseWeightKg("61.55")).toBe(61.6);
+  });
+
+  it("has nothing to say about an empty or impossible box", () => {
+    expect(parseWeightKg("")).toBeUndefined();
+    expect(parseWeightKg("heavy")).toBeUndefined();
+    expect(parseWeightKg("-70")).toBeUndefined();
+    expect(parseWeightKg("400")).toBeUndefined();
   });
 
   it("marks a women's bout", () => {

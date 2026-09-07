@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * The D1 schema.
@@ -110,7 +110,16 @@ export const bouts = sqliteTable(
     /** Running order position. 1 is the opener; the highest number is the main event. */
     number: integer("number").notNull(),
     discipline: text("discipline").notNull(),
-    weightKg: integer("weight_kg").notNull(),
+    /**
+     * Catchweights are agreed at the half kilo, so this is a real and 61.5 has
+     * to survive to the page. The column on disk is still the `integer` the
+     * first migration declared: SQLite types are affinities, and INTEGER
+     * affinity only converts a real when it can do so losslessly, so 61.5 goes
+     * in and comes back as 61.5. Rebuilding the table to change the word would
+     * mean DROP TABLE bouts on a live show, and the migration drizzle generates
+     * for it wraps that in PRAGMA foreign_keys=OFF, which D1 does not support.
+     */
+    weightKg: real("weight_kg").notNull(),
     classLabel: text("class_label"),
     titleLabel: text("title_label"),
     womens: integer("womens", { mode: "boolean" }).notNull().default(false),

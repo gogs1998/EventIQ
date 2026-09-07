@@ -8,6 +8,7 @@ import { newId, newToken } from "@/lib/auth";
 import { GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
 import { requirePromoter } from "@/lib/session";
+import { parseWeightKg } from "@/lib/tape";
 
 /**
  * Everything the promoter can change.
@@ -177,7 +178,9 @@ export async function addBout(slug: string, form: FormData): Promise<void> {
     eventId: event.id,
     number: (highest ?? 0) + 1,
     discipline: text(form, "discipline", 20) || "MMA",
-    weightKg: number(form, "weightKg") ?? 70,
+    // Weights are the one number here that is not whole: catchweights on these
+    // cards are agreed at the half kilo, so this is not rounded like the rounds.
+    weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
     classLabel: text(form, "classLabel", 30) || null,
     womens: form.get("womens") === "on",
     rounds: number(form, "rounds") ?? 3,
@@ -225,7 +228,7 @@ export async function updateBout(slug: string, boutNumber: number, form: FormDat
     .update(schema.bouts)
     .set({
       discipline: text(form, "discipline", 20) || "MMA",
-      weightKg: number(form, "weightKg") ?? 70,
+      weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
       classLabel: text(form, "classLabel", 30) || null,
       titleLabel: text(form, "titleLabel", 60) || null,
       womens: form.get("womens") === "on",

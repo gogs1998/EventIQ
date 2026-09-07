@@ -69,9 +69,10 @@ export function BoutRow({
                 </select>
               </Field>
               <Field label="Weight kg">
+                {/* Decimal, because catchweights are agreed at the half kilo. */}
                 <input
                   name="weightKg"
-                  inputMode="numeric"
+                  inputMode="decimal"
                   className={inputClass}
                   defaultValue={bout.weightKg}
                 />

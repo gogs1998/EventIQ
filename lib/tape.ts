@@ -35,8 +35,35 @@ export function stated(value: string | undefined | null): string | undefined {
   return trimmed && !PLACEHOLDERS.has(trimmed.toLowerCase()) ? trimmed : undefined;
 }
 
+/** Nothing on an amateur card is heavier than this, and nothing weighs nothing. */
+const WEIGHT_LIMIT_KG = 300;
+
+/**
+ * The weight as a card prints it: a decimal only where the weight has one.
+ *
+ * Catchweights on these bills are agreed at the half kilo, so 61.5kg has to
+ * survive to the page, and 70kg must not turn into 70.0kg on the way. Anything
+ * finer than a tenth is a stored value nobody agreed to, so it is not printed.
+ */
+export function weightLabel(kg: number): string {
+  const tenths = Math.round(kg * 10) / 10;
+  return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)}kg`;
+}
+
+/**
+ * A weight off the promoter's entry form. The one number on a matchmaking sheet
+ * that is not whole, which is why it is parsed here rather than with the rounds
+ * and the round minutes: rounding it printed 61.5kg bouts as 61kg, a weight
+ * neither corner agreed to make.
+ */
+export function parseWeightKg(value: string): number | undefined {
+  const kg = Math.round(Number(value.trim()) * 10) / 10;
+  if (!value.trim() || !Number.isFinite(kg)) return undefined;
+  return kg > 0 && kg <= WEIGHT_LIMIT_KG ? kg : undefined;
+}
+
 export function boutClassLine(bout: Bout): string {
-  const parts = [`${bout.weightKg}kg`];
+  const parts = [weightLabel(bout.weightKg)];
   if (bout.womens) parts.push("Women's");
   if (bout.classLabel) parts.push(bout.classLabel);
   parts.push(DISCIPLINE_LABEL[bout.discipline]);
