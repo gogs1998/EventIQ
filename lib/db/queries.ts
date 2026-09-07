@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
@@ -275,6 +275,24 @@ export async function loadInviteByToken(db: Db, token: string) {
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
     .where(eq(schema.invites.token, token))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Just enough of a show to decide who may see something of it, without loading
+ * the card. `/media` answers a request per photograph on a page, so the gate on
+ * it has to cost one narrow query rather than six.
+ */
+export async function eventVisibility(db: Db, slug: string) {
+  const [row] = await db
+    .select({
+      id: schema.events.id,
+      published: schema.events.published,
+      promoterId: schema.events.promoterId,
+    })
+    .from(schema.events)
+    .where(eq(schema.events.slug, slug))
     .limit(1);
   return row ?? null;
 }
