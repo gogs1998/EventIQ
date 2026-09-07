@@ -221,12 +221,6 @@ async function d1(sql) {
   return first?.results ?? [];
 }
 
-/** How many rows a write actually touched, which is how a claim is won or lost. */
-async function d1Changes(sql) {
-  const [first] = await d1Raw(sql);
-  return first?.meta?.changes ?? 0;
-}
-
 // ------------------------------------------------------------------ what
 
 /**
@@ -402,10 +396,14 @@ function jobId(eventId, boutNumber) {
  * Takes the bout, or does not.
  *
  * One statement, because the whole point is that two runners asking at the same
- * moment cannot both win: whichever UPDATE lands second sees the lease the first
- * one wrote and changes nothing, and `changes` says which happened. `claimable`
- * in lib/renders.ts is the same decision written to be read, and the constants
- * come from there so the two cannot drift.
+ * moment cannot both win: whichever lands second sees the lease the first one
+ * wrote and changes nothing. `claimable` in lib/renders.ts is the same decision
+ * written to be read, and the constants come from there so the two cannot drift.
+ *
+ * It answers with RETURNING rather than by reading meta.changes, because the
+ * local Miniflare D1 reports only a duration and the remote one reports counts —
+ * so a claim checked that way is won on production and silently lost on every
+ * developer's machine. A returned row is a row that was written, everywhere.
  *
  * `force` is an operator naming a bout on the command line, which means it even
  * for a bout that is already current — but never for one another runner is
@@ -430,11 +428,13 @@ export function claimSql(eventId, boutNumber, hash, { now, force }) {
             attempts = render_jobs.attempts + 1,
             lease_until = excluded.lease_until
           WHERE (render_jobs.lease_until IS NULL OR render_jobs.lease_until < ${now})
-            AND ${wanted}`;
+            AND ${wanted}
+          RETURNING id`;
 }
 
 async function claim(eventId, boutNumber, hash, { force }) {
-  return (await d1Changes(claimSql(eventId, boutNumber, hash, { now: Date.now(), force }))) > 0;
+  const won = await d1(claimSql(eventId, boutNumber, hash, { now: Date.now(), force }));
+  return won.length > 0;
 }
 
 /**
@@ -454,7 +454,7 @@ async function finishJob(eventId, boutNumber, fields) {
 
 // --------------------------------------------------------------- capturing
 
-async function withPage(fn) {
+export async function withPage(fn) {
   if (!renderKey) {
     throw new Error(
       "RENDER_KEY is not set, so the capture page will refuse this render.\n" +
@@ -510,8 +510,13 @@ async function withPage(fn) {
   }
 }
 
-async function openBout(page, bout) {
-  const url = `${base}/render/${slug}/${bout}`;
+/**
+ * The show defaults to --slug because that is what this script is run with;
+ * scripts/golden-frames.mjs passes its own rather than relying on the two
+ * command lines happening to agree.
+ */
+export async function openBout(page, bout, eventSlug = slug) {
+  const url = `${base}/render/${eventSlug}/${bout}`;
   const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 120_000 });
 
   // A refused render key comes back as 404, deliberately — the page will not say
@@ -545,7 +550,7 @@ async function openBout(page, bout) {
  * painted without a delay, and resolves immediately for anything already
  * painted, so asking on all 480 frames costs almost nothing.
  */
-async function seek(page, frame) {
+export async function seek(page, frame) {
   await page.evaluate(async (f) => {
     window.__setFrame(f);
     // One frame for React to commit, so anything new is in the document.
@@ -588,9 +593,17 @@ async function renderBout(bout) {
     // Rec. 709. It is nearly the same thing, which is why this was survivable,
     // and "nearly" shows up as the corner reds sitting slightly apart between
     // the video and the programme page next to it. Saying so costs nothing.
+    //
+    // Both spellings, because they do different amounts. ffmpeg's own flags set
+    // the frame properties and, in the build this was checked against, reach the
+    // bitstream as the matrix and nothing else — ffprobe reports bt709 for the
+    // colour space and "unknown" for the primaries and the transfer. The x264
+    // parameters are what actually write all three into the VUI. Checked with
+    // ffprobe rather than assumed.
     "-colorspace", "bt709",
     "-color_primaries", "bt709",
     "-color_trc", "bt709",
+    "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
     "-movflags", "+faststart",
     out,
   ]);
@@ -604,19 +617,29 @@ async function renderBout(bout) {
   });
 
   const started = Date.now();
-  await withPage(async (page) => {
-    const duration = await openBout(page, bout);
-    process.stdout.write(`bout ${bout}: ${duration} frames `);
+  try {
+    await withPage(async (page) => {
+      const duration = await openBout(page, bout);
+      process.stdout.write(`bout ${bout}: ${duration} frames `);
 
-    for (let frame = 0; frame < duration; frame += 1) {
-      await seek(page, frame);
-      const shot = await page.screenshot({ type: "jpeg", quality, optimizeForSpeed: true });
-      if (!ffmpeg.stdin.write(shot)) {
-        await new Promise((resolve) => ffmpeg.stdin.once("drain", resolve));
+      for (let frame = 0; frame < duration; frame += 1) {
+        await seek(page, frame);
+        const shot = await page.screenshot({ type: "jpeg", quality, optimizeForSpeed: true });
+        if (!ffmpeg.stdin.write(shot)) {
+          await new Promise((resolve) => ffmpeg.stdin.once("drain", resolve));
+        }
+        if (frame % 60 === 0) process.stdout.write(".");
       }
-      if (frame % 60 === 0) process.stdout.write(".");
-    }
-  });
+    });
+  } catch (error) {
+    // ffmpeg is already waiting on a stdin nobody is going to write to again,
+    // and Node will not exit while a child holds an open pipe. A capture that
+    // threw used to leave the whole run hanging with no output at all, which
+    // reads as a slow render rather than as a failure that has already happened.
+    ffmpeg.stdin.destroy();
+    ffmpeg.kill();
+    throw error;
+  }
 
   ffmpeg.stdin.end();
   await done;

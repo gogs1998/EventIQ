@@ -114,6 +114,15 @@ describe("claimSql", () => {
     expect(sql()).toContain("'rj_ev_1_15'");
     expect(sql()).toContain("ON CONFLICT (event_id, bout_number)");
   });
+
+  /**
+   * The local Miniflare D1 reports only a duration and the remote one reports
+   * counts, so a claim decided on meta.changes is won on production and lost on
+   * every developer's machine. A returned row is a row that was written.
+   */
+  it("says whether it won by returning the row", () => {
+    expect(sql().trimEnd().endsWith("RETURNING id")).toBe(true);
+  });
 });
 
 describe("resolveChrome", () => {
