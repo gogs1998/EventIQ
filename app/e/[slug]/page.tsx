@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
-import { boutsTopDown, fighterOf, showSponsors } from "@/lib/card";
+import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card";
 import { EMPTY_PROGRAMME, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
@@ -36,7 +36,9 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   const { event } = card;
   const renders = await loadRenders(db, card.eventId);
   const bouts = boutsTopDown(card);
-  const main = bouts[0];
+  // The bout the card calls the main event, not just the top of the list, so the
+  // names under the show's own title are the pair wearing the label below.
+  const main = featuredBout(card);
 
   return (
     <main className="mx-auto w-full max-w-xl">
