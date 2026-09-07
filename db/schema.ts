@@ -31,6 +31,15 @@ export const promoters = sqliteTable("promoters", {
   instagram: text("instagram"),
   /** PBKDF2 verifier, `iterations:salt:hash` in base64. Never the password. */
   passwordHash: text("password_hash"),
+  /**
+   * Failed sign-ins in the window that began at `firstFailedLoginAt`, and the
+   * whole of the per-account lockout. The limiter at the edge counts callers,
+   * and a password guessed from a thousand addresses is not a caller — so the
+   * account has to hold a count of its own. Cleared by a sign-in that works.
+   * See lib/lockout.ts.
+   */
+  failedLogins: integer("failed_logins").notNull().default(0),
+  firstFailedLoginAt: integer("first_failed_login_at"),
   createdAt: integer("created_at").notNull(),
 });
 

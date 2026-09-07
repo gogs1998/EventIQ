@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { IMPORT_LOOKUPS_PER_MINUTE, callerKey } from "@/lib/rate-limit";
+import {
+  IMPORT_LOOKUPS_PER_MINUTE,
+  LOGIN_ATTEMPTS_PER_MINUTE,
+  TRACK_WRITES_PER_MINUTE,
+  callerKey,
+} from "@/lib/rate-limit";
 import { FETCHES_PER_HOUR, withinFetchBudget } from "@/lib/record-import";
 
 const requestWith = (headers: Record<string, string>) =>
@@ -15,20 +20,21 @@ describe("callerKey", () => {
   it("prefers the address the edge sets over anything the caller sends", () => {
     expect(
       callerKey(
-        requestWith({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" }),
+        requestWith({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" })
+          .headers,
       ),
     ).toBe("203.0.113.7");
   });
 
   it("falls back to the first forwarded address when there is no edge one", () => {
-    expect(callerKey(requestWith({ "x-forwarded-for": "198.51.100.1, 203.0.113.9" }))).toBe(
+    expect(callerKey(requestWith({ "x-forwarded-for": "198.51.100.1, 203.0.113.9" }).headers)).toBe(
       "198.51.100.1",
     );
   });
 
   it("puts everything it cannot attribute in one bucket rather than letting it past", () => {
-    expect(callerKey(requestWith({}))).toBe("unattributed");
-    expect(callerKey(requestWith({ "cf-connecting-ip": "  " }))).toBe("unattributed");
+    expect(callerKey(requestWith({}).headers)).toBe("unattributed");
+    expect(callerKey(requestWith({ "cf-connecting-ip": "  " }).headers)).toBe("unattributed");
   });
 });
 
@@ -51,8 +57,21 @@ describe("the allowance", () => {
       ),
     ) as { ratelimits: { name: string; simple: { limit: number; period: number } }[] };
 
-    const limiter = config.ratelimits.find((entry) => entry.name === "IMPORT_LOOKUPS");
-    expect(limiter?.simple).toEqual({ limit: IMPORT_LOOKUPS_PER_MINUTE, period: 60 });
+    const simpleOf = (name: string) =>
+      config.ratelimits.find((entry) => entry.name === name)?.simple;
+
+    expect(simpleOf("IMPORT_LOOKUPS")).toEqual({ limit: IMPORT_LOOKUPS_PER_MINUTE, period: 60 });
+    expect(simpleOf("LOGIN_ATTEMPTS")).toEqual({ limit: LOGIN_ATTEMPTS_PER_MINUTE, period: 60 });
+    expect(simpleOf("TRACK_WRITES")).toEqual({ limit: TRACK_WRITES_PER_MINUTE, period: 60 });
+  });
+
+  it("leaves room for somebody who has genuinely forgotten their password", () => {
+    expect(LOGIN_ATTEMPTS_PER_MINUTE).toBeGreaterThanOrEqual(5);
+    expect(LOGIN_ATTEMPTS_PER_MINUTE).toBeLessThanOrEqual(20);
+  });
+
+  it("leaves room for a spectator reading a full card", () => {
+    expect(TRACK_WRITES_PER_MINUTE).toBeGreaterThanOrEqual(30);
   });
 });
 

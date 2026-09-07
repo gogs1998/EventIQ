@@ -17,6 +17,10 @@ declare global {
     MEDIA: R2Bucket;
     /** Bounds the open record importer. See lib/rate-limit.ts. */
     IMPORT_LOOKUPS: RateLimit;
+    /** Bounds guessing at the promoter's password, per caller. */
+    LOGIN_ATTEMPTS: RateLimit;
+    /** Bounds the counter every spectator's programme posts to. */
+    TRACK_WRITES: RateLimit;
     /** Signs the promoter's login cookie. Set with `wrangler secret put`. */
     SESSION_SECRET: string;
     /**
