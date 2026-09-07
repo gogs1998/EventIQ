@@ -161,6 +161,22 @@ describe("sponsorInventory", () => {
   });
 });
 
+describe("a bout missing a corner", () => {
+  const dangling: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: [...event.bouts, { ...event.bouts[0], number: 16, redId: "nobody-at-all" }],
+    },
+  };
+
+  it("leaves a gap in the chase list rather than taking the dashboard down", () => {
+    expect(chaseList(dangling, invites)).toEqual(chaseList(card, invites));
+    expect(eventProgress(dangling, invites)).toEqual(eventProgress(card, invites));
+    expect(boutReadiness(dangling, invites).length).toBe(event.bouts.length);
+  });
+});
+
 describe("nudgeMessage", () => {
   const rows = chaseList(card, invites);
 

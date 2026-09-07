@@ -38,6 +38,28 @@ function optional<T>(value: T | null | undefined): T | undefined {
   return value ?? undefined;
 }
 
+/**
+ * The one column here holding JSON, read for every fighter on every card.
+ *
+ * We wrote it, so it should always parse — but this runs six rows before
+ * anything renders, so a value that does not costs the whole show its programme,
+ * its dashboard and its renders rather than costing one fighter their tags. A
+ * column that cannot be read is treated as a column nobody filled in, which is a
+ * state every surface downstream already handles.
+ */
+function toStyleTags(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const tags = Array.isArray(parsed)
+      ? parsed.filter((tag): tag is string => typeof tag === "string")
+      : [];
+    return tags.length ? tags : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function toFighter(row: FighterRow, sponsorIds: string[]): Fighter {
   return {
     id: row.id,
@@ -66,7 +88,7 @@ export function toFighter(row: FighterRow, sponsorIds: string[]): Fighter {
       ? { title: row.walkoutTitle, artist: row.walkoutArtist ?? "Unknown" }
       : undefined,
     bio: optional(row.bio),
-    styleTags: row.styleTags ? (JSON.parse(row.styleTags) as string[]) : undefined,
+    styleTags: toStyleTags(row.styleTags),
     sponsorIds: sponsorIds.length ? sponsorIds : undefined,
   };
 }

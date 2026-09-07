@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import {
+  boutOf,
   boutsTopDown,
   cardCompleteness,
   emptiestEntry,
@@ -64,6 +65,42 @@ describe("featuredBout", () => {
   it("has nothing to lead on where there are no bouts", () => {
     expect(featuredBout(boutless)).toBeUndefined();
     expect(boutsTopDown(boutless)).toEqual([]);
+  });
+});
+
+/**
+ * A bout naming a fighter who is not on the card is a broken database, and
+ * fighterOf still says so. What it must not do is take the show down with it:
+ * one dangling id threw inside every page that walks the running order, so the
+ * programme, the dashboard and every other bout on the card went with it. The
+ * running order leaves that bout out instead, which is what a promoter would do
+ * with a bout that has lost a corner.
+ */
+describe("a bout naming a fighter who is not on the card", () => {
+  const dangling: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: [...event.bouts, { ...event.bouts[0], number: 16, blueId: "nobody-at-all" }],
+    },
+  };
+
+  it("leaves the bout out of the running order rather than throwing", () => {
+    expect(boutsTopDown(dangling).map((bout) => bout.number)).not.toContain(16);
+    expect(boutsTopDown(dangling).length).toBe(event.bouts.length);
+  });
+
+  it("does not let it become the bout the page leads on", () => {
+    expect(featuredBout(dangling)?.number).toBe(15);
+  });
+
+  it("cannot be reached by number either", () => {
+    expect(boutOf(dangling, 16)).toBeUndefined();
+    expect(boutOf(dangling, 15)?.number).toBe(15);
+  });
+
+  it("scores the card on the bouts that are actually there", () => {
+    expect(cardCompleteness(dangling, DONE_AT)).toEqual(cardCompleteness(card, DONE_AT));
   });
 });
 

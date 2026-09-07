@@ -32,14 +32,31 @@ export function sponsorOf(card: Card, id: string | undefined | null): Sponsor | 
   return id ? card.sponsors[id] : undefined;
 }
 
+/**
+ * Both corners resolve to a fighter this card actually carries.
+ *
+ * fighterOf still throws on a dangling id, because that is a broken database and
+ * it should be loud. What it must not be is fatal to everything else: one bout
+ * naming a fighter who is not there used to take down the programme, the
+ * dashboard and every other bout on the card, because every page walks the
+ * running order. So the running order leaves that bout out, which is what a
+ * promoter does with a bout that has lost a corner, and the rest of the show
+ * carries on.
+ */
+function bothCorners(card: Card, bout: Bout): boolean {
+  return !!card.fighters[bout.redId] && !!card.fighters[bout.blueId];
+}
+
 export function boutOf(card: Card, numberOrSlug: number | string): Bout | undefined {
   const n = Number(numberOrSlug);
-  return card.event.bouts.find((bout) => bout.number === n);
+  return card.event.bouts.find((bout) => bout.number === n && bothCorners(card, bout));
 }
 
 /** Running order runs openers first; the programme lists the main event first. */
 export function boutsTopDown(card: Card): Bout[] {
-  return [...card.event.bouts].sort((a, b) => b.number - a.number);
+  return card.event.bouts
+    .filter((bout) => bothCorners(card, bout))
+    .sort((a, b) => b.number - a.number);
 }
 
 /**
@@ -122,7 +139,7 @@ export function fighterSponsors(card: Card, fighter: Fighter): Sponsor[] {
  * asserted: if the seeded card changes, the sentence on the page changes with it.
  */
 export function cardCompleteness(card: Card, doneAt: number) {
-  const fighters = card.event.bouts.flatMap((bout) => [
+  const fighters = boutsTopDown(card).flatMap((bout) => [
     fighterOf(card, bout.redId),
     fighterOf(card, bout.blueId),
   ]);

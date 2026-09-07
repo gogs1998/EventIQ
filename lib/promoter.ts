@@ -89,7 +89,9 @@ function rowFor(card: Card, invites: Invites, bout: Bout, corner: Corner): Chase
 }
 
 export function allRows(card: Card, invites: Invites): ChaseRow[] {
-  return card.event.bouts.flatMap((bout) => [
+  // The running order rather than the raw bouts, so a bout missing a corner
+  // leaves a gap in the chase list rather than taking the dashboard down.
+  return boutsTopDown(card).flatMap((bout) => [
     rowFor(card, invites, bout, "red"),
     rowFor(card, invites, bout, "blue"),
   ]);
