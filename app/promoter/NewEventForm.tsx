@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useTransition } from "react";
 import { createEvent } from "@/app/promoter/actions";
+import { ActionStatus } from "@/components/ActionStatus";
 
 const inputClass =
   "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm outline-none focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
@@ -16,10 +17,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function NewEventForm() {
-  const [error, submit, pending] = useActionState(createEvent, null);
+  // Null until the form has been posted once; after that, whatever the action
+  // answered. A success redirects, so the only state that renders is a refusal.
+  const [result, submit, pending] = useActionState(createEvent, null);
+  const [, start] = useTransition();
 
   return (
-    <form action={submit} className="mt-4 grid gap-4">
+    <form
+      // The action is run from a transition rather than handed to the `action`
+      // prop, because React resets an uncontrolled form once an action returns
+      // and does it whether the action agreed or refused. A refused show meant
+      // retyping its name, date, venue, town and both times to find out why.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        start(() => submit(data));
+      }}
+      className="mt-4 grid gap-4"
+    >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Show name">
           <input name="name" className={inputClass} placeholder="Cage County 13" required />
@@ -45,7 +60,7 @@ export function NewEventForm() {
         <input name="sanctioning" className={inputClass} placeholder="Sanctioned by …" />
       </Field>
 
-      {error ? <p className="text-red-corner-hot text-xs">{error}</p> : null}
+      <ActionStatus error={result && !result.ok ? result.error : null} />
 
       <button
         type="submit"

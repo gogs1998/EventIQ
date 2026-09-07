@@ -1,16 +1,28 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { updateEvent } from "@/app/promoter/actions";
 import { Field, inputClass } from "@/app/promoter/e/[slug]/card/fields";
+import { ActionStatus } from "@/components/ActionStatus";
 import type { FightEvent } from "@/lib/types";
 
 export function EventForm({ slug, event }: { slug: string; event: FightEvent }) {
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <form
-      action={(form) => start(() => void updateEvent(slug, form))}
+      // Own submit rather than the `action` prop: React resets an uncontrolled
+      // form once an action returns, which on a refusal throws away the edit and
+      // puts the stored values back without saying it has. See AddBoutForm.
+      onSubmit={(submit) => {
+        submit.preventDefault();
+        const data = new FormData(submit.currentTarget);
+        start(async () => {
+          const result = await updateEvent(slug, data);
+          setError(result.ok ? null : result.error);
+        });
+      }}
       className="mt-4 grid gap-4"
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -56,6 +68,7 @@ export function EventForm({ slug, event }: { slug: string; event: FightEvent }) 
       >
         {pending ? "Saving…" : "Save the show"}
       </button>
+      <ActionStatus error={error} />
     </form>
   );
 }

@@ -6,7 +6,9 @@ import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
+import type { ActionResult } from "@/lib/action-result";
 import { FPS } from "@/lib/anim";
+import { ACTION_ERRORS } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
@@ -47,9 +49,9 @@ export type QuestionnaireProps = {
    * never reaches this component, so nothing here can be persuaded to write to
    * a different fighter.
    */
-  save?: (draft: Draft) => Promise<{ savedAt: number }>;
-  submit?: (draft: Draft) => Promise<void>;
-  upload?: (form: FormData) => Promise<{ path: string }>;
+  save?: (draft: Draft) => Promise<ActionResult<{ savedAt: number }>>;
+  submit?: (draft: Draft) => Promise<ActionResult>;
+  upload?: (form: FormData) => Promise<ActionResult<{ path: string }>>;
   alreadySubmitted?: boolean;
 };
 
@@ -159,6 +161,9 @@ export function Questionnaire({
   const [draft, setDraft] = useState<Draft>(() => draftFromFighter(base));
   const [submitted, setSubmitted] = useState(alreadySubmitted);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  // What the action said, where it said anything. Null falls back to the line
+  // about signal, which is the honest answer to a request that never arrived.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("card");
   const [frame, setFrame] = useState(SCENES.blue.start + 84);
   const [importUrl, setImportUrl] = useState("");
@@ -166,6 +171,7 @@ export function Questionnaire({
   const [importOutcome, setImportOutcome] = useState<ImportOutcome | null>(null);
   const [importedKeys, setImportedKeys] = useState<Set<string>>(new Set());
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,11 +183,21 @@ export function Questionnaire({
     pending.current = null;
     setSaveState("saving");
     try {
-      await save(toSave);
-      setSaveState("saved");
+      const result = await save(toSave);
+      if (result.ok) {
+        setSaveState("saved");
+        setSaveError(null);
+        return;
+      }
+      // The action answered and refused — a regenerated link is the likeliest —
+      // so it has a sentence of its own worth more than the general one.
+      setSaveError(result.error);
+      setSaveState("failed");
     } catch {
-      // Kept in the box either way. Telling somebody their typing did not save
-      // is far better than a silent loss they discover on the night.
+      // A request that never arrived has no sentence of its own. Either way the
+      // draft stays exactly as it is in the boxes: telling somebody their typing
+      // has not saved is far better than a silent loss they find on the night.
+      setSaveError(null);
       setSaveState("failed");
     }
   }, [save]);
@@ -284,10 +300,16 @@ export function Questionnaire({
       }
       const form = new FormData();
       form.set("photo", new File([blob], "photo.jpg", { type: "image/jpeg" }));
-      const { path } = await upload(form);
-      update((current) => ({ ...current, photo: path }));
+      const result = await upload(form);
+      if (!result.ok) {
+        // The action knows which of the three it was — wrong sort of file, too
+        // big, or nothing the fighter can do — and they have different answers.
+        setPhotoError(result.error);
+        return;
+      }
+      update((current) => ({ ...current, photo: result.path }));
     } catch {
-      setPhotoError("That photo wouldn't upload. Try a different one, or come back to it later.");
+      setPhotoError(ACTION_ERRORS.photoNotStored);
     }
   };
 
@@ -336,7 +358,20 @@ export function Questionnaire({
     if (saveTimer.current) clearTimeout(saveTimer.current);
     pending.current = draft;
     await flush();
-    await submit(draft);
+    setSubmitError(null);
+
+    let result: ActionResult;
+    try {
+      result = await submit(draft);
+    } catch {
+      result = { ok: false, error: ACTION_ERRORS.autosaveOffline };
+    }
+    if (!result.ok) {
+      // Not marked finished, because it is not: the form stays open with
+      // everything in it rather than showing a fighter a card they are not on.
+      setSubmitError(result.error);
+      return;
+    }
     setSubmitted(true);
   };
 
@@ -459,7 +494,11 @@ export function Questionnaire({
             video to post. It saves as you go.
           </p>
           {mode === "live" ? (
+            // Announced rather than only shown: on a phone this line is the only
+            // thing that says whether a car park's worth of typing has landed.
             <p
+              role="status"
+              aria-live="polite"
               className={cx(
                 "mt-3 font-mono text-[0.55rem] uppercase tracking-[0.16em]",
                 saveState === "failed" ? "text-red-corner-hot" : "text-ash-dim",
@@ -470,7 +509,7 @@ export function Questionnaire({
                 : saveState === "saved"
                   ? "Saved"
                   : saveState === "failed"
-                    ? "Couldn't save that — check your signal, it'll try again as you type"
+                    ? (saveError ?? ACTION_ERRORS.autosaveOffline)
                     : "Saves as you go"}
             </p>
           ) : null}
@@ -807,13 +846,25 @@ export function Questionnaire({
               </p>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => void onSubmit()}
-              className="bg-chalk text-ink display hover:bg-gold w-full py-4 text-xl transition-colors"
-            >
-              Put me on the card
-            </button>
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => void onSubmit()}
+                className="bg-chalk text-ink display hover:bg-gold w-full py-4 text-xl transition-colors"
+              >
+                Put me on the card
+              </button>
+              <p
+                role="status"
+                aria-live="polite"
+                className={cx(
+                  "text-red-corner-hot text-center text-xs leading-relaxed",
+                  !submitError && "sr-only",
+                )}
+              >
+                {submitError ?? ""}
+              </p>
+            </div>
           )}
 
           {mode === "preview" ? (

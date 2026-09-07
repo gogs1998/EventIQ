@@ -136,3 +136,116 @@ export function sponsorTapNote(sponsors: number): string {
   if (sponsors <= 0) return "No sponsor has been tapped yet";
   return `Across ${sponsors} ${sponsors === 1 ? "sponsor" : "sponsors"}`;
 }
+
+/* -------------------------------------------------------------------------
+ * What is said when something goes wrong
+ *
+ * Here for the same two reasons as the zero-bout strings above: a sentence a
+ * promoter only sees on a bad afternoon is a sentence nobody reads by eye, and
+ * the tone rules are exactly the ones easiest to drop under pressure. An error
+ * message is where "never shame a promoter or a fighter" is hardest to keep and
+ * most worth keeping — a fighter whose photograph would not upload in a car park
+ * needs to know what to do next, not whose fault it was.
+ *
+ * The rules the test holds these to: no gendered pronouns, nothing that assigns
+ * blame, no unverifiable promise about how long anything will take, and never
+ * the underlying failure. "D1_ERROR: database is locked" goes to the log; the
+ * screen gets a sentence.
+ * ---------------------------------------------------------------------- */
+
+/** The route-level error boundary: the layout survived, this page did not. */
+export const PAGE_ERROR = {
+  heading: "This page did not load",
+  body:
+    "Something went wrong at our end. Trying again will often be enough, and anything " +
+    "already saved is still there.",
+  retry: "Try again",
+} as const;
+
+/**
+ * The last boundary, which replaces the whole document. Deliberately shorter:
+ * the layout, the fonts and the stylesheet are the things that have gone.
+ */
+export const APP_ERROR = {
+  heading: "EventIQ could not load this",
+  body: "Something went wrong at our end. Reloading the page will often be enough.",
+  retry: "Reload the page",
+} as const;
+
+/** Any address with nothing behind it, on our own side of the product. */
+export const NOT_FOUND = {
+  heading: "There is nothing at this address",
+  body:
+    "The link may have changed since it was written down, or the page may have moved. " +
+    "Everything else is where it was.",
+  action: "Back to the start",
+} as const;
+
+/**
+ * A spectator holding a link to a programme that will not open. It carries no
+ * EventIQ branding, the same as every other page under `/e` — see lib/masthead.ts
+ * — and it must not imply the promoter has done something wrong, because the
+ * commonest reason by far is a show that is simply not published yet.
+ */
+export const PROGRAMME_NOT_FOUND = {
+  heading: "This programme is not here",
+  body:
+    "The show may not be published yet, or its address may have changed since the code " +
+    "was printed. Whoever handed out the link will have the current one.",
+} as const;
+
+/** The promoter's side: a show that is not theirs and one that never existed read alike. */
+export const SHOW_NOT_FOUND = {
+  heading: "That show is not on this account",
+  body:
+    "It may have been taken down, or the address may belong to another promoter. Your " +
+    "shows are all listed on the dashboard.",
+  action: "Back to your shows",
+} as const;
+
+/**
+ * What a server action answers with when it refuses or when it breaks.
+ *
+ * Every one of these is shown next to the control the promoter or the fighter
+ * just used, so they are written to be read there rather than as a page of their
+ * own: what happened, and what to do about it.
+ */
+export const ACTION_ERRORS = {
+  /** A session that ran out mid-afternoon, which is the commonest of these by far. */
+  signedOut: "You have been signed out. Sign in again and this change will go through.",
+  /** A show that is not this promoter's and one that does not exist answer alike. */
+  noSuchShow: "That show is not available on this account.",
+  notOnThisCard: "That fighter is not on this card.",
+  /** A sponsor id from another account: it exists, and it is still not theirs to place. */
+  noSuchSponsor: "That sponsor is not on this account.",
+
+  notSaved: "That did not save. Try again in a moment.",
+  showNotCreated: "The show could not be created. Try again in a moment.",
+
+  showNeedsNameAndDate: "A show needs a name and a date.",
+  /** The empty-slug rule, said as the reason it exists rather than as a refusal. */
+  showNameNeedsCharacters:
+    "A show name needs at least one letter or number in it, because the address for the " +
+    "programme is made from the name.",
+  addressTaken: "There is already a show at that address. Change the name slightly.",
+
+  boutNeedsBothCorners: "A bout needs a name in both corners.",
+  fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
+  sponsorNeedsName: "A sponsor needs a name.",
+
+  /** The fighter's side. Their typing stays in the boxes whatever these say. */
+  unknownInvite: "This link is no longer active. Ask the promoter for a new one.",
+  /**
+   * A save that never reached the action at all, which on a phone at a venue is
+   * most of them. It has to say the typing is safe, because the fighter can see
+   * it in the boxes and needs to know it is not about to go.
+   */
+  autosaveOffline: "Couldn’t save that — check your signal, it will try again as you type.",
+  profileNotSaved:
+    "That did not save. Your answers are still on the page, and it will try again as you type.",
+  profileNotSubmitted:
+    "That did not go through. Your answers are still here — try again in a moment.",
+  photoNotStored: "That photo would not upload. Try a different one, or come back to it later.",
+  photoNotAPhotograph: "That file is not a JPEG, PNG or WebP photograph.",
+  photoTooLarge: "That photo is too large to send. Try one from the camera roll.",
+} as const;

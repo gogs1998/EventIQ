@@ -3,11 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq, max } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
+import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { newId, newToken } from "@/lib/auth";
-import { GYM_TO_CONFIRM } from "@/lib/copy";
+import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
-import { requirePromoter } from "@/lib/session";
+import { currentPromoter, type Promoter } from "@/lib/session";
+import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
 
 /**
@@ -17,17 +20,39 @@ import { parseWeightKg } from "@/lib/tape";
  * a name, not a capability, so nothing here trusts it: a promoter who guesses
  * another promoter's slug gets the same answer as one who guesses a slug that
  * does not exist.
+ *
+ * Everything a caller can reasonably reach comes back as an `ActionResult`
+ * rather than being thrown. These used to throw for an expired session, for
+ * another promoter's show and for a D1 that would not answer, and every caller
+ * `void`ed the promise — so the failure was a control that greyed out, came
+ * back, and changed nothing. `attempt` wraps each body: a refusal is a sentence
+ * from lib/copy.ts, a fault is logged with its stack and shown as one.
+ * `redirect()` still throws, because it is control flow the framework needs, so
+ * it stays outside the wrapper.
  */
 
-async function ownedEvent(db: Db, slug: string) {
-  const promoter = await requirePromoter();
+type Owned = { promoter: Promoter; event: typeof schema.events.$inferSelect };
+
+/**
+ * The show and the promoter who owns it, or the sentence to show instead.
+ *
+ * A show that is not this promoter's and a show that does not exist still answer
+ * identically, so guessing a slug tells you nothing. It reads the session rather
+ * than calling `requirePromoter`, because "signed out" is a thing a promoter can
+ * act on and was previously indistinguishable from a crash.
+ */
+async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
+  const promoter = await currentPromoter();
+  if (!promoter) return refuse(ACTION_ERRORS.signedOut);
+
   const [event] = await db
     .select()
     .from(schema.events)
     .where(and(eq(schema.events.slug, slug), eq(schema.events.promoterId, promoter.id)))
     .limit(1);
-  if (!event) throw new Error("No such show");
-  return { promoter, event };
+  if (!event) return refuse(ACTION_ERRORS.noSuchShow);
+
+  return done({ promoter, event });
 }
 
 function text(form: FormData, key: string, max = 200): string {
@@ -41,89 +66,120 @@ function number(form: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A slug a promoter can read off a printed card and type into a phone. */
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
 // ------------------------------------------------------------------- events
 
-export async function createEvent(_state: string | null, form: FormData): Promise<string | null> {
-  const promoter = await requirePromoter();
-  const name = text(form, "name", 80);
-  const date = text(form, "date", 10);
-  if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "A show needs a name and a date.";
+export async function createEvent(
+  _state: ActionResult | null,
+  form: FormData,
+): Promise<ActionResult> {
+  const created = await attempt(
+    { event: "createEvent", route: "/promoter" },
+    ACTION_ERRORS.showNotCreated,
+    async (): Promise<ActionResult<{ slug: string }>> => {
+      const promoter = await currentPromoter();
+      if (!promoter) return refuse(ACTION_ERRORS.signedOut);
 
-  const db = await getDb();
-  const slug = slugify(name);
-  const [clash] = await db
-    .select({ id: schema.events.id })
-    .from(schema.events)
-    .where(eq(schema.events.slug, slug))
-    .limit(1);
-  if (clash) return "There is already a show at that address. Change the name slightly.";
+      const name = text(form, "name", 80);
+      const date = text(form, "date", 10);
+      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return refuse(ACTION_ERRORS.showNeedsNameAndDate);
+      }
+      // A name made only of punctuation slugifies to nothing, and the row that
+      // used to be written from it was a programme addressed at `/e/`: unreachable,
+      // and the second one named that way collided with the first.
+      if (!hasSlug(name)) return refuse(ACTION_ERRORS.showNameNeedsCharacters);
 
-  const now = Date.now();
-  await db.insert(schema.events).values({
-    id: newId("ev"),
-    promoterId: promoter.id,
-    slug,
-    name,
-    date,
-    doorsTime: text(form, "doorsTime", 8) || "18:00",
-    firstBellTime: text(form, "firstBellTime", 8) || "19:00",
-    venue: text(form, "venue", 80) || "Venue to confirm",
-    city: text(form, "city", 60) || "",
-    sanctioning: text(form, "sanctioning", 80) || null,
-    // Unpublished, always. A show is not on the tables the moment it is typed
-    // in, and a half-entered card appearing at a public address would be worse
-    // than no card at all.
-    published: false,
-    createdAt: now,
-    updatedAt: now,
-  });
+      const db = await getDb();
+      const slug = slugify(name);
+      const [clash] = await db
+        .select({ id: schema.events.id })
+        .from(schema.events)
+        .where(eq(schema.events.slug, slug))
+        .limit(1);
+      if (clash) return refuse(ACTION_ERRORS.addressTaken);
 
-  redirect(`/promoter/e/${slug}`);
+      const now = Date.now();
+      await db.insert(schema.events).values({
+        id: newId("ev"),
+        promoterId: promoter.id,
+        slug,
+        name,
+        date,
+        doorsTime: text(form, "doorsTime", 8) || "18:00",
+        firstBellTime: text(form, "firstBellTime", 8) || "19:00",
+        venue: text(form, "venue", 80) || "Venue to confirm",
+        city: text(form, "city", 60) || "",
+        sanctioning: text(form, "sanctioning", 80) || null,
+        // Unpublished, always. A show is not on the tables the moment it is typed
+        // in, and a half-entered card appearing at a public address would be worse
+        // than no card at all.
+        published: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return done({ slug });
+    },
+  );
+
+  if (!created.ok) return created;
+  redirect(`/promoter/e/${created.slug}`);
 }
 
-export async function updateEvent(slug: string, form: FormData): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
+export async function updateEvent(slug: string, form: FormData): Promise<ActionResult> {
+  return attempt(
+    { event: "updateEvent", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { event } = owned;
 
-  await db
-    .update(schema.events)
-    .set({
-      name: text(form, "name", 80) || event.name,
-      tagline: text(form, "tagline", 120) || null,
-      date: /^\d{4}-\d{2}-\d{2}$/.test(text(form, "date", 10)) ? text(form, "date", 10) : event.date,
-      doorsTime: text(form, "doorsTime", 8) || event.doorsTime,
-      firstBellTime: text(form, "firstBellTime", 8) || event.firstBellTime,
-      venue: text(form, "venue", 80) || event.venue,
-      city: text(form, "city", 60) || event.city,
-      sanctioning: text(form, "sanctioning", 80) || null,
-      updatedAt: Date.now(),
-    })
-    .where(eq(schema.events.id, event.id));
+      await db
+        .update(schema.events)
+        .set({
+          name: text(form, "name", 80) || event.name,
+          tagline: text(form, "tagline", 120) || null,
+          date: /^\d{4}-\d{2}-\d{2}$/.test(text(form, "date", 10))
+            ? text(form, "date", 10)
+            : event.date,
+          doorsTime: text(form, "doorsTime", 8) || event.doorsTime,
+          firstBellTime: text(form, "firstBellTime", 8) || event.firstBellTime,
+          venue: text(form, "venue", 80) || event.venue,
+          city: text(form, "city", 60) || event.city,
+          sanctioning: text(form, "sanctioning", 80) || null,
+          updatedAt: Date.now(),
+        })
+        .where(eq(schema.events.id, event.id));
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
-export async function setPublished(slug: string, published: boolean): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
-  await db
-    .update(schema.events)
-    .set({ published, updatedAt: Date.now() })
-    .where(eq(schema.events.id, event.id));
+export async function setPublished(slug: string, published: boolean): Promise<ActionResult> {
+  return attempt(
+    { event: "setPublished", route: `/promoter/e/${slug}` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
-  revalidatePath("/");
+      await db
+        .update(schema.events)
+        .set({ published, updatedAt: Date.now() })
+        .where(eq(schema.events.id, owned.event.id));
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      revalidatePath("/");
+      return DONE;
+    },
+  );
 }
 
 // -------------------------------------------------------------------- bouts
@@ -135,73 +191,106 @@ export async function setPublished(slug: string, published: boolean): Promise<vo
  * reading a matchmaking sheet with both names on the same line. Splitting this
  * into "create fighter, create fighter, create bout" would be three screens for
  * something that is one line of the sheet.
+ *
+ * All five rows go in as one `db.batch`, which D1 runs as a single transaction.
+ * As five separate statements, a failure partway through left a fighter with no
+ * bout and no invite: invisible on every screen, because everything is derived
+ * from the running order, and still in the table when somebody next counted.
+ * Same fix and same reasoning as `saveDraft` in the fighter's actions (bug 24).
  */
-export async function addBout(slug: string, form: FormData): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
+export async function addBout(slug: string, form: FormData): Promise<ActionResult> {
+  return attempt(
+    { event: "addBout", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { event } = owned;
 
-  const redName = text(form, "redName", 60);
-  const blueName = text(form, "blueName", 60);
-  if (!redName || !blueName) return;
+      const redName = text(form, "redName", 60);
+      const blueName = text(form, "blueName", 60);
+      if (!redName || !blueName) return refuse(ACTION_ERRORS.boutNeedsBothCorners);
 
-  const [{ highest }] = await db
-    .select({ highest: max(schema.bouts.number) })
-    .from(schema.bouts)
-    .where(eq(schema.bouts.eventId, event.id));
+      const [{ highest }] = await db
+        .select({ highest: max(schema.bouts.number) })
+        .from(schema.bouts)
+        .where(eq(schema.bouts.eventId, event.id));
 
-  const now = Date.now();
-  const fighterIds: string[] = [];
-  for (const [name, gymKey] of [
-    [redName, "redGym"],
-    [blueName, "blueGym"],
-  ] as const) {
-    const id = await uniqueFighterId(db, name);
-    fighterIds.push(id);
-    await db.insert(schema.fighters).values({
-      id,
-      name,
-      gym: text(form, gymKey, 60) || GYM_TO_CONFIRM,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(schema.invites).values({
-      id: newId("in"),
-      token: newToken(),
-      eventId: event.id,
-      fighterId: id,
-      createdAt: now,
-    });
-  }
+      const now = Date.now();
+      const fighterIds: string[] = [];
+      const writes: BatchItem<"sqlite">[] = [];
 
-  await db.insert(schema.bouts).values({
-    id: newId("bo"),
-    eventId: event.id,
-    number: (highest ?? 0) + 1,
-    discipline: text(form, "discipline", 20) || "MMA",
-    // Weights are the one number here that is not whole: catchweights on these
-    // cards are agreed at the half kilo, so this is not rounded like the rounds.
-    weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
-    classLabel: text(form, "classLabel", 30) || null,
-    womens: form.get("womens") === "on",
-    rounds: number(form, "rounds") ?? 3,
-    roundMinutes: number(form, "roundMinutes") ?? 3,
-    redId: fighterIds[0],
-    blueId: fighterIds[1],
-  });
+      for (const [name, gymKey] of [
+        [redName, "redGym"],
+        [blueName, "blueGym"],
+      ] as const) {
+        // Chosen before the batch rather than inside it: an id has to be unique
+        // against rows that already exist, and a batch is a list of writes with
+        // nothing read back between them.
+        const id = await uniqueFighterId(db, name, fighterIds);
+        fighterIds.push(id);
+        writes.push(
+          db.insert(schema.fighters).values({
+            id,
+            name,
+            gym: text(form, gymKey, 60) || GYM_TO_CONFIRM,
+            createdAt: now,
+            updatedAt: now,
+          }),
+          db.insert(schema.invites).values({
+            id: newId("in"),
+            token: newToken(),
+            eventId: event.id,
+            fighterId: id,
+            createdAt: now,
+          }),
+        );
+      }
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
+      writes.push(
+        db.insert(schema.bouts).values({
+          id: newId("bo"),
+          eventId: event.id,
+          number: (highest ?? 0) + 1,
+          discipline: text(form, "discipline", 20) || "MMA",
+          // Weights are the one number here that is not whole: catchweights on
+          // these cards are agreed at the half kilo, so this is not rounded like
+          // the rounds.
+          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          classLabel: text(form, "classLabel", 30) || null,
+          womens: form.get("womens") === "on",
+          rounds: number(form, "rounds") ?? 3,
+          roundMinutes: number(form, "roundMinutes") ?? 3,
+          redId: fighterIds[0],
+          blueId: fighterIds[1],
+        }),
+      );
+
+      await db.batch(writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
 /**
  * Fighters are shared across shows, so ids have to be unique globally rather
  * than within one card. A readable id keeps the profile URL something a fighter
  * will actually put in an Instagram bio, which is the whole point of it.
+ *
+ * `taken` carries the ids this same call has already settled on but not yet
+ * written. Both corners go in one batch now, so the database cannot report the
+ * first one while the second is being chosen — which is the card where two
+ * namesakes are matched against each other.
  */
-async function uniqueFighterId(db: Db, name: string): Promise<string> {
+async function uniqueFighterId(db: Db, name: string, taken: string[] = []): Promise<string> {
   const base = slugify(name) || "fighter";
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const id = attempt === 0 ? base : `${base}-${attempt + 1}`;
+  for (let n = 0; n < 20; n += 1) {
+    const id = n === 0 ? base : `${base}-${n + 1}`;
+    if (taken.includes(id)) continue;
     const [clash] = await db
       .select({ id: schema.fighters.id })
       .from(schema.fighters)
@@ -217,43 +306,56 @@ async function uniqueFighterId(db: Db, name: string): Promise<string> {
  * id. The number is what a promoter is looking at on the sheet, it is unique per
  * event, and it keeps internal ids out of the markup.
  */
-export async function updateBout(slug: string, boutNumber: number, form: FormData): Promise<void> {
-  const db = await getDb();
-  const { promoter, event } = await ownedEvent(db, slug);
+export async function updateBout(
+  slug: string,
+  boutNumber: number,
+  form: FormData,
+): Promise<ActionResult> {
+  return attempt(
+    { event: "updateBout", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { promoter, event } = owned;
 
-  const sponsorId = text(form, "sponsorId", 60);
-  const billing = text(form, "billing", 10);
+      const sponsorId = text(form, "sponsorId", 60);
+      const billing = text(form, "billing", 10);
 
-  // The show is checked to be this promoter's and the sponsor was not: an id
-  // typed into the form put another promoter's sponsor on the bout, and the
-  // programme sets a sponsor's name in its own typography, so it would have
-  // been published under their client's card. Sponsors are per promoter.
-  if (sponsorId) {
-    const [owned] = await db
-      .select({ id: schema.sponsors.id })
-      .from(schema.sponsors)
-      .where(and(eq(schema.sponsors.id, sponsorId), eq(schema.sponsors.promoterId, promoter.id)))
-      .limit(1);
-    if (!owned) throw new Error("No such sponsor");
-  }
+      // The show is checked to be this promoter's and the sponsor was not: an id
+      // typed into the form put another promoter's sponsor on the bout, and the
+      // programme sets a sponsor's name in its own typography, so it would have
+      // been published under their client's card. Sponsors are per promoter.
+      if (sponsorId) {
+        const [theirs] = await db
+          .select({ id: schema.sponsors.id })
+          .from(schema.sponsors)
+          .where(and(eq(schema.sponsors.id, sponsorId), eq(schema.sponsors.promoterId, promoter.id)))
+          .limit(1);
+        if (!theirs) return refuse(ACTION_ERRORS.noSuchSponsor);
+      }
 
-  await db
-    .update(schema.bouts)
-    .set({
-      discipline: text(form, "discipline", 20) || "MMA",
-      weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
-      classLabel: text(form, "classLabel", 30) || null,
-      titleLabel: text(form, "titleLabel", 60) || null,
-      womens: form.get("womens") === "on",
-      rounds: number(form, "rounds") ?? 3,
-      roundMinutes: number(form, "roundMinutes") ?? 3,
-      billing: billing === "MAIN" || billing === "CO_MAIN" ? billing : null,
-      sponsorId: sponsorId || null,
-    })
-    .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+      await db
+        .update(schema.bouts)
+        .set({
+          discipline: text(form, "discipline", 20) || "MMA",
+          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          classLabel: text(form, "classLabel", 30) || null,
+          titleLabel: text(form, "titleLabel", 60) || null,
+          womens: form.get("womens") === "on",
+          rounds: number(form, "rounds") ?? 3,
+          roundMinutes: number(form, "roundMinutes") ?? 3,
+          billing: billing === "MAIN" || billing === "CO_MAIN" ? billing : null,
+          sponsorId: sponsorId || null,
+        })
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
 /**
@@ -266,80 +368,98 @@ export async function updateBout(slug: string, boutNumber: number, form: FormDat
  * put the wrong number on the screen mid-show. A published card skips the
  * number instead, which is exactly what a paper programme does.
  */
-export async function removeBout(slug: string, boutNumber: number): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
+export async function removeBout(slug: string, boutNumber: number): Promise<ActionResult> {
+  return attempt(
+    { event: "removeBout", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { event } = owned;
 
-  await db
-    .delete(schema.bouts)
-    .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+      await db
+        .delete(schema.bouts)
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
 
-  if (!event.published) {
-    const remaining = await db
-      .select({ id: schema.bouts.id, number: schema.bouts.number })
-      .from(schema.bouts)
-      .where(eq(schema.bouts.eventId, event.id))
-      .orderBy(schema.bouts.number);
+      if (!event.published) {
+        const remaining = await db
+          .select({ id: schema.bouts.id, number: schema.bouts.number })
+          .from(schema.bouts)
+          .where(eq(schema.bouts.eventId, event.id))
+          .orderBy(schema.bouts.number);
 
-    // Shifted downwards one at a time from the bottom, because (event, number)
-    // is unique and a bulk update would collide with itself.
-    for (const [index, bout] of remaining.entries()) {
-      if (bout.number !== index + 1) {
-        await db
-          .update(schema.bouts)
-          .set({ number: index + 1 })
-          .where(eq(schema.bouts.id, bout.id));
+        // Shifted downwards one at a time from the bottom, because (event, number)
+        // is unique and a bulk update would collide with itself.
+        for (const [index, bout] of remaining.entries()) {
+          if (bout.number !== index + 1) {
+            await db
+              .update(schema.bouts)
+              .set({ number: index + 1 })
+              .where(eq(schema.bouts.id, bout.id));
+          }
+        }
       }
-    }
-  }
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
 /**
  * Name and gym come off the promoter's own entry form, so they can fix them.
  *
  * A name is the one field on a fighter that nothing can stand in for. An empty
- * gym becomes the placeholder in lib/copy.ts, which every derivation reads as
- * silence rather than as a gym, a missing record is simply absent, but a blank
+ * gym becomes "Gym to confirm", a missing record is simply absent, but a blank
  * name renders as a gap on the public programme and reads out as silence in the
- * video, so it is refused rather than saved. Returns the message to show, or null
- * where the save went through.
+ * video, so it is refused rather than saved.
  */
 export async function updateFighter(
   slug: string,
   fighterId: string,
   form: FormData,
-): Promise<string | null> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
-  await assertOnCard(db, event.id, fighterId);
+): Promise<ActionResult> {
+  return attempt(
+    { event: "updateFighter", route: `/promoter/e/${slug}/card`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
 
-  const name = text(form, "name", 60);
-  if (!name) return "A fighter needs a name. It carries their bout on the card and in the video.";
+      if (!(await isOnCard(db, owned.event.id, fighterId))) {
+        return refuse(ACTION_ERRORS.notOnThisCard);
+      }
 
-  await db
-    .update(schema.fighters)
-    .set({
-      name,
-      gym: text(form, "gym", 60) || GYM_TO_CONFIRM,
-      updatedAt: Date.now(),
-    })
-    .where(eq(schema.fighters.id, fighterId));
+      const name = text(form, "name", 60);
+      if (!name) return refuse(ACTION_ERRORS.fighterNeedsName);
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
-  return null;
+      await db
+        .update(schema.fighters)
+        .set({
+          name,
+          gym: text(form, "gym", 60) || GYM_TO_CONFIRM,
+          updatedAt: Date.now(),
+        })
+        .where(eq(schema.fighters.id, fighterId));
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
-async function assertOnCard(db: Db, eventId: string, fighterId: string): Promise<void> {
+/** A fighter is on a card if there is an invite for them on it, and not otherwise. */
+async function isOnCard(db: Db, eventId: string, fighterId: string): Promise<boolean> {
   const [invite] = await db
     .select({ id: schema.invites.id })
     .from(schema.invites)
     .where(and(eq(schema.invites.eventId, eventId), eq(schema.invites.fighterId, fighterId)))
     .limit(1);
-  if (!invite) throw new Error("Not on this card");
+  return !!invite;
 }
 
 // ------------------------------------------------------------------ invites
@@ -352,63 +472,94 @@ async function assertOnCard(db: Db, eventId: string, fighterId: string): Promise
  * mixed in with them. So this is a button the promoter presses rather than
  * something inferred from the link having been copied.
  */
-export async function markInviteSent(slug: string, fighterId: string): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
-  await db
-    .update(schema.invites)
-    .set({ sentAt: Date.now() })
-    .where(and(eq(schema.invites.eventId, event.id), eq(schema.invites.fighterId, fighterId)));
+export async function markInviteSent(slug: string, fighterId: string): Promise<ActionResult> {
+  return attempt(
+    { event: "markInviteSent", route: `/promoter/e/${slug}`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
 
-  revalidatePath(`/promoter/e/${slug}`);
+      await db
+        .update(schema.invites)
+        .set({ sentAt: Date.now() })
+        .where(
+          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
+        );
+
+      revalidatePath(`/promoter/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
 /**
  * A new token, invalidating the old one. For a link that went to the wrong
  * number, which on an amateur card happens more than once a show.
  */
-export async function regenerateInvite(slug: string, fighterId: string): Promise<void> {
-  const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
-  await db
-    .update(schema.invites)
-    .set({ token: newToken(), sentAt: null, lastOpenedAt: null })
-    .where(and(eq(schema.invites.eventId, event.id), eq(schema.invites.fighterId, fighterId)));
+export async function regenerateInvite(slug: string, fighterId: string): Promise<ActionResult> {
+  return attempt(
+    { event: "regenerateInvite", route: `/promoter/e/${slug}`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
 
-  revalidatePath(`/promoter/e/${slug}`);
+      await db
+        .update(schema.invites)
+        .set({ token: newToken(), sentAt: null, lastOpenedAt: null })
+        .where(
+          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
+        );
+
+      revalidatePath(`/promoter/e/${slug}`);
+      return DONE;
+    },
+  );
 }
 
 // ----------------------------------------------------------------- sponsors
 
-export async function addSponsor(slug: string, form: FormData): Promise<void> {
-  const db = await getDb();
-  const { promoter, event } = await ownedEvent(db, slug);
+export async function addSponsor(slug: string, form: FormData): Promise<ActionResult> {
+  return attempt(
+    { event: "addSponsor", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { promoter, event } = owned;
 
-  const name = text(form, "name", 60);
-  if (!name) return;
+      const name = text(form, "name", 60);
+      if (!name) return refuse(ACTION_ERRORS.sponsorNeedsName);
 
-  const id = newId("sp");
-  await db.insert(schema.sponsors).values({
-    id,
-    promoterId: promoter.id,
-    name,
-    qualifier: text(form, "qualifier", 60) || null,
-    url: text(form, "url", 200) || null,
-    createdAt: Date.now(),
-  });
+      const id = newId("sp");
+      await db.insert(schema.sponsors).values({
+        id,
+        promoterId: promoter.id,
+        name,
+        qualifier: text(form, "qualifier", 60) || null,
+        url: text(form, "url", 200) || null,
+        createdAt: Date.now(),
+      });
 
-  if (form.get("showSponsor") === "on") {
-    const existing = await db
-      .select({ position: schema.eventSponsors.position })
-      .from(schema.eventSponsors)
-      .where(eq(schema.eventSponsors.eventId, event.id));
-    await db.insert(schema.eventSponsors).values({
-      eventId: event.id,
-      sponsorId: id,
-      position: existing.length,
-    });
-  }
+      if (form.get("showSponsor") === "on") {
+        const existing = await db
+          .select({ position: schema.eventSponsors.position })
+          .from(schema.eventSponsors)
+          .where(eq(schema.eventSponsors.eventId, event.id));
+        await db.insert(schema.eventSponsors).values({
+          eventId: event.id,
+          sponsorId: id,
+          position: existing.length,
+        });
+      }
 
-  revalidatePath(`/promoter/e/${slug}`);
-  revalidatePath(`/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
 }

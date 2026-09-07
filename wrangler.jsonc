@@ -72,7 +72,26 @@
       }
     }
   ],
+  // Workers Logs. Nothing phoned home before this and a 500 on show night stayed
+  // a 500 until somebody signed in and found it — HANDOVER section 20, and bug
+  // 16, which was exactly that for a fortnight.
+  //
+  // head_sampling_rate is 1 rather than the default, because the traffic here is
+  // one promoter and a few hundred spectators for ninety minutes: sampling saves
+  // nothing worth having and loses the one request that went wrong. Revisit it
+  // if a show ever puts real load through this, not before.
+  //
+  // logs.enabled turns on the console output the app writes through lib/log.ts,
+  // and invocation_logs keeps the one line per request that says which route and
+  // what status, which is what makes a structured error joinable to the request
+  // it came from. Section 12a has how to read them.
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
   }
 }

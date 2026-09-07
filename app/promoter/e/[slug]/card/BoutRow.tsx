@@ -8,6 +8,8 @@ import {
   Field,
   inputClass,
 } from "@/app/promoter/e/[slug]/card/fields";
+import { ActionStatus } from "@/components/ActionStatus";
+import type { ActionResult } from "@/lib/action-result";
 import { boutBillingLabel, boutClassLine } from "@/lib/tape";
 import type { Bout, Fighter, Sponsor } from "@/lib/types";
 
@@ -33,6 +35,11 @@ export function BoutRow({
 }) {
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
+  // Two states rather than one, because the bout's details and taking the bout
+  // off the card are two decisions and a message under the wrong one reads as a
+  // refusal of something the promoter did not ask for.
+  const [boutError, setBoutError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   return (
     <div className="border-hairline border">
@@ -55,7 +62,17 @@ export function BoutRow({
       {open ? (
         <div className="border-hairline grid gap-6 border-t p-4">
           <form
-            action={(form) => start(() => void updateBout(slug, bout.number, form))}
+            // Own submit rather than the `action` prop, so a refusal leaves the
+            // promoter's edit in the boxes instead of React resetting the form
+            // back to the stored values. See AddBoutForm.
+            onSubmit={(submit) => {
+              submit.preventDefault();
+              const form = new FormData(submit.currentTarget);
+              start(async () => {
+                const result = await updateBout(slug, bout.number, form);
+                setBoutError(result.ok ? null : result.error);
+              });
+            }}
             className="grid gap-4"
           >
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -150,6 +167,7 @@ export function BoutRow({
             >
               Save the bout
             </button>
+            <ActionStatus error={boutError} />
           </form>
 
           <div className="border-hairline grid gap-4 border-t pt-4 sm:grid-cols-2">
@@ -169,19 +187,25 @@ export function BoutRow({
             ))}
           </div>
 
-          <div className="border-hairline border-t pt-4">
+          <div className="border-hairline grid gap-1.5 border-t pt-4">
             <button
               type="button"
               disabled={pending}
               onClick={() => {
                 if (confirm(`Take ${red.name} v ${blue.name} off the card?`)) {
-                  start(() => void removeBout(slug, bout.number));
+                  start(async () => {
+                    const result = await removeBout(slug, bout.number);
+                    // A bout that is still on the card after this looks exactly
+                    // like one that came off, until the page is reloaded.
+                    setRemoveError(result.ok ? null : result.error);
+                  });
                 }
               }}
-              className="border-red-corner/50 text-red-corner-hot hover:border-red-corner label border px-3 py-1.5 transition-colors disabled:opacity-50"
+              className="border-red-corner/50 text-red-corner-hot hover:border-red-corner label justify-self-start border px-3 py-1.5 transition-colors disabled:opacity-50"
             >
               Remove this bout
             </button>
+            <ActionStatus error={removeError} />
           </div>
         </div>
       ) : null}
@@ -207,13 +231,24 @@ function CornerForm({
   label: string;
   accent: string;
 }) {
-  const [error, submit, pending] = useActionState(
-    (_state: string | null, form: FormData) => updateFighter(slug, fighter.id, form),
+  const [result, submit, pending] = useActionState(
+    (_state: ActionResult | null, form: FormData) => updateFighter(slug, fighter.id, form),
     null,
   );
+  const [, start] = useTransition();
 
   return (
-    <form action={submit} className={`grid gap-3 border-l-2 pl-3 ${accent}`}>
+    <form
+      // Run from a transition rather than through the `action` prop, so React's
+      // automatic reset does not put the stored name back over the promoter's
+      // correction the moment the save is refused. See AddBoutForm.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        start(() => submit(form));
+      }}
+      className={`grid gap-3 border-l-2 pl-3 ${accent}`}
+    >
       <span className="label">{label}</span>
       <Field label="Name">
         <input name="name" className={inputClass} defaultValue={fighter.name} />
@@ -228,7 +263,7 @@ function CornerForm({
       >
         Save
       </button>
-      {error ? <p className="text-red-corner-hot text-xs leading-relaxed">{error}</p> : null}
+      <ActionStatus error={result && !result.ok ? result.error : null} />
       <p className="text-ash-dim text-[0.65rem] leading-relaxed">
         Everything else on this fighter comes from their own form, so it is not editable
         here.
