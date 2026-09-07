@@ -469,6 +469,28 @@ It fingerprints the inputs to each bout and stores the hash with the job, so `--
 
 **Cloudflare Browser Rendering does not solve this.** It can drive a browser; it cannot run ffmpeg. Do not go round that loop again.
 
+**Cloudflare Containers is the likely answer**, and it is a different product. Browser Rendering remains the wrong tool; Containers run arbitrary Docker images, including native ffmpeg binaries. They have been generally available since April 2026, and custom instance types opened to all users in January 2026. One container holding Chrome, ffmpeg and the ONNX background-removal model would put the whole of [scripts/render-tape.mjs](scripts/render-tape.mjs) and [scripts/cutouts.mjs](scripts/cutouts.mjs) on Cloudflare and take the operator's laptop out of the pipeline.
+
+| Instance type | vCPU | Memory | Disk |
+| --- | --- | --- | --- |
+| `lite` | 1/16 | 256 MiB | 2 GB |
+| `basic` | 1/4 | 1 GiB | 4 GB |
+| `standard-1` | 1/2 | 4 GiB | 8 GB |
+| `standard-2` | 1 | 6 GiB | 12 GB |
+| `standard-3` | 2 | 8 GiB | 16 GB |
+| `standard-4` | 4 | 12 GiB | 20 GB |
+
+Custom types have a floor of 1 vCPU and 3 GiB of memory per vCPU, and a ceiling of 4 vCPU / 12 GiB / 20 GB of disk — the same envelope as `standard-4`, which is ample for Chrome at 1080x1920 plus ffmpeg.
+
+It is not a config change. It is a Dockerfile, an image built as part of the deploy, and a queue or Durable Object that invokes it. A few things about that work are load-bearing rather than incidental:
+
+- **Containers need the Workers Paid plan** ($5/month), which includes 375 vCPU-minutes, 25 GiB-hours of memory and 200 GB-hours of disk. CPU is billed on active use only; memory and disk on what you provision. A fifteen-bout card is roughly fifteen minutes of wall time today, so the included allowance plausibly covers a handful of full cards a month. That looks cheap at this volume. The arithmetic wants doing before anyone relies on it; do not treat the included allowance as a measured cost.
+- **A container is not a Worker.** The renderer talks to D1 and R2 through the wrangler CLI, deliberately: anyone who can run it already holds the Cloudflare credentials, and a write endpoint on the public site would be a way in for no gain. A container is a plain HTTP server inside a Linux image. It does not receive D1 and R2 bindings the way a Worker does. The documented path is an outbound handler on the invoking Worker: the container makes a plain HTTP request to a virtual hostname, and the Worker translates it into a binding call. The other option is the D1 and R2 REST APIs with a scoped token. Either way the renderer stops being a script that already holds the keys, and that decision is the substance of the work rather than a detail of it.
+- **The invoking Worker must keep the container alive after it has answered.** The widely reported failure is returning from `fetch` and having Cloudflare terminate the container mid-encode. The Durable Object container API's `monitor()` returns a promise that resolves when the container exits; `ctx.waitUntil(container.monitor())` is what holds the invocation open. For work that will not finish inside a request — a fifteen-bout card will not — the documented pattern is a Queue triggering the container, which reads from R2 and writes back to R2.
+- **This swaps the harness, not the composition.** Section 4 already makes the same point about Remotion. `TaleOfTheTape` stays a pure function of a frame number; Chrome still screenshots `/render/[slug]/[bout]`; ffmpeg still encodes. The thing that moves is where those two binaries run.
+
+Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. Section 19.
+
 The five mp4s committed under `public/renders/` predate the bucket. The seed records them as finished jobs pointing at those static paths, so they still play.
 
 ---
