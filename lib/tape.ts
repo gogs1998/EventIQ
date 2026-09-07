@@ -74,9 +74,19 @@ export function formatRecord(f: Fighter): string | undefined {
   return d > 0 ? `${w}-${l}-${d}` : `${w}-${l}`;
 }
 
+/**
+ * Wins that ended early, never more than there are wins.
+ *
+ * The questionnaire keeps the boxes inside the record now, but rows written
+ * before it did are still in the database and an import can disagree with
+ * itself too. A tape row reading "5" beside a record of 2-0, or a hook saying
+ * five of two wins were finished, is a contradiction the room can see, so the
+ * count is held to the record wherever there is one to hold it to.
+ */
 export function finishCount(f: Fighter): number {
   if (!f.finishes) return 0;
-  return f.finishes.ko + f.finishes.sub;
+  const claimed = Math.max(0, f.finishes.ko) + Math.max(0, f.finishes.sub);
+  return f.record ? Math.min(claimed, f.record.w) : claimed;
 }
 
 /** Share of wins that ended early, 0..1. Undefined when we cannot know. */

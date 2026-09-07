@@ -6,6 +6,7 @@ import {
   buildHooks,
   buildTape,
   completeness,
+  finishCount,
   finishRate,
   firstName,
   formatRecord,
@@ -64,6 +65,39 @@ describe("record formatting", () => {
   it("does not count a winless fighter as undefeated", () => {
     const f: Fighter = { id: "t5", name: "T", gym: "G", record: { w: 0, l: 0, d: 0 } };
     expect(isUndefeated(f)).toBe(false);
+  });
+
+  /**
+   * Rows written before the questionnaire clamped these still exist, so the
+   * tape has to cope with a record and a set of finishes that contradict it
+   * rather than reading out "5 finishes" beside "2-0".
+   */
+  it("never counts more finishes than wins", () => {
+    const f: Fighter = {
+      id: "t7",
+      name: "T",
+      gym: "G",
+      record: { w: 2, l: 0, d: 0 },
+      finishes: { ko: 3, sub: 2 },
+    };
+    expect(finishCount(f)).toBe(2);
+    expect(buildTape(f, f).find((r) => r.key === "finishes")?.red).toBe("2");
+  });
+
+  it("says nothing about a finish hook it cannot stand behind", () => {
+    const hooks = buildHooks(
+      bout(),
+      fighter({ name: "R", record: { w: 2, l: 0, d: 0 }, finishes: { ko: 9, sub: 0 } }),
+      fighter({ name: "B", record: { w: 2, l: 1, d: 0 } }),
+    );
+
+    expect(hooks.join(" ")).not.toContain("9");
+    expect(hooks.join(" ")).toContain("finished 2 of 2 wins");
+  });
+
+  it("counts nothing where the fighter has no record to count against", () => {
+    const f: Fighter = { id: "t8", name: "T", gym: "G", finishes: { ko: 2, sub: 1 } };
+    expect(finishCount(f)).toBe(3);
   });
 
   it("caps finish rate at 1 even if the data disagrees with itself", () => {

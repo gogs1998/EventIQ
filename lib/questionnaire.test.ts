@@ -85,6 +85,33 @@ describe("sanitiseDraft", () => {
     expect(sanitiseDraft({ stance: "Southpaw" }).stance).toBe("Southpaw");
   });
 
+  /**
+   * A fighter cannot have finished more bouts than they have won, and a form
+   * that says so puts "4 of 2 wins" on the tape next to a record that says
+   * otherwise. The boxes are brought back inside the record rather than the
+   * whole entry being refused: a typo should not cost them the rest of the form.
+   */
+  it("keeps finishes inside the wins", () => {
+    const draft = sanitiseDraft({ w: "2", l: "1", d: "0", ko: "3", sub: "2" });
+    expect(draft.ko).toBe("2");
+    expect(draft.sub).toBe("0");
+  });
+
+  it("leaves a sensible pair of finishes alone", () => {
+    const draft = sanitiseDraft({ w: "5", ko: "2", sub: "1" });
+    expect([draft.ko, draft.sub]).toEqual(["2", "1"]);
+  });
+
+  it("leaves an unanswered finish box empty rather than filling it with a nought", () => {
+    const draft = sanitiseDraft({ w: "2", sub: "9" });
+    expect(draft.ko).toBe("");
+    expect(draft.sub).toBe("2");
+  });
+
+  it("has nothing to clamp against where the wins box is empty", () => {
+    expect(sanitiseDraft({ ko: "3" }).ko).toBe("3");
+  });
+
   it("copes with a body that is not a draft at all", () => {
     expect(sanitiseDraft(null).nickname).toBe("");
     expect(sanitiseDraft({ styleTags: "Boxing" }).styleTags).toEqual([]);

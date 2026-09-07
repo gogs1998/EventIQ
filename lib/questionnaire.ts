@@ -173,6 +173,33 @@ export function allowedSponsorIds(requested: string[], allowed: Iterable<string>
 }
 
 /**
+ * Knockouts and submissions cannot outnumber the wins they came from.
+ *
+ * A form saying three of two wins were knockouts produces a tape row and a hook
+ * that contradict the record printed beside them, which is exactly the kind of
+ * line a room full of people who know the fighters will correct out loud. The
+ * boxes are brought back inside the record rather than the entry being refused,
+ * because a fighter's typo should not cost them the rest of the form; and a box
+ * they left empty stays empty, because a nought is an answer and this is not the
+ * place to put words in their mouth.
+ *
+ * With no wins given there is nothing to clamp against, so nothing is clamped:
+ * inventing a ceiling from a blank would be the same mistake as reading silence
+ * as a debut.
+ */
+function clampFinishes(w: string, ko: string, sub: string): { ko: string; sub: string } {
+  const wins = num(w);
+  if (wins === undefined) return { ko, sub };
+
+  const knockouts = Math.min(num(ko) ?? 0, wins);
+  const submissions = Math.min(num(sub) ?? 0, wins - knockouts);
+  return {
+    ko: ko === "" ? "" : String(knockouts),
+    sub: sub === "" ? "" : String(submissions),
+  };
+}
+
+/**
  * Trusting nothing from the browser. Lengths are capped so a paste of a novel
  * into the story box cannot fill the database, and the numbers are clamped to
  * ranges a human being can actually be: an eleven-foot fighter on the card is a
@@ -205,6 +232,9 @@ export function sanitiseDraft(input: unknown): Draft {
 
   const photo = typeof raw.photo === "string" ? raw.photo : undefined;
 
+  const w = digits("w", 200);
+  const { ko, sub } = clampFinishes(w, digits("ko", 200), digits("sub", 200));
+
   return {
     nickname: text("nickname", 40),
     instagram: text("instagram", 40).replace(/^@/, ""),
@@ -219,11 +249,11 @@ export function sanitiseDraft(input: unknown): Draft {
     heightCm: digits("heightCm", 250),
     reachCm: digits("reachCm", 260),
     stance: STANCES.includes(raw.stance as Stance) ? (raw.stance as string) : "",
-    w: digits("w", 200),
+    w,
     l: digits("l", 200),
     d: digits("d", 200),
-    ko: digits("ko", 200),
-    sub: digits("sub", 200),
+    ko,
+    sub,
     styleTags: list("styleTags", STYLE_OPTIONS, 3),
     sponsorIds: list("sponsorIds", null, 6),
   };
