@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTION_ERRORS,
   APP_ERROR,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
@@ -206,6 +207,7 @@ const ERROR_STRINGS = [
   SHOW_NOT_FOUND.heading,
   SHOW_NOT_FOUND.body,
   SHOW_NOT_FOUND.action,
+  ...Object.values(ACTION_ERRORS),
 ];
 
 describe("the error copy", () => {
@@ -276,5 +278,33 @@ describe("the boundaries and the not-found pages", () => {
     expect(PROGRAMME_NOT_FOUND.body).not.toMatch(/promoter has|they have not|has not been/i);
     expect(PROGRAMME_NOT_FOUND.body).toContain("not be published yet");
     expect(PROGRAMME_NOT_FOUND).not.toHaveProperty("action");
+  });
+});
+
+describe("the action refusals", () => {
+  /**
+   * A show that is not this promoter's and one that does not exist answer with
+   * the same sentence, so guessing another promoter's slug tells you nothing.
+   * That property is in the action; this is the half of it that is copy.
+   */
+  it("says nothing about a show the promoter cannot see", () => {
+    expect(ACTION_ERRORS.noSuchShow).not.toMatch(/another|someone else|belongs to|exist/i);
+  });
+
+  it("tells a signed-out promoter what to do about it", () => {
+    expect(ACTION_ERRORS.signedOut).toContain("Sign in again");
+  });
+
+  /** The rule these exist to explain, said as a reason rather than as a refusal. */
+  it("explains why a show name has to make an address", () => {
+    expect(ACTION_ERRORS.showNameNeedsCharacters).toContain("because");
+    expect(ACTION_ERRORS.showNameNeedsCharacters).toContain("address");
+  });
+
+  /** A fighter's typing is never in doubt, whatever the save did. */
+  it("promises the fighter their answers are still there", () => {
+    expect(ACTION_ERRORS.profileNotSaved).toContain("still on the page");
+    expect(ACTION_ERRORS.profileNotSubmitted).toContain("still here");
+    expect(ACTION_ERRORS.autosaveOffline).toContain("try again as you type");
   });
 });

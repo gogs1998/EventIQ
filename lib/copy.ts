@@ -175,3 +175,47 @@ export const SHOW_NOT_FOUND = {
   action: "Back to your shows",
 } as const;
 
+/**
+ * What a server action answers with when it refuses or when it breaks.
+ *
+ * Every one of these is shown next to the control the promoter or the fighter
+ * just used, so they are written to be read there rather than as a page of their
+ * own: what happened, and what to do about it.
+ */
+export const ACTION_ERRORS = {
+  /** A session that ran out mid-afternoon, which is the commonest of these by far. */
+  signedOut: "You have been signed out. Sign in again and this change will go through.",
+  /** A show that is not this promoter's and one that does not exist answer alike. */
+  noSuchShow: "That show is not available on this account.",
+  notOnThisCard: "That fighter is not on this card.",
+
+  notSaved: "That did not save. Try again in a moment.",
+  showNotCreated: "The show could not be created. Try again in a moment.",
+
+  showNeedsNameAndDate: "A show needs a name and a date.",
+  /** The empty-slug rule, said as the reason it exists rather than as a refusal. */
+  showNameNeedsCharacters:
+    "A show name needs at least one letter or number in it, because the address for the " +
+    "programme is made from the name.",
+  addressTaken: "There is already a show at that address. Change the name slightly.",
+
+  boutNeedsBothCorners: "A bout needs a name in both corners.",
+  fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
+  sponsorNeedsName: "A sponsor needs a name.",
+
+  /** The fighter's side. Their typing stays in the boxes whatever these say. */
+  unknownInvite: "This link is no longer active. Ask the promoter for a new one.",
+  /**
+   * A save that never reached the action at all, which on a phone at a venue is
+   * most of them. It has to say the typing is safe, because the fighter can see
+   * it in the boxes and needs to know it is not about to go.
+   */
+  autosaveOffline: "Couldn’t save that — check your signal, it will try again as you type.",
+  profileNotSaved:
+    "That did not save. Your answers are still on the page, and it will try again as you type.",
+  profileNotSubmitted:
+    "That did not go through. Your answers are still here — try again in a moment.",
+  photoNotStored: "That photo would not upload. Try a different one, or come back to it later.",
+  photoNotAPhotograph: "That file is not a JPEG, PNG or WebP photograph.",
+  photoTooLarge: "That photo is too large to send. Try one from the camera roll.",
+} as const;

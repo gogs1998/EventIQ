@@ -1,22 +1,30 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { addSponsor } from "@/app/promoter/actions";
 import { Field, inputClass } from "@/app/promoter/e/[slug]/card/fields";
+import { ActionStatus } from "@/components/ActionStatus";
 
 export function AddSponsorForm({ slug }: { slug: string }) {
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
 
   return (
     <form
       ref={form}
-      action={(data) =>
+      // Own submit rather than the `action` prop, so React's automatic reset of
+      // an uncontrolled form does not clear a sponsor's name and link the moment
+      // the row is refused. See the note in AddBoutForm.
+      onSubmit={(submit) => {
+        submit.preventDefault();
+        const data = new FormData(submit.currentTarget);
         start(async () => {
-          await addSponsor(slug, data);
-          form.current?.reset();
-        })
-      }
+          const result = await addSponsor(slug, data);
+          setError(result.ok ? null : result.error);
+          if (result.ok) form.current?.reset();
+        });
+      }}
       className="border-hairline mt-4 grid gap-4 border p-4"
     >
       <div className="grid gap-3 sm:grid-cols-3">
@@ -43,6 +51,7 @@ export function AddSponsorForm({ slug }: { slug: string }) {
       >
         {pending ? "Adding…" : "Add the sponsor"}
       </button>
+      <ActionStatus error={error} />
     </form>
   );
 }

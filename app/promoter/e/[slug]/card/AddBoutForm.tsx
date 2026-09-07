@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { addBout } from "@/app/promoter/actions";
 import {
   DISCIPLINES,
@@ -8,22 +8,33 @@ import {
   Field,
   inputClass,
 } from "@/app/promoter/e/[slug]/card/fields";
+import { ActionStatus } from "@/components/ActionStatus";
 
 export function AddBoutForm({ slug }: { slug: string }) {
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
 
   return (
     <form
       ref={form}
-      action={(data) =>
+      // Submitted through a transition rather than through the `action` prop,
+      // because React resets an uncontrolled form once an action returns and
+      // does it whatever the action answered. That wiped two names and four
+      // numbers the promoter had just read off a matchmaking sheet every time
+      // the bout was refused, and left them retyping the line to find out why.
+      // Handling the submit ourselves means the clearing below is the only one.
+      onSubmit={(submit) => {
+        submit.preventDefault();
+        const data = new FormData(submit.currentTarget);
         start(async () => {
-          await addBout(slug, data);
-          // Cleared so a promoter working down a sheet can type the next line
-          // straight away rather than selecting and deleting two names.
-          form.current?.reset();
-        })
-      }
+          const result = await addBout(slug, data);
+          setError(result.ok ? null : result.error);
+          // Cleared only where the bout went in, so a promoter working down a
+          // sheet can type the next line straight away.
+          if (result.ok) form.current?.reset();
+        });
+      }}
       className="border-hairline mt-4 grid gap-4 border p-4"
     >
       <div className="grid gap-3 sm:grid-cols-2">
@@ -83,6 +94,7 @@ export function AddBoutForm({ slug }: { slug: string }) {
       >
         {pending ? "Adding…" : "Add the bout"}
       </button>
+      <ActionStatus error={error} />
     </form>
   );
 }

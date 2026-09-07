@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
+import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
+import { ACTION_ERRORS } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
@@ -17,13 +19,25 @@ import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questio
  * database on every call rather than trusted from a form field, and nothing here
  * takes a fighter id from the caller. A fighter holding a link can edit exactly
  * one profile: theirs.
+ *
+ * These answer with an `ActionResult` rather than throwing, because the fighter
+ * filling this in is standing in a car park on one bar of signal and the form
+ * has to be able to say what happened next to the control they just used. A
+ * regenerated link, a photograph that would not go, a save that did not land —
+ * all of them are sentences now, and the stack goes to the log.
  */
 
-async function inviteOr404(token: string) {
+type Invite = Awaited<ReturnType<typeof loadInviteByToken>>;
+
+type Found = { db: Db; row: NonNullable<Invite> };
+
+async function inviteFor(token: string): Promise<ActionResult<Found>> {
   const db = await getDb();
   const row = await loadInviteByToken(db, token);
-  if (!row) throw new Error("Unknown invite");
-  return { db, ...row };
+  // A regenerated link and a made-up one answer the same way, which is also the
+  // only true thing that can be said to somebody holding either.
+  if (!row) return refuse(ACTION_ERRORS.unknownInvite);
+  return done({ db, row });
 }
 
 /**
@@ -78,51 +92,67 @@ function columnsFrom(draft: Draft) {
  * and left the profile saved with an empty sponsor row. So the whole save is one
  * db.batch, which D1 runs as a single transaction, and the ids are checked
  * against the promoter's own book before any of it is written.
+ *
+ * A refusal from here is never destructive: the batch either lands or does not,
+ * and the questionnaire keeps the typing in the boxes either way.
  */
-export async function saveDraft(token: string, input: unknown): Promise<{ savedAt: number }> {
-  const { db, invite, fighter, event } = await inviteOr404(token);
-  const draft = sanitiseDraft(input);
-  const sponsorIds = await claimableSponsors(db, event.promoterId, draft.sponsorIds);
+export async function saveDraft(
+  token: string,
+  input: unknown,
+): Promise<ActionResult<{ savedAt: number }>> {
+  return attempt(
+    { event: "saveDraft", route: "/f/[token]" },
+    ACTION_ERRORS.profileNotSaved,
+    async () => {
+      const found = await inviteFor(token);
+      if (!found.ok) return found;
+      const { db, row } = found;
+      const { invite, fighter, event } = row;
 
-  // Everything else about the cutout is the renderer's, but this is the one thing
-  // only the request path knows: that the photograph the cutout was made from has
-  // just been replaced. Left in place it would put the fighter's old picture in
-  // the video for as long as nobody noticed.
-  const columns = cutoutSurvives(fighter.photo, draft.photo)
-    ? columnsFrom(draft)
-    : { ...columnsFrom(draft), cutout: null };
+      const draft = sanitiseDraft(input);
+      const sponsorIds = await claimableSponsors(db, event.promoterId, draft.sponsorIds);
 
-  const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
-    db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
-    db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id)),
-  ];
+      // Everything else about the cutout is the renderer's, but this is the one thing
+      // only the request path knows: that the photograph the cutout was made from has
+      // just been replaced. Left in place it would put the fighter's old picture in
+      // the video for as long as nobody noticed.
+      const columns = cutoutSurvives(fighter.photo, draft.photo)
+        ? columnsFrom(draft)
+        : { ...columnsFrom(draft), cutout: null };
 
-  if (sponsorIds.length) {
-    writes.push(
-      db.insert(schema.fighterSponsors).values(
-        sponsorIds.map((sponsorId, position) => ({
-          fighterId: fighter.id,
-          sponsorId,
-          position,
-        })),
-      ),
-    );
-  }
+      const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+        db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
+        db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id)),
+      ];
 
-  // A submitted profile that is edited again stays submitted. Reopening it to
-  // change a walkout song does not put the fighter back on the chase list.
-  if (!invite.lastOpenedAt) {
-    writes.push(
-      db
-        .update(schema.invites)
-        .set({ lastOpenedAt: Date.now() })
-        .where(eq(schema.invites.id, invite.id)),
-    );
-  }
+      if (sponsorIds.length) {
+        writes.push(
+          db.insert(schema.fighterSponsors).values(
+            sponsorIds.map((sponsorId, position) => ({
+              fighterId: fighter.id,
+              sponsorId,
+              position,
+            })),
+          ),
+        );
+      }
 
-  await db.batch(writes);
+      // A submitted profile that is edited again stays submitted. Reopening it to
+      // change a walkout song does not put the fighter back on the chase list.
+      if (!invite.lastOpenedAt) {
+        writes.push(
+          db
+            .update(schema.invites)
+            .set({ lastOpenedAt: Date.now() })
+            .where(eq(schema.invites.id, invite.id)),
+        );
+      }
 
-  return { savedAt: Date.now() };
+      await db.batch(writes);
+
+      return done({ savedAt: Date.now() });
+    },
+  );
 }
 
 /**
@@ -153,15 +183,30 @@ async function claimableSponsors(
   );
 }
 
-export async function submitProfile(token: string, input: unknown): Promise<void> {
-  const { db, invite, event } = await inviteOr404(token);
-  await saveDraft(token, input);
-  await db
-    .update(schema.invites)
-    .set({ submittedAt: Date.now() })
-    .where(eq(schema.invites.id, invite.id));
+export async function submitProfile(token: string, input: unknown): Promise<ActionResult> {
+  return attempt(
+    { event: "submitProfile", route: "/f/[token]" },
+    ACTION_ERRORS.profileNotSubmitted,
+    async () => {
+      const found = await inviteFor(token);
+      if (!found.ok) return found;
+      const { db, row } = found;
 
-  revalidatePath(`/e/${event.slug}`);
+      // The save is what carries the answers, so a submit that goes through on a
+      // save that did not would mark the profile finished with the last few
+      // fields missing from it.
+      const saved = await saveDraft(token, input);
+      if (!saved.ok) return saved;
+
+      await db
+        .update(schema.invites)
+        .set({ submittedAt: Date.now() })
+        .where(eq(schema.invites.id, row.invite.id));
+
+      revalidatePath(`/e/${row.event.slug}`);
+      return DONE;
+    },
+  );
 }
 
 /**
@@ -170,13 +215,21 @@ export async function submitProfile(token: string, input: unknown): Promise<void
  * This is the promoter's warmest signal — "he looked at it and bailed" is a
  * different conversation from "he never saw it" — so it is written on the way in
  * rather than inferred later from how full the profile looks.
+ *
+ * The page awaits this before rendering, so it must not be able to take the
+ * questionnaire down with it: a timestamp nobody can write is a worse chase
+ * list, and a form that will not open is a fighter who never fills it in. The
+ * result is there for a caller that wants it and the page ignores it.
  */
-export async function markOpened(token: string): Promise<void> {
-  const db = await getDb();
-  await db
-    .update(schema.invites)
-    .set({ lastOpenedAt: Date.now() })
-    .where(eq(schema.invites.token, token));
+export async function markOpened(token: string): Promise<ActionResult> {
+  return attempt({ event: "markOpened", route: "/f/[token]" }, ACTION_ERRORS.notSaved, async () => {
+    const db = await getDb();
+    await db
+      .update(schema.invites)
+      .set({ lastOpenedAt: Date.now() })
+      .where(eq(schema.invites.token, token));
+    return DONE;
+  });
 }
 
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -199,23 +252,38 @@ const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
  * The key carries a random suffix so a replaced photo gets a new URL. Photos are
  * served with a one-year cache, and without that suffix a fighter who changed
  * their picture would keep seeing the old one until the cache gave up.
+ *
+ * The three refusals below are separate sentences because they have separate
+ * answers: a different file, a smaller one, or nothing the fighter can do. R2
+ * being unavailable is the third and comes back as the general one.
  */
-export async function uploadPhoto(token: string, form: FormData): Promise<{ path: string }> {
-  const { fighter } = await inviteOr404(token);
+export async function uploadPhoto(
+  token: string,
+  form: FormData,
+): Promise<ActionResult<{ path: string }>> {
+  return attempt(
+    { event: "uploadPhoto", route: "/f/[token]" },
+    ACTION_ERRORS.photoNotStored,
+    async () => {
+      const found = await inviteFor(token);
+      if (!found.ok) return found;
+      const { fighter } = found.row;
 
-  const file = form.get("photo");
-  if (!(file instanceof File)) throw new Error("No photo");
-  if (file.size > MAX_PHOTO_BYTES) throw new Error("Photo too large");
+      const file = form.get("photo");
+      if (!(file instanceof File)) return refuse(ACTION_ERRORS.photoNotAPhotograph);
+      if (file.size > MAX_PHOTO_BYTES) return refuse(ACTION_ERRORS.photoTooLarge);
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const contentType = sniffImageType(bytes);
-  if (!contentType) throw new Error("That file is not a JPEG, PNG or WebP photograph");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const contentType = sniffImageType(bytes);
+      if (!contentType) return refuse(ACTION_ERRORS.photoNotAPhotograph);
 
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const key = `fighters/${fighter.id}-${suffix}.${IMAGE_EXTENSION[contentType]}`;
+      const suffix = crypto.randomUUID().slice(0, 8);
+      const key = `fighters/${fighter.id}-${suffix}.${IMAGE_EXTENSION[contentType]}`;
 
-  const media = await getMedia();
-  await media.put(key, bytes, { httpMetadata: { contentType } });
+      const media = await getMedia();
+      await media.put(key, bytes, { httpMetadata: { contentType } });
 
-  return { path: `/media/${key}` };
+      return done({ path: `/media/${key}` });
+    },
+  );
 }
