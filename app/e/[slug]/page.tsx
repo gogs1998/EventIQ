@@ -113,7 +113,8 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
       <section className="px-3 pb-10">
         <div className="border-hairline mb-3 flex items-end justify-between border-b px-2 pb-2">
           <h2 className="display text-xl">Running Order</h2>
-          <span className="label">{boutCountLabel(event.bouts.length)}</span>
+          {/* Counts what is listed below rather than what is in the table. */}
+          <span className="label">{boutCountLabel(bouts.length)}</span>
         </div>
 
         {/* A show can be published before its running order is entered, so the
