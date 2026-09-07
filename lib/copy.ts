@@ -108,3 +108,70 @@ export function sponsorTapNote(sponsors: number): string {
   if (sponsors <= 0) return "No sponsor has been tapped yet";
   return `Across ${sponsors} ${sponsors === 1 ? "sponsor" : "sponsors"}`;
 }
+
+/* -------------------------------------------------------------------------
+ * What is said when something goes wrong
+ *
+ * Here for the same two reasons as the zero-bout strings above: a sentence a
+ * promoter only sees on a bad afternoon is a sentence nobody reads by eye, and
+ * the tone rules are exactly the ones easiest to drop under pressure. An error
+ * message is where "never shame a promoter or a fighter" is hardest to keep and
+ * most worth keeping — a fighter whose photograph would not upload in a car park
+ * needs to know what to do next, not whose fault it was.
+ *
+ * The rules the test holds these to: no gendered pronouns, nothing that assigns
+ * blame, no unverifiable promise about how long anything will take, and never
+ * the underlying failure. "D1_ERROR: database is locked" goes to the log; the
+ * screen gets a sentence.
+ * ---------------------------------------------------------------------- */
+
+/** The route-level error boundary: the layout survived, this page did not. */
+export const PAGE_ERROR = {
+  heading: "This page did not load",
+  body:
+    "Something went wrong at our end. Trying again will often be enough, and anything " +
+    "already saved is still there.",
+  retry: "Try again",
+} as const;
+
+/**
+ * The last boundary, which replaces the whole document. Deliberately shorter:
+ * the layout, the fonts and the stylesheet are the things that have gone.
+ */
+export const APP_ERROR = {
+  heading: "EventIQ could not load this",
+  body: "Something went wrong at our end. Reloading the page will often be enough.",
+  retry: "Reload the page",
+} as const;
+
+/** Any address with nothing behind it, on our own side of the product. */
+export const NOT_FOUND = {
+  heading: "There is nothing at this address",
+  body:
+    "The link may have changed since it was written down, or the page may have moved. " +
+    "Everything else is where it was.",
+  action: "Back to the start",
+} as const;
+
+/**
+ * A spectator holding a link to a programme that will not open. It carries no
+ * EventIQ branding, the same as every other page under `/e` — see lib/masthead.ts
+ * — and it must not imply the promoter has done something wrong, because the
+ * commonest reason by far is a show that is simply not published yet.
+ */
+export const PROGRAMME_NOT_FOUND = {
+  heading: "This programme is not here",
+  body:
+    "The show may not be published yet, or its address may have changed since the code " +
+    "was printed. Whoever handed out the link will have the current one.",
+} as const;
+
+/** The promoter's side: a show that is not theirs and one that never existed read alike. */
+export const SHOW_NOT_FOUND = {
+  heading: "That show is not on this account",
+  body:
+    "It may have been taken down, or the address may belong to another promoter. Your " +
+    "shows are all listed on the dashboard.",
+  action: "Back to your shows",
+} as const;
+

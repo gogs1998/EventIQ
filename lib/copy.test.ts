@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_ERROR,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
+  NOT_FOUND,
+  PAGE_ERROR,
+  PROGRAMME_NOT_FOUND,
+  SHOW_NOT_FOUND,
   boutCountLabel,
   chaseNote,
   programmeLinkNote,
@@ -168,5 +173,108 @@ describe("the empty states", () => {
 
   it("does not tell a spectator whose fault the empty card is", () => {
     expect(EMPTY_PROGRAMME.body).not.toMatch(/promoter|they have not|has not been/i);
+  });
+});
+
+/**
+ * The error copy, held to the same rules and to two more.
+ *
+ * An error message is where "never shame a promoter or a fighter" is hardest to
+ * keep, because the shortest way to say what happened is usually to say what
+ * somebody did. It is also the copy nobody reads by eye: a promoter sees these
+ * on a bad afternoon and a fighter sees them once, in a car park, and neither of
+ * them is going to report that the wording was off.
+ *
+ * The gendered-pronoun rule is the same one the nudge message is held to
+ * (HANDOVER bug 10). It caught "has already sent his" on a card with four
+ * women's bouts, and an error message naming a fighter is exactly where it would
+ * come back.
+ */
+
+const ERROR_STRINGS = [
+  PAGE_ERROR.heading,
+  PAGE_ERROR.body,
+  PAGE_ERROR.retry,
+  APP_ERROR.heading,
+  APP_ERROR.body,
+  APP_ERROR.retry,
+  NOT_FOUND.heading,
+  NOT_FOUND.body,
+  NOT_FOUND.action,
+  PROGRAMME_NOT_FOUND.heading,
+  PROGRAMME_NOT_FOUND.body,
+  SHOW_NOT_FOUND.heading,
+  SHOW_NOT_FOUND.body,
+  SHOW_NOT_FOUND.action,
+];
+
+describe("the error copy", () => {
+  it("never uses a gendered pronoun", () => {
+    for (const line of ERROR_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+    }
+  });
+
+  /**
+   * Nothing here may hand the reader the blame. "You" is allowed — "you have
+   * been signed out" is the plainest way to say it — but not attached to a
+   * verdict on what they did.
+   */
+  it("never tells the reader whose fault it is", () => {
+    for (const line of ERROR_STRINGS) {
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b/i);
+      expect(line).not.toMatch(/\byou (broke|failed|forgot|should)\b/i);
+      expect(line).not.toMatch(/\binvalid\b|\billegal\b|\bincorrect\b|\bbad\b|\bmust not\b/i);
+    }
+  });
+
+  /** The same three rules the nudge message and the zero-bout strings are held to. */
+  it("keeps the established tone", () => {
+    for (const line of ERROR_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+    }
+  });
+
+  /**
+   * The underlying failure never reaches the screen. A promoter can do nothing
+   * with "D1_ERROR", and naming a table or a binding on a page a spectator can
+   * reach tells them about the inside of the application.
+   */
+  it("never names what actually broke", () => {
+    for (const line of ERROR_STRINGS) {
+      expect(line).not.toMatch(/D1|R2|SQL|sqlite|drizzle|token|cookie|binding|500|stack/i);
+    }
+  });
+
+  it("reads as a sentence, not as a placeholder", () => {
+    for (const line of ERROR_STRINGS) {
+      expect(line.trim()).toBe(line);
+      expect(line.length).toBeGreaterThan(4);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+});
+
+describe("the boundaries and the not-found pages", () => {
+  it("say what to do next rather than only what happened", () => {
+    expect(PAGE_ERROR.retry).toContain("Try again");
+    expect(APP_ERROR.retry).toContain("Reload");
+    expect(NOT_FOUND.action).toContain("Back");
+    expect(SHOW_NOT_FOUND.action).toContain("Back");
+  });
+
+  /**
+   * The programme's version has no way back, deliberately: a spectator holding a
+   * link to an unpublished show has nowhere of ours to be sent, and sending them
+   * to EventIQ's own pages from the promoter's programme is the branding rule in
+   * lib/masthead.ts read backwards.
+   */
+  it("does not tell a spectator the promoter has done something wrong", () => {
+    expect(PROGRAMME_NOT_FOUND.body).not.toMatch(/promoter has|they have not|has not been/i);
+    expect(PROGRAMME_NOT_FOUND.body).toContain("not be published yet");
+    expect(PROGRAMME_NOT_FOUND).not.toHaveProperty("action");
   });
 });
