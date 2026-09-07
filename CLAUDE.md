@@ -155,11 +155,13 @@ The conversation that produced this, in order, because several of the decisions 
 **Needs the originator, not code:**
 
 1. **Turn on "Always Use HTTPS"** in the Cloudflare dashboard, under SSL/TLS → Edge Certificates. Files under `public/` and `_next/` are served by the assets binding without the Worker running, so the app-level redirect in `proxy.ts` cannot reach them and `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. The deploy token cannot set this.
-2. **Rotate the Cloudflare API token and the promoter password.** Both were pasted into the chat that built this. There is no change-password UI, so the password currently means a re-seed.
-3. **What does FightIQ.win do?** A strapline would also even up the sponsor strip.
-4. **Real fighter photographs**, with permission, from one local gym. The generated portraits demonstrate the idea but a promoter who recognises nobody will notice.
-5. **Consent wording and a retention policy.** The questionnaire collects age, hometown and photographs of real people and publishes them, behind an unguessable link with no authentication. The questionnaire is the natural consent point — design it in rather than bolting it on. This got more urgent when the data started being stored rather than living in a browser tab.
-6. **The commercial model**, which decides what gets built next: a per-event fee, a share of bout sponsorship, or a free programme with the post-event sponsor report as the paid upsell.
+2. **Rotate the Cloudflare API token**, which was handled in chat during this build and should be treated as known. The promoter password and `SESSION_SECRET` have already been rotated; the token has not. While in there, drop **Cloudflare Pages · Edit** from its scopes, which nothing uses. [DEPLOY.md](DEPLOY.md#what-is-left-to-do) keeps the live list.
+3. **Decide where `RENDER_KEY` lives.** Nobody holds it today: it is set on the Worker, cannot be read back, and whoever wants to render mints a fresh one. That is fine while one person renders on their own laptop and is the wrong shape the moment two people or a cron job need to. A password manager entry, not a file in the repository.
+4. **What does FightIQ.win do?** A strapline would also even up the sponsor strip.
+5. **Real fighter photographs**, with permission, from one local gym. The generated portraits demonstrate the idea but a promoter who recognises nobody will notice.
+6. **Consent wording and a retention policy.** The questionnaire collects age, hometown and photographs of real people and publishes them, behind an unguessable link with no authentication. The questionnaire is the natural consent point — design it in rather than bolting it on. This got more urgent when the data started being stored rather than living in a browser tab.
+7. **The commercial model**, which decides what gets built next: a per-event fee, a share of bout sponsorship, or a free programme with the post-event sponsor report as the paid upsell.
+8. **Reprint the table card from the live URL.** The QR encodes the origin it was served from, so one printed from a laptop is useless at a venue.
 
 **Code work, in rough order of value per unit of effort:**
 
