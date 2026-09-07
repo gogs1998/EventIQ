@@ -1,0 +1,50 @@
+# Lint, typecheck, tests and a build, on every push and every pull request.
+#
+# Nothing here talks to Cloudflare. `npm run typecheck` and `npm run build` both
+# load next.config.ts, which calls initOpenNextCloudflareForDev() and starts a
+# local Miniflare — that needs no credentials and no network, only a .dev.vars
+# to read, so the workflow copies the example one. It is a throwaway with the
+# same placeholder values the example file has always carried; the real secrets
+# live in `wrangler secret put` and are not needed to compile anything.
+#
+# There is deliberately no deploy job. Deploying is `node scripts/deploy.mjs`,
+# which applies migrations to a live database, and that is a decision somebody
+# takes rather than a consequence of merging.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # .nvmrc is the one place the version is written down, so a local
+          # `nvm use` and CI cannot drift apart.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Never a real secret. See the note at the top.
+      - name: Provide a throwaway .dev.vars
+        run: cp .dev.vars.example .dev.vars
+
+      - run: npm run lint
+
+      # Runs `next typegen` first: PageProps and LayoutProps are globals Next.js
+      # generates, so tsc alone reports eight errors on a clean checkout that
+      # have nothing to do with the change under test.
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # About twenty seconds, and it is the only step that would catch a page
+      # that compiles and cannot be rendered. The end-to-end suite is not here:
+      # it drives a real browser against a running server and writes as it goes.
+      - run: npm run build
