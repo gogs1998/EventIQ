@@ -21,7 +21,50 @@ const encoder = new TextEncoder();
 /** Long enough that a promoter is not logged out mid-show, short enough to matter. */
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
 
-export const SESSION_COOKIE = "eventiq_session";
+/**
+ * The session cookie's name, which is not the same string everywhere.
+ *
+ * `__Host-` is not decoration: a browser refuses to store a cookie under that
+ * prefix unless it is `Secure`, has `Path=/` and names no `Domain`, and it
+ * refuses to let any other host — including a subdomain, and including plain
+ * http on our own — set one. That closes the one attack the signature cannot,
+ * which is somebody who gets to write a cookie for `*.eventiq.win` planting a
+ * session of their own choosing in the promoter's browser. The attributes we
+ * already set satisfy the prefix exactly, so it costs nothing.
+ *
+ * It cannot be used in development, because there is no https on localhost to
+ * attach `Secure` to and the browser would silently drop the cookie. So the name
+ * follows the same condition the `secure` attribute does, and both names are
+ * cleared on sign-out so a cookie left over from the other one cannot linger.
+ */
+const SESSION_COOKIE_PLAIN = "eventiq_session";
+
+export function sessionCookieName(secure: boolean): string {
+  return secure ? `__Host-${SESSION_COOKIE_PLAIN}` : SESSION_COOKIE_PLAIN;
+}
+
+/** Both of them, for clearing and for the proxy's "is there a cookie at all". */
+export const SESSION_COOKIE_NAMES = [
+  sessionCookieName(true),
+  sessionCookieName(false),
+] as const;
+
+/**
+ * The floor on a new password, and the whole of the policy.
+ *
+ * Twelve characters and no composition rules. Requiring a capital, a digit and a
+ * symbol makes passwords shorter, more predictable and more likely to be written
+ * on the inside of a laptop lid; length is the only thing that reliably makes
+ * one hard to guess, and NCSC has said so for years.
+ *
+ * Counted in code points rather than UTF-16 units, so a promoter who uses an
+ * emoji is not told a twelve-character password is eleven.
+ */
+export const PASSWORD_MIN_LENGTH = 12;
+
+export function passwordLongEnough(password: string): boolean {
+  return [...password].length >= PASSWORD_MIN_LENGTH;
+}
 
 /**
  * A ceiling imposed by the runtime, not a number anybody chose. The deployed
@@ -141,6 +184,19 @@ export function newToken(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+/**
+ * The digest of a token, for storing in place of the token.
+ *
+ * A password reset link is a bearer credential that lives in the database until
+ * it is spent, so what is kept is the digest: a copy of the table is then a list
+ * of things nobody can present. No salt and no iterations, deliberately — this
+ * is 32 bytes from the CSPRNG rather than a password, so there is nothing to
+ * guess and stretching it would only make the lookup slower.
+ */
+export async function digestToken(token: string): Promise<string> {
+  return toBase64Url(await sha256(token));
+}
+
 /** Ids are opaque and only ever compared, so the same generator serves. */
 export function newId(prefix: string): string {
   return `${prefix}_${toBase64Url(crypto.getRandomValues(new Uint8Array(12)))}`;
@@ -181,9 +237,30 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 export type Session = {
   promoterId: string;
+  /**
+   * The promoter row's `session_version` when this cookie was issued. Checked
+   * against the row on every request, so bumping the column is a revocation:
+   * every cookie already out there is a generation behind and stops working.
+   *
+   * Inside the signature like the expiry, so the holder cannot edit their way
+   * back in. A cookie from before this field existed has no version at all and
+   * `readSession` treats it as unreadable, which signs the one promoter out once
+   * and is the cheapest correct answer.
+   */
+  version: number;
   /** Unix seconds. Inside the signature, so the holder cannot extend it. */
   expiresAt: number;
 };
+
+/**
+ * Whether a cookie belongs to the generation the account still accepts.
+ *
+ * Equality rather than "not behind", because a version ahead of the row cannot
+ * be honestly obtained and there is nothing to gain by accepting one.
+ */
+export function sessionIsCurrent(session: Session, sessionVersion: number): boolean {
+  return session.version === sessionVersion;
+}
 
 export async function signSession(session: Session, secret: string): Promise<string> {
   const payload = toBase64Url(encoder.encode(JSON.stringify(session)));
@@ -219,6 +296,7 @@ export async function readSession(
   try {
     const session = JSON.parse(new TextDecoder().decode(fromBase64Url(payload))) as Session;
     if (typeof session.promoterId !== "string" || typeof session.expiresAt !== "number") return null;
+    if (typeof session.version !== "number") return null;
     if (session.expiresAt * 1000 <= now) return null;
     return session;
   } catch {

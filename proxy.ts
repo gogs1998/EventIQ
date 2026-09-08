@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE_NAMES } from "@/lib/auth";
 
 /**
  * Two things that have to happen before a request reaches a page.
@@ -63,7 +63,10 @@ export function proxy(request: NextRequest) {
   }
 
   if (!PROMOTER_AREA.test(request.nextUrl.pathname)) return NextResponse.next();
-  if (request.cookies.get(SESSION_COOKIE)) return NextResponse.next();
+  // Either name will do. This is only asking whether to show the login form, and
+  // which of the two a browser is holding depends on whether it is talking to
+  // https — a distinction the real check in currentPromoter() makes properly.
+  if (SESSION_COOKIE_NAMES.some((name) => request.cookies.get(name))) return NextResponse.next();
 
   const login = new URL("/promoter/login", request.url);
   login.searchParams.set("next", request.nextUrl.pathname);

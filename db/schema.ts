@@ -40,8 +40,55 @@ export const promoters = sqliteTable("promoters", {
    */
   failedLogins: integer("failed_logins").notNull().default(0),
   firstFailedLoginAt: integer("first_failed_login_at"),
+  /**
+   * Which generation of sessions this account still accepts. It is carried
+   * inside the signed cookie, and `currentPromoter` refuses a cookie that does
+   * not name the number on the row.
+   *
+   * The session was deliberately stateless — a signature can be checked without
+   * a read — and it stays so for everything but this one column, which costs
+   * nothing because the promoter row is read on every request anyway. What it
+   * buys is the thing a stateless cookie cannot do: changing a password signs
+   * out every other device at once, which is the point of changing it after a
+   * laptop goes missing. Rotating SESSION_SECRET is still how everybody,
+   * including the promoter doing the rotating, gets signed out.
+   */
+  sessionVersion: integer("session_version").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
+
+/**
+ * A one-time way back in for a promoter who has forgotten their password.
+ *
+ * There is no email and no SMS here, so nothing sends anything: an operator
+ * mints a link with `npm run promoter -- reset-link` and hands it over by
+ * whatever means they already use to talk to that promoter. That is the whole
+ * design, and it is why the link is short-lived and single-use rather than
+ * merely secret — it travels through a channel nobody here controls.
+ *
+ * Only the digest is stored. This row is what a copy of the database hands over,
+ * and a stored token would be a working credential in it; the digest of 32
+ * random bytes is not reversible and is all the check needs.
+ */
+export const passwordResets = sqliteTable(
+  "password_resets",
+  {
+    id: text("id").primaryKey(),
+    promoterId: text("promoter_id")
+      .notNull()
+      .references(() => promoters.id, { onDelete: "cascade" }),
+    /** SHA-256 of the token, base64url. Never the token itself. */
+    tokenDigest: text("token_digest").notNull(),
+    /** Unix milliseconds, half an hour after it was minted. */
+    expiresAt: integer("expires_at").notNull(),
+    /** Stamped the moment it is spent, so a link forwarded twice works once. */
+    usedAt: integer("used_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  // The digest is the only thing the page can look a row up by, and it is unique
+  // because two rows sharing one would be one link opening two accounts.
+  (table) => [uniqueIndex("password_resets_token_digest").on(table.tokenDigest)],
+);
 
 export const events = sqliteTable("events", {
   id: text("id").primaryKey(),

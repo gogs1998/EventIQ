@@ -39,7 +39,9 @@ export async function login(_state: string | null, form: FormData): Promise<stri
   const result = await attemptLogin(await getDb(), slug, password);
   if (!result.ok) return REFUSED;
 
-  await signIn(result.promoterId);
+  // A fresh cookie every time, so nothing a caller was holding before they
+  // signed in survives into the session they end up with.
+  await signIn(result.promoterId, result.sessionVersion);
   redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/promoter");
 }
 

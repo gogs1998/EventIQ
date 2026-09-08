@@ -71,15 +71,22 @@ export function showDateFor(now: number): string {
 }
 
 /** SQL string literal. Everything here comes from our own fixture, but a seed
- * script that concatenates unescaped text is a habit worth not forming. */
-function lit(value: string | number | boolean | null | undefined): string {
+ * script that concatenates unescaped text is a habit worth not forming.
+ *
+ * Exported for scripts/promoter.mjs, which builds statements from a promoter
+ * name typed at a terminal and so has a much better reason to want it. One
+ * escaper with one set of eyes on it beats a second copy in a script. */
+export function lit(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "1" : "0";
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function row(table: string, values: Record<string, string | number | boolean | null | undefined>) {
+export function row(
+  table: string,
+  values: Record<string, string | number | boolean | null | undefined>,
+) {
   const columns = Object.keys(values);
   return `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns
     .map((column) => lit(values[column]))
@@ -209,6 +216,8 @@ export function buildSeed({
     `DELETE FROM fighters WHERE id IN (${fighterIds});`,
     `DELETE FROM events WHERE id = ${lit(eventId)};`,
     `DELETE FROM sponsors WHERE promoter_id = ${lit(promoterId)};`,
+    // An outstanding reset link must not survive the account it was minted for.
+    `DELETE FROM password_resets WHERE promoter_id = ${lit(promoterId)};`,
     `DELETE FROM promoters WHERE id = ${lit(promoterId)};`,
   );
 
@@ -220,6 +229,10 @@ export function buildSeed({
       mark: event.promoter.mark,
       instagram: event.promoter.instagram,
       password_hash: passwordHash,
+      // A fresh account starts at generation zero, which is what the cookie the
+      // seeded promoter signs in with will name. Written out rather than left to
+      // the column default so the seed says what it means.
+      session_version: 0,
       created_at: now,
     }),
   );

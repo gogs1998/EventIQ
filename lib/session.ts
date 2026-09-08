@@ -3,9 +3,11 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import {
   ABSENT_PROMOTER_HASH,
-  SESSION_COOKIE,
+  SESSION_COOKIE_NAMES,
   SESSION_MAX_AGE_SECONDS,
   readSession,
+  sessionCookieName,
+  sessionIsCurrent,
   signSession,
   verifyPassword,
 } from "@/lib/auth";
@@ -19,18 +21,37 @@ import { NO_FAILURES, afterFailure, lockedOut } from "@/lib/lockout";
  * promoter following a link to their own dashboard from an email should not land
  * on a login screen, and there is nothing here a cross-site GET could damage.
  * Secure is set outside development, where there is no https to attach it to.
+ * Where it is set the cookie also takes the `__Host-` prefix — see
+ * sessionCookieName in lib/auth.ts for what that buys and why the name has to
+ * change with the attribute rather than being one string everywhere.
  */
 
 const isProduction = process.env.NODE_ENV === "production";
 
-export async function signIn(promoterId: string): Promise<void> {
+/**
+ * Issues a cookie for this promoter, replacing whatever was there.
+ *
+ * Called on every sign-in and again when a password changes, so the value in the
+ * browser is always one minted after the last thing that could have compromised
+ * it. A session is never carried over: the cookie is a fresh signature over a
+ * fresh expiry, which is what stops a value planted before sign-in from becoming
+ * a signed-in one afterwards.
+ */
+export async function signIn(promoterId: string, sessionVersion: number): Promise<void> {
   const secret = await requireSecret("SESSION_SECRET");
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS;
-  const value = await signSession({ promoterId, expiresAt }, secret);
+  const value = await signSession({ promoterId, version: sessionVersion, expiresAt }, secret);
 
-  (await cookies()).set(SESSION_COOKIE, value, {
+  const jar = await cookies();
+  // The other name first, so a cookie left over from a deploy on the other side
+  // of the https line cannot sit there shadowing the one being set.
+  for (const name of SESSION_COOKIE_NAMES) jar.delete(name);
+
+  jar.set(sessionCookieName(isProduction), value, {
     httpOnly: true,
     sameSite: "lax",
+    // Both of these are also what `__Host-` requires: no domain, path at the
+    // root, secure. Changing either would silently stop the browser storing it.
     secure: isProduction,
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
@@ -38,7 +59,8 @@ export async function signIn(promoterId: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
-  (await cookies()).delete(SESSION_COOKIE);
+  const jar = await cookies();
+  for (const name of SESSION_COOKIE_NAMES) jar.delete(name);
 }
 
 export type Promoter = typeof schema.promoters.$inferSelect;
@@ -48,9 +70,12 @@ export type Promoter = typeof schema.promoters.$inferSelect;
  *
  * The row is re-read rather than trusted from the cookie, so deleting a promoter
  * logs them out on their next request instead of at the end of the fortnight.
+ * The same read is what makes revocation possible: a cookie naming a generation
+ * the account has moved past is refused here, which is how changing a password
+ * signs out the laptop somebody left on a train.
  */
 export async function currentPromoter(): Promise<Promoter | null> {
-  const cookie = (await cookies()).get(SESSION_COOKIE)?.value;
+  const cookie = (await cookies()).get(sessionCookieName(isProduction))?.value;
   if (!cookie) return null;
 
   const session = await readSession(cookie, await requireSecret("SESSION_SECRET"));
@@ -62,7 +87,9 @@ export async function currentPromoter(): Promise<Promoter | null> {
     .from(schema.promoters)
     .where(eq(schema.promoters.id, session.promoterId))
     .limit(1);
-  return promoter ?? null;
+  if (!promoter) return null;
+
+  return sessionIsCurrent(session, promoter.sessionVersion) ? promoter : null;
 }
 
 /**
@@ -75,7 +102,9 @@ export async function requirePromoter(): Promise<Promoter> {
   return promoter;
 }
 
-export type LoginResult = { ok: true; promoterId: string } | { ok: false };
+export type LoginResult =
+  | { ok: true; promoterId: string; sessionVersion: number }
+  | { ok: false };
 
 /**
  * Wrong password, unknown promoter and locked-out account all give the same
@@ -118,7 +147,7 @@ export async function attemptLogin(db: Db, slug: string, password: string): Prom
       .where(eq(schema.promoters.id, promoter.id));
   }
 
-  return { ok: true, promoterId: promoter.id };
+  return { ok: true, promoterId: promoter.id, sessionVersion: promoter.sessionVersion };
 }
 
 async function recordFailure(db: Db, promoter: Promoter, now: number): Promise<void> {
