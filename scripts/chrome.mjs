@@ -32,9 +32,11 @@ export function chromeCandidates(platform = process.platform, env = process.env)
       env["LOCALAPPDATA"] ?? "",
     ]
       .filter(Boolean)
+      // Joined as Windows paths whatever this is running on: the list describes
+      // that platform, and a Linux runner testing it was getting forward slashes.
       .flatMap((root) => [
-        path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
-        path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
+        path.win32.join(root, "Google", "Chrome", "Application", "chrome.exe"),
+        path.win32.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
       ]);
   }
   return [
