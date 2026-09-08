@@ -1,4 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { FighterPortrait } from "@/components/FighterPortrait";
 import {
   cutoutSurvives,
   mediaKeyOf,
@@ -81,6 +84,53 @@ describe("the stylised portrait's place in the order", () => {
       parallaxTravel({ kind: "photo", src: photo }),
     );
     expect(parallaxTravel({ kind: "stylised", src: art })).toBeLessThan(1);
+  });
+});
+
+/**
+ * The profile page and the running-order card both draw through
+ * `FighterPortrait`, and it used to read `fighter.photo` itself. That made it
+ * the one surface with an opinion of its own: a fighter who asked for a
+ * stylised portrait and approved it got it in the preview and in their video,
+ * and their own page still showed the photograph underneath it.
+ *
+ * So this renders the component and holds what it draws to what the sequence
+ * draws, which is `portraitOf` in both cases. It is a component test in a suite
+ * of pure ones for one reason: the thing that went wrong was not the rule but
+ * one caller ignoring it, and only rendering can see that.
+ */
+describe("what the profile page draws", () => {
+  const named = (over: Partial<Fighter>): Fighter => ({ ...base, ...over });
+  const drawn = (fighter: Fighter) =>
+    renderToStaticMarkup(createElement(FighterPortrait, { fighter, corner: "red" as const }));
+  const source = (markup: string) => markup.match(/<img[^>]*\ssrc="([^"]*)"/)?.[1] ?? null;
+
+  const photo = "/media/fighters/f1-cd34.jpg";
+  const cutout = "/media/cutouts/f1-ab12.webp";
+  const art = "/media/portraits/f1-ef56.png";
+
+  it("shows whatever the sequence would show, in the same order", () => {
+    for (const fighter of [
+      named({ stylised: art, cutout, photo }),
+      named({ cutout, photo }),
+      named({ photo }),
+      named({ stylised: art, photo }),
+    ]) {
+      const portrait = portraitOf(fighter);
+      expect(portrait.kind).not.toBe("plate");
+      expect(source(drawn(fighter))).toBe(portrait.kind === "plate" ? null : portrait.src);
+    }
+  });
+
+  /** The plate is for a fighter who sent nothing, and for nobody else. */
+  it("falls back to the initialled plate only where the sequence does", () => {
+    const markup = drawn(base);
+    expect(source(markup)).toBeNull();
+    expect(markup).toContain(plateInitials(base.name));
+  });
+
+  it("never puts the photograph over the artwork a fighter approved", () => {
+    expect(source(drawn(named({ stylised: art, cutout, photo })))).toBe(art);
   });
 });
 
