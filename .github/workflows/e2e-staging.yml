@@ -106,7 +106,15 @@ jobs:
       # The suite finishes with a fighter submitted and photographed, and the
       # demo card is only worth looking at while it is uneven. This does not
       # clear the bucket — see DEPLOY.md for the object it leaves behind.
+      #
+      # INVITE_KEY is staging's own, and the remote seed refuses to run without
+      # it: it writes thirty invite tokens and seals every one of them on the way
+      # in, so it is the seed's environment that needs the key and not only the
+      # Worker's secrets. Without it this step failed and left the card as the
+      # suite had finished with it — a fighter submitted and photographed.
       - name: Put the demo card back
         if: always() && inputs.reseed
+        env:
+          INVITE_KEY: ${{ secrets.STAGING_INVITE_KEY }}
         run: |
           npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production

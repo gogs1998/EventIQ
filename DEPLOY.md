@@ -691,9 +691,10 @@ a plan. `eventiq-staging` the database, `eventiq-media-staging` the bucket, all
 fourteen migrations, three secrets, a deploy at
 `https://eventiq-staging.gordonshepherd1.workers.dev` whose `/api/health`
 answers `"env":"staging"`, and the demo card seeded into it. `STAGING_URL` and
-`STAGING_PROMOTER_PASSWORD` are set as repository secrets, so
-`e2e-staging.yml` has what it needs. The steps below are what to run on the next
-account, and what to read when something about this one looks wrong.
+`STAGING_PROMOTER_PASSWORD` are set as repository secrets, and so is
+[`STAGING_INVITE_KEY`](#the-browser-walk-from-a-button), which is what lets the
+walk put the demo card back when it finishes. The steps below are what to run on
+the next account, and what to read when something about this one looks wrong.
 
 The same Cloudflare token as production — it is account-scoped, and staging is
 in the same account.
@@ -790,18 +791,37 @@ the job refuses anything under `eventiq.win`, and it asks `/api/health` which
 environment answered. It re-seeds staging when it finishes, because the suite
 leaves a fighter submitted and photographed.
 
-Two repository secrets on top of the ones the render workflow already needs,
-both set on 8 September 2026, and a third that is only wanted if the renderer is
-ever pointed at staging:
+Three repository secrets on top of the ones the render workflow already needs,
+and a fourth that is only wanted if the renderer is ever pointed at staging:
 
 | Secret | Value |
 | --- | --- |
 | `STAGING_URL` | the staging Worker's address, no trailing slash |
 | `STAGING_PROMOTER_PASSWORD` | the `SEED_PROMOTER_PASSWORD` staging was seeded with |
+| `STAGING_INVITE_KEY` | the `INVITE_KEY` staging was seeded with, for the re-seed at the end |
 | `STAGING_RENDER_KEY` | only if you want [Render tapes](#rendering-from-ci) to run against staging |
 
+All three are set. **`STAGING_INVITE_KEY` is the one the re-seed cannot do
+without.** The remote seed writes thirty invite tokens and seals every one of
+them as it goes, so it refuses to run at all without the key in its own
+environment; the Worker holding the same value as a `wrangler secret` is a
+different thing and does not satisfy it. Without it the last step of the run
+failed and staging stayed as the suite had left it, with Chloe Baines submitted
+and photographed — which is the one state the demo card demonstrates nothing in.
+It is the value from `wrangler secret put INVITE_KEY --env staging`, and it is
+not production's.
+
+`STAGING_RENDER_KEY` does not exist yet and nothing needs it to. The walk's
+render-key step reads `RENDER_KEY` from the environment or `.dev.vars` and
+reports `skipped: no RENDER_KEY …` when it finds neither, so the workflow does
+not pass it and there is nothing to set until somebody wants that step to
+actually run against staging. When that day comes it is the value
+`wrangler secret put RENDER_KEY --env staging` was given — the one
+`tee /dev/tty` printed while staging was being stood up — because a render key
+belongs to one Worker and production's opens nothing here.
+
 Anyone who can push a workflow can read a repository secret, which is why none
-of these is the production password.
+of these is the production password or production's invite key.
 
 ### Caching the programme
 
