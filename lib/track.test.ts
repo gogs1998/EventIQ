@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTrackBody } from "@/lib/track";
+import { countableRequest, parseTrackBody } from "@/lib/track";
 
 /**
  * /api/track takes no credential, because the beacon is sent as the page goes.
@@ -106,5 +106,83 @@ describe("parseTrackBody", () => {
       sponsorId: null,
       sessionId,
     });
+  });
+});
+
+/**
+ * The other half of the same argument. `parseTrackBody` decides whether a body
+ * describes an interaction; this decides whether the caller is a person having
+ * one. The guess falls towards not counting, which is the opposite direction
+ * from lib/bots.ts and for the opposite reason — see countableRequest.
+ */
+const beacon = {
+  userAgent:
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+  secFetchMode: "no-cors",
+  secFetchSite: "same-origin",
+  secFetchDest: "empty",
+};
+
+describe("countableRequest", () => {
+  it("counts a spectator's beacon", () => {
+    expect(countableRequest(beacon)).toBe(true);
+    // A fetch() rather than sendBeacon, which is the fallback in lib/analytics.
+    expect(countableRequest({ ...beacon, secFetchMode: "cors" })).toBe(true);
+    expect(countableRequest({ ...beacon, secFetchSite: "same-site" })).toBe(true);
+  });
+
+  it("drops the fetchers and the crawlers", () => {
+    for (const userAgent of [
+      "WhatsApp/2.24.9.78 A",
+      "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot",
+      "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
+      "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)",
+      "Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)",
+    ]) {
+      expect(countableRequest({ ...beacon, userAgent }), userAgent).toBe(false);
+    }
+  });
+
+  /**
+   * The browser walkthrough is real Chrome and writes as it goes. Its taps are a
+   * test run rather than a spectator, and they must not reach a sponsor's
+   * report — which is why the headless list is separate from the unfurler one.
+   */
+  it("drops a headless browser and a scripted client", () => {
+    for (const userAgent of [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36",
+      "curl/8.7.1",
+      "python-requests/2.32.3",
+      "Go-http-client/2.0",
+      "okhttp/4.12.0",
+      "PostmanRuntime/7.39.0",
+    ]) {
+      expect(countableRequest({ ...beacon, userAgent }), userAgent).toBe(false);
+    }
+  });
+
+  it("drops a caller with no agent at all", () => {
+    expect(countableRequest({ ...beacon, userAgent: null })).toBe(false);
+    expect(countableRequest({ ...beacon, userAgent: "" })).toBe(false);
+  });
+
+  /**
+   * Every browser that can send a beacon sends these. A POST carrying none of
+   * them is something holding an HTTP client, whatever its agent claims.
+   */
+  it("drops a request with none of the headers a browser sends", () => {
+    expect(
+      countableRequest({ ...beacon, secFetchMode: null, secFetchSite: null, secFetchDest: null }),
+    ).toBe(false);
+    // Any one of the three is enough, because they arrive together or not at all.
+    expect(countableRequest({ ...beacon, secFetchMode: null, secFetchDest: null })).toBe(true);
+  });
+
+  it("drops a post from somewhere that is not the programme", () => {
+    expect(countableRequest({ ...beacon, secFetchSite: "cross-site" })).toBe(false);
+    // Typed into an address bar, or sent by something with no page behind it.
+    expect(countableRequest({ ...beacon, secFetchSite: "none" })).toBe(false);
+    expect(countableRequest({ ...beacon, secFetchSite: "Cross-Site" })).toBe(false);
   });
 });
