@@ -17,7 +17,7 @@ export async function generateMetadata({
   const { slug } = await params;
   // Through the same gate as the body. A draft show's name and venue in an
   // unfurled link is the show leaking, whatever the page itself answers.
-  const card = await loadVisibleCard(await getDb(), slug);
+  const card = await loadVisibleCard(slug);
   if (!card) return {};
 
   const { event } = card;
@@ -30,7 +30,7 @@ export async function generateMetadata({
 export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) {
   const { slug } = await params;
   const db = await getDb();
-  const card = await loadVisibleCard(db, slug);
+  const card = await loadVisibleCard(slug);
   if (!card) notFound();
 
   const { event } = card;

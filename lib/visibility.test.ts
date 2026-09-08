@@ -28,6 +28,11 @@ vi.mock("@/lib/db/queries", async (importOriginal) => ({
   loadCard: async () => stub.card,
 }));
 
+vi.mock("@/lib/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/db")>()),
+  getDb: async () => ({}) as never,
+}));
+
 vi.mock("@/lib/session", () => ({
   currentPromoter: async () => (stub.viewerId ? { id: stub.viewerId } : null),
 }));
@@ -130,37 +135,36 @@ describe("renderableTo", () => {
  * starts being applied.
  */
 describe("loadVisibleCard, with two promoters on the instance", () => {
-  const db = {} as never;
 
   it("never hands one promoter another's draft", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard(db, "budo-79")).toBeNull();
+    expect(await loadVisibleCard("budo-79")).toBeNull();
   });
 
   it("answers the same way to a stranger, so signing in tells you nothing", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = null;
-    expect(await loadVisibleCard(db, "budo-79")).toBeNull();
+    expect(await loadVisibleCard("budo-79")).toBeNull();
   });
 
   it("gives a promoter their own draft", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = "budo";
-    expect(await loadVisibleCard(db, "budo-79")).not.toBeNull();
+    expect(await loadVisibleCard("budo-79")).not.toBeNull();
   });
 
   /** Published is published: the other promoter is a member of the public. */
   it("gives anybody a published card, whoever owns it", async () => {
     stub.card = cardOf(true, "budo");
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard(db, "budo-79")).not.toBeNull();
+    expect(await loadVisibleCard("budo-79")).not.toBeNull();
   });
 
   it("answers null for a slug with nothing behind it", async () => {
     stub.card = null;
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard(db, "no-such-show")).toBeNull();
+    expect(await loadVisibleCard("no-such-show")).toBeNull();
   });
 });
 

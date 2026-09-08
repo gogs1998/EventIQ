@@ -1,6 +1,7 @@
+import { cache } from "react";
 import { headers } from "next/headers";
 import { digestsMatch, RENDER_KEY_HEADER, secretDigest, secretMatches } from "@/lib/auth";
-import { readSecret, type Db } from "@/lib/db";
+import { getDb, readSecret, type Db } from "@/lib/db";
 import {
   eventVisibility,
   eventsOfPromoter,
@@ -43,15 +44,25 @@ export function visibleTo(
  * them apart is a way of finding out what a promoter has in the diary. The
  * session is only read when the card is unpublished, so the ordinary case of a
  * spectator opening a live programme costs no extra query.
+ *
+ * **Once per request, however many times it is asked.** Every public route here
+ * loads its card twice — `generateMetadata` and the page body are separate
+ * functions and each needs the whole card — which was two `loadCard` calls, four
+ * D1 round trips, for one programme. React's `cache` makes the second one free
+ * for the length of a request and nothing longer: this is deduplication, not
+ * caching, and a promoter who publishes a change still sees it on the next
+ * request. The slug is the whole key, which is why the connection is fetched in
+ * here rather than passed in — `getDb` hands back a new Drizzle instance every
+ * time, and an argument that is never equal to itself memoises nothing.
  */
-export async function loadVisibleCard(db: Db, slug: string): Promise<LoadedCard | null> {
-  const card = await loadCard(db, slug);
+export const loadVisibleCard = cache(async (slug: string): Promise<LoadedCard | null> => {
+  const card = await loadCard(await getDb(), slug);
   if (!card) return null;
   if (card.published) return card;
 
   const promoter = await currentPromoter();
   return visibleTo(card, promoter?.id) ? card : null;
-}
+});
 
 /**
  * Who is allowed to render a show.
