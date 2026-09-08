@@ -447,13 +447,13 @@ waiting for, and prints the steps a real run would take. Worth a few seconds
 before a deploy you have not done in a while.
 
 **It refuses to deploy production from a side branch.** Everything here is built
-on branches that are merged into `cursor/eventiq-digital-fight-programme`, often
+on branches that are merged into `main`, often
 several at once in separate worktrees, and a deploy is a thing somebody types
 after doing something else. The script reads the branch and stops unless it is
 that one:
 
 ```
-This is branch "wave2/staging", not "cursor/eventiq-digital-fight-programme".
+This is branch "wave2/staging", not "main".
 ```
 
 `--force` overrides it and `--env staging` sidesteps it, which is the point:

@@ -49,7 +49,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? `https://${DOMAIN}`;
  * feature on eventiq.win with the migrations to match — and migrations here are
  * additive with no down path, so that is not a `wrangler rollback` away.
  */
-const DEPLOY_BRANCH = process.env.DEPLOY_BRANCH ?? "cursor/eventiq-digital-fight-programme";
+const DEPLOY_BRANCH = process.env.DEPLOY_BRANCH ?? "main";
 
 /** Null where this is not a git checkout, which is a state to report, not to guess at. */
 function currentBranch() {
