@@ -38,11 +38,11 @@
  * than piling up on disk.
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
+import { chromeOrThrow } from "./chrome.mjs";
 import { ensureCutouts, needsCutout } from "./cutouts.mjs";
 import { devVars } from "./dev-vars.mjs";
 import { environmentFrom } from "./environments.mjs";
@@ -83,54 +83,6 @@ const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (me
  */
 const RENDER_KEY_HEADER = "x-eventiq-render-key";
 const renderKey = process.env.RENDER_KEY || devVars().RENDER_KEY;
-
-/**
- * Where Chrome is, per platform.
- *
- * The previous version was `[...three Linux paths].find(Boolean)`, which returns
- * the first element of a list of string literals — so it always answered
- * "/usr/local/bin/google-chrome" and every machine that was not one particular
- * Linux box needed CHROME_PATH exported before anything would render. Nothing
- * said so: puppeteer failed to launch and the message was about a spawn rather
- * than about a browser being somewhere else.
- */
-export function chromeCandidates(platform = process.platform, env = process.env) {
-  if (platform === "darwin") {
-    return [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ];
-  }
-  if (platform === "win32") {
-    return [
-      env["PROGRAMFILES"] ?? "C:\\Program Files",
-      env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)",
-      env["LOCALAPPDATA"] ?? "",
-    ]
-      .filter(Boolean)
-      .flatMap((root) => [
-        path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
-        path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
-      ]);
-  }
-  return [
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/opt/google/chrome/chrome",
-    "/usr/local/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/snap/bin/chromium",
-  ];
-}
-
-/** CHROME_PATH first, because a machine with two browsers on it gets to choose. */
-export function resolveChrome(env = process.env, exists = existsSync) {
-  if (env.CHROME_PATH) return { path: env.CHROME_PATH, fromEnv: true };
-  const found = chromeCandidates(process.platform, env).find((candidate) => exists(candidate));
-  return { path: found ?? null, fromEnv: false };
-}
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -183,18 +135,7 @@ let checked = null;
 async function preflight() {
   if (checked) return checked;
 
-  const chrome = resolveChrome();
-  if (!chrome.path || !existsSync(chrome.path)) {
-    throw new Error(
-      chrome.fromEnv
-        ? `CHROME_PATH is set to "${chrome.path}" and there is nothing there.`
-        : "No Chrome found, and every frame is a screenshot of one.\n" +
-            "  Set CHROME_PATH to the browser to render with. Looked in:\n" +
-            chromeCandidates()
-              .map((candidate) => `    ${candidate}`)
-              .join("\n"),
-    );
-  }
+  const chrome = chromeOrThrow("No Chrome found, and every frame is a screenshot of one.");
 
   try {
     await run("ffmpeg", ["-version"], { capture: true });
@@ -207,7 +148,7 @@ async function preflight() {
     );
   }
 
-  checked = chrome.path;
+  checked = chrome;
   return checked;
 }
 

@@ -9,28 +9,67 @@
  * which is the difference between looking like a product and looking like
  * someone's localhost. Scroll and pause timings are scripted so the result is
  * repeatable rather than depending on how steadily somebody moves a mouse.
+ *
+ * It wants an X session: the desktop is painted a flat dark colour, the pointer
+ * is parked out of shot between moves and the window is closed by name. None of
+ * that exists on a machine without X, so each of those is optional and the run
+ * says which ones were missing rather than silently recording a tour with a
+ * mouse pointer sitting on the fighters' faces — which is a fault nobody sees
+ * until they watch the result back. HANDOVER section 17.
  */
 import { spawn, execFile } from "node:child_process";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
+import { chromeOrThrow } from "./chrome.mjs";
 
 const run = promisify(execFile);
 
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const PORT = 9333;
-const PROFILE = "/tmp/eventiq-tour-profile";
+// The profile is a throwaway, so it belongs wherever this machine keeps those
+// rather than at a path that only exists on one of the three platforms the rest
+// of these scripts run on.
+const PROFILE = path.join(tmpdir(), "eventiq-tour-profile");
 const WIDTH = 460;
 const HEIGHT = 1010;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A desktop tool that may not be installed. Said once, by name, because the
+ * things these do are invisible in the recording until they are missing: the
+ * pointer is in shot, or the desktop behind the window is somebody's wallpaper.
+ */
+const DESKTOP_TOOLS = {
+  xsetroot: "the desktop behind the window is whatever it already was",
+  xdotool: "park the mouse pointer out of shot by hand before recording",
+  pkill: "close the tour window by hand",
+};
+
+const missing = new Set();
+async function desktop(command, commandArgs) {
+  if (missing.has(command)) return false;
+  try {
+    await run(command, commandArgs);
+    return true;
+  } catch {
+    missing.add(command);
+    console.log(`  no ${command} on this machine — ${DESKTOP_TOOLS[command]}`);
+    return false;
+  }
+}
+
 async function setup() {
+  const chrome = chromeOrThrow("No Chrome found, and the recording is a window of one.");
+
   // A dark desktop so the area around the window is not a distraction.
-  await run("xsetroot", ["-solid", "#050506"]).catch(() => {});
+  await desktop("xsetroot", ["-solid", "#050506"]);
 
   const x = Math.round((1920 - WIDTH) / 2);
   const child = spawn(
-    "/usr/local/bin/google-chrome",
+    chrome,
     [
       `--app=${BASE}/qr`,
       `--remote-debugging-port=${PORT}`,
@@ -52,7 +91,7 @@ async function setup() {
 
   await sleep(4000);
   // Park the pointer out of shot.
-  await run("xdotool", ["mousemove", "1900", "1190"]).catch(() => {});
+  await desktop("xdotool", ["mousemove", "1900", "1190"]);
   console.log("window up");
 }
 
@@ -124,7 +163,7 @@ async function goto(page, path) {
 
 /** Keeps the pointer out of shot, which matters most while the video is playing. */
 async function parkCursor() {
-  await run("xdotool", ["mousemove", "1905", "1195"]).catch(() => {});
+  await desktop("xdotool", ["mousemove", "1905", "1195"]);
 }
 
 async function tour() {
@@ -230,8 +269,8 @@ async function tour() {
 }
 
 async function teardown() {
-  await run("pkill", ["-f", PROFILE]).catch(() => {});
-  console.log("closed");
+  const closed = await desktop("pkill", ["-f", PROFILE]);
+  console.log(closed ? "closed" : "still open");
 }
 
 const phase = process.argv[2];

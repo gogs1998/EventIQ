@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
-import { chromeCandidates, claimSql, renderInputsFrom, resolveChrome } from "./render-tape.mjs";
+import { claimSql, renderInputsFrom } from "./render-tape.mjs";
 
 /**
  * The renderer's pure parts. The capture loop needs a browser and a dev server
@@ -122,37 +122,5 @@ describe("claimSql", () => {
    */
   it("says whether it won by returning the row", () => {
     expect(sql().trimEnd().endsWith("RETURNING id")).toBe(true);
-  });
-});
-
-describe("resolveChrome", () => {
-  /**
-   * This was `[three Linux paths].find(Boolean)`, which returns the first string
-   * in the list whether or not anything is there. Every machine that was not one
-   * particular Linux box needed CHROME_PATH before it would render, and the
-   * failure was a spawn error naming a path nobody had chosen.
-   */
-  it("looks somewhere plausible on each platform", () => {
-    expect(chromeCandidates("darwin")[0]).toContain("Google Chrome.app");
-    expect(chromeCandidates("linux")).toContain("/usr/bin/google-chrome");
-    expect(chromeCandidates("win32", { PROGRAMFILES: "C:\\Program Files" })).toContain(
-      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    );
-  });
-
-  it("picks the first browser that is actually there", () => {
-    const found = resolveChrome({}, (candidate) => candidate === "/usr/bin/chromium");
-    expect(found.path === "/usr/bin/chromium" || found.path === null).toBe(true);
-  });
-
-  it("says nothing was found rather than naming a path that is not there", () => {
-    expect(resolveChrome({}, () => false)).toEqual({ path: null, fromEnv: false });
-  });
-
-  it("lets CHROME_PATH win, and remembers that it was asked for", () => {
-    expect(resolveChrome({ CHROME_PATH: "/opt/chrome" }, () => false)).toEqual({
-      path: "/opt/chrome",
-      fromEnv: true,
-    });
   });
 });

@@ -15,13 +15,13 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
+import { chromeOrThrow } from "./chrome.mjs";
 import { devVars } from "./dev-vars.mjs";
 import { brandOpenGraph } from "./make-icons.mjs";
 
 const run = promisify(execFile);
 
 const BASE = process.env.BASE ?? "http://localhost:3000";
-const CHROME = process.env.CHROME_PATH ?? "/usr/local/bin/google-chrome";
 const TMP = ".stills/shots";
 const OUT = "public/screens";
 
@@ -304,8 +304,24 @@ async function main() {
   await mkdir(".stills/review", { recursive: true });
   await mkdir(OUT, { recursive: true });
 
+  // Both of them before anything is captured. Half a gallery and an ffmpeg that
+  // is not installed is a run that looks like it worked until you open the
+  // folder, and the browser lookup says where it looked rather than failing as
+  // a spawn error naming a path nobody chose.
+  const chrome = chromeOrThrow("No Chrome found, and every shot is a screenshot of one.");
+  try {
+    await run("ffmpeg", ["-version"]);
+  } catch {
+    throw new Error(
+      "ffmpeg is not on PATH, and every shot goes through it on the way to WebP.\n" +
+        "  macOS: brew install ffmpeg\n" +
+        "  Debian: apt-get install -y ffmpeg\n" +
+        "  Windows: winget install Gyan.FFmpeg",
+    );
+  }
+
   const browser = await puppeteer.launch({
-    executablePath: CHROME,
+    executablePath: chrome,
     args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
   });
 
