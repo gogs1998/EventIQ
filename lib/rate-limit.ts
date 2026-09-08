@@ -85,6 +85,21 @@ export async function withinImportLimit(request: Request): Promise<boolean> {
 }
 
 /**
+ * The same allowance, keyed on the promoter rather than on the address.
+ *
+ * The card editor's paste box goes through a server action with a session on it,
+ * so there is a better answer to "who is asking" than an address: an office with
+ * two people entering two cards from one connection is two promoters, and a
+ * promoter on a train is one promoter however many addresses they arrive from.
+ * It shares the binding with the open endpoint deliberately — the thing being
+ * protected is somebody else's website, and it should not matter which of our
+ * doors a lookup came through.
+ */
+export async function withinPromoterImportLimit(promoterId: string): Promise<boolean> {
+  return within("IMPORT_LOOKUPS", `promoter:${promoterId}`);
+}
+
+/**
  * Headers rather than a request, because the login form posts to a server action
  * and there is no Request to hand there.
  */

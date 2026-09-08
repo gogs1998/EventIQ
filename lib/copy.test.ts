@@ -23,6 +23,7 @@ import {
   tapeForEveryBout,
   winsEdge,
   renderCountLabel,
+  RECORD_IMPORT,
   WITHDRAWN,
 } from "@/lib/copy";
 
@@ -55,6 +56,8 @@ const EMPTY_STRINGS = [
 ];
 
 const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
+
+const IMPORT_STRINGS = Object.values(RECORD_IMPORT);
 
 const RENDER_STRINGS = [
   RENDER_SECTION.heading,
@@ -392,6 +395,56 @@ describe("the withdrawal copy", () => {
   /** The rest of the card is fine, and a spectator should be told that plainly. */
   it("tells a spectator the rest of the card is unchanged", () => {
     expect(WITHDRAWN.note).toContain("rest of the running order");
+  });
+});
+
+/**
+ * The card editor's record importer.
+ *
+ * This is the promoter filling in the fighters who never replied, which makes it
+ * the copy most likely to slip into saying so. The rule the whole product keeps
+ * is that a blank profile is a state and not a fault, and it applies to what is
+ * said *about* a fighter as much as to what is said to one.
+ */
+describe("the record importer copy", () => {
+  it("keeps the established tone", () => {
+    for (const line of IMPORT_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("never says a fighter has not answered", () => {
+    for (const line of IMPORT_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/ignor|never repl|has not sent|lazy|chase them/i);
+    }
+  });
+
+  /**
+   * The one thing it must not do is present an imported number as a fact.
+   * Amateur records go stale, and a programme that misstates one in front of a
+   * room that knows better is worse than one that says nothing.
+   */
+  it("says the numbers are the promoter's to confirm", () => {
+    expect(RECORD_IMPORT.caution).toMatch(/out of date/i);
+    expect(RECORD_IMPORT.caution).toMatch(/confirm/i);
+    expect(RECORD_IMPORT.blurb).toMatch(/before anything is saved/i);
+  });
+
+  /** Anything a person typed wins, and the box says so before it is pressed. */
+  it("promises to fill only what is empty", () => {
+    expect(RECORD_IMPORT.blurb).toMatch(/only the boxes that are still empty/i);
+    expect(RECORD_IMPORT.kept).toMatch(/already on the card/i);
+  });
+
+  /** A bad link is told what a good one looks like, never just that it failed. */
+  it("shows what a working link looks like", () => {
+    expect(RECORD_IMPORT.notAProfile).toContain("sherdog.com/fighter/");
   });
 });
 

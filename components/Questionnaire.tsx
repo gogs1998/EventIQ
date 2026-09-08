@@ -138,6 +138,7 @@ type ImportStatus = "idle" | "loading" | "error" | "done";
 const IMPORT_FIELD_OF: Partial<Record<keyof Draft, string>> = {
   age: "age",
   heightCm: "height",
+  hometown: "hometown",
   w: "record",
   l: "record",
   d: "record",
@@ -254,7 +255,9 @@ export function Questionnaire({
 
   const runImport = async () => {
     setImportStatus("loading");
-    const outcome = await lookupTape(importUrl);
+    // The show goes with it so the importer's hourly ceiling is counted per
+    // card. It is not a credential: this endpoint takes none, deliberately.
+    const outcome = await lookupTape(importUrl, card.event.slug);
     setImportOutcome(outcome);
 
     if (!outcome.ok) {
@@ -276,6 +279,7 @@ export function Questionnaire({
       put("nickname", tape.nickname, "nickname");
       put("age", tape.age?.toString(), "age");
       put("heightCm", tape.heightCm?.toString(), "height");
+      put("hometown", tape.hometown, "hometown");
       put("w", tape.record?.w.toString(), "record");
       put("l", tape.record?.l.toString(), "record");
       put("d", tape.record?.d.toString(), "record");
@@ -749,7 +753,10 @@ export function Questionnaire({
                   placeholder="178"
                 />
               </Field>
-              <Field label="Hometown">
+              <Field
+                label="Hometown"
+                from={importedKeys.has("hometown") ? sourceLabel : undefined}
+              >
                 <input
                   className={inputClass}
                   value={draft.hometown}

@@ -1,5 +1,11 @@
 import { getDb } from "@/lib/db";
-import { TOO_MANY_LOOKUPS, importRecord } from "@/lib/record-import";
+import { eventVisibility } from "@/lib/db/queries";
+import {
+  TOO_MANY_LOOKUPS,
+  UNATTRIBUTED_SCOPE,
+  eventScope,
+  importRecord,
+} from "@/lib/record-import";
 import { withinImportLimit } from "@/lib/rate-limit";
 
 /**
@@ -23,8 +29,9 @@ export async function POST(request: Request) {
   }
 
   let url: unknown;
+  let slug: unknown;
   try {
-    ({ url } = (await request.json()) as { url?: unknown });
+    ({ url, slug } = (await request.json()) as { url?: unknown; slug?: unknown });
   } catch {
     return Response.json({ ok: false, kind: "not-a-profile" });
   }
@@ -33,6 +40,15 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, kind: "not-a-profile" });
   }
 
-  const outcome = await importRecord(await getDb(), url);
+  const db = await getDb();
+
+  // Which allowance this lookup is counted against. The show a fighter is on,
+  // where they named one we recognise, so one card's thirty fighters cannot use
+  // up another card's hour. It is not a credential and grants nothing: naming
+  // somebody else's show only chooses which bounded allowance to spend.
+  const event = typeof slug === "string" && slug ? await eventVisibility(db, slug) : null;
+  const scope = event ? eventScope(event.id) : UNATTRIBUTED_SCOPE;
+
+  const outcome = await importRecord(db, url, scope);
   return Response.json(outcome);
 }

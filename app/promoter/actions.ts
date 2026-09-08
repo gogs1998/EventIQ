@@ -10,8 +10,16 @@ import { newId, newToken } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
+import {
+  recordDiff,
+  type ImportOutcome,
+  type ImportTarget,
+  type RecordFill,
+} from "@/lib/fighter-import";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
+import { withinPromoterImportLimit } from "@/lib/rate-limit";
+import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
@@ -556,6 +564,179 @@ export async function updateFighter(
       return DONE;
     },
   );
+}
+
+// --------------------------------------------------- filling a fighter in
+
+/**
+ * The promoter's own record importer, one fighter at a time.
+ *
+ * The weakest part of the product is the undercard, and the reason is that
+ * thirty fighters never reply. The endpoint at /api/import-record has always
+ * been able to fix that; what it lacked was a box in the place the promoter is
+ * already standing. This is that box, and it deliberately does not go through
+ * the open endpoint: it runs with the promoter's session, on a fighter their own
+ * card carries, and it is counted against the promoter rather than against
+ * whatever address they happen to be on — an office entering two cards from one
+ * connection is two promoters, and a promoter on a train is one.
+ *
+ * **One fighter at a time, deliberately.** Doing a whole card on one press is
+ * the obvious next thing and is not built here. Sherdog's robots.txt permits
+ * crawling and robots.txt is not a licence (HANDOVER section 8a), the owner has
+ * not settled the terms question, and thirty pages on one button press is
+ * exactly what turns "one page, on a person's instruction, at human rate" into
+ * something that would have to be defended. That is a decision for a person, not
+ * one for this file to take on their behalf.
+ *
+ * Nothing is written here. It reads the page and answers with what it would do.
+ */
+export async function lookupFighterRecord(
+  slug: string,
+  fighterId: string,
+  url: string,
+): Promise<ActionResult<{ outcome: ImportOutcome; diff: RecordFill[] }>> {
+  return attempt(
+    { event: "lookupFighterRecord", route: `/promoter/e/${slug}/card`, fighterId },
+    ACTION_ERRORS.importNotRead,
+    async () => {
+      const found = await importableFighter(slug, fighterId);
+      if (!found.ok) return found;
+      const { db, promoter, fighter } = found;
+
+      const outcome = await importRecord(db, url, promoterScope(promoter.id));
+      if (!outcome.ok) return done({ outcome, diff: [] });
+
+      return done({ outcome, diff: recordDiff(targetOf(fighter), outcome.tape) });
+    },
+  );
+}
+
+/**
+ * Writes the boxes that were empty, and only those.
+ *
+ * The page is read again rather than the confirmation being taken at its word,
+ * so what goes on the card is what the source actually said rather than what
+ * came back through a browser. It costs one cached row read: the lookup a moment
+ * ago put the page in `import_cache`, and nothing goes out to Sherdog again.
+ *
+ * "Where empty" is decided here rather than when the diff was drawn, because a
+ * fighter can fill their own form in between the two — and if they have, theirs
+ * wins. Anything a person typed beats anything a page said.
+ */
+export async function applyFighterRecord(
+  slug: string,
+  fighterId: string,
+  url: string,
+): Promise<ActionResult<{ applied: string[] }>> {
+  return attempt(
+    { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const found = await importableFighter(slug, fighterId);
+      if (!found.ok) return found;
+      const { db, promoter, event, fighter } = found;
+
+      const outcome = await importRecord(db, url, promoterScope(promoter.id));
+      if (!outcome.ok) {
+        return refuse("reason" in outcome ? outcome.reason : ACTION_ERRORS.importNotRead);
+      }
+
+      const { tape } = outcome;
+      const filled = recordDiff(targetOf(fighter), tape).filter((row) => row.fills);
+      const filling = new Set(filled.map((row) => row.key));
+      if (!filling.size) return done({ applied: [] });
+
+      await db
+        .update(schema.fighters)
+        .set({
+          // Bounded on the way in like everything else off a form: this is text
+          // from somebody else's website, and it lands on a card.
+          ...(filling.has("name") && tape.name ? { name: tape.name.trim().slice(0, 60) } : {}),
+          ...(filling.has("age") ? { age: tape.age } : {}),
+          ...(filling.has("hometown") && tape.hometown
+            ? { hometown: tape.hometown.trim().slice(0, 60) }
+            : {}),
+          // All three or none, so an imported record can never be read back as a
+          // debut. Same rule as the questionnaire's own save.
+          ...(filling.has("record") && tape.record
+            ? { recordW: tape.record.w, recordL: tape.record.l, recordD: tape.record.d }
+            : {}),
+          updatedAt: Date.now(),
+        })
+        .where(eq(schema.fighters.id, fighterId));
+
+      // A record and a hometown are two rows of the tale of the tape, so the
+      // bout's video is out of date. Asked for the card, like updateFighter: the
+      // fingerprint tells the other bouts apart for nothing.
+      await requestRenderQuietly(db, event.id, "all", { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId });
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}/card`);
+      revalidatePath(`/e/${slug}`);
+
+      return done({ applied: filled.map((row) => row.label) });
+    },
+  );
+}
+
+/**
+ * The show, the promoter, the fighter and the promoter's allowance, in the order
+ * that stops the expensive question being asked before the cheap ones.
+ *
+ * The rate limit is here rather than at each caller because both of these can
+ * end in a request to somebody else's website, and the thing being protected is
+ * that website rather than us: it should not matter which of our doors a lookup
+ * came through.
+ */
+async function importableFighter(
+  slug: string,
+  fighterId: string,
+): Promise<
+  ActionResult<{
+    db: Db;
+    promoter: Promoter;
+    event: typeof schema.events.$inferSelect;
+    fighter: typeof schema.fighters.$inferSelect;
+  }>
+> {
+  const db = await getDb();
+  const owned = await ownedEvent(db, slug);
+  if (!owned.ok) return owned;
+  const { promoter, event } = owned;
+
+  if (!(await isOnCard(db, event.id, fighterId))) return refuse(ACTION_ERRORS.notOnThisCard);
+
+  if (!(await withinPromoterImportLimit(promoter.id))) {
+    return refuse(ACTION_ERRORS.importTooMany);
+  }
+
+  const [fighter] = await db
+    .select()
+    .from(schema.fighters)
+    .where(eq(schema.fighters.id, fighterId))
+    .limit(1);
+  if (!fighter) return refuse(ACTION_ERRORS.notOnThisCard);
+
+  return done({ db, promoter, event, fighter });
+}
+
+/**
+ * The four boxes an import can fill, off the stored row.
+ *
+ * The record is all three columns or none, exactly as lib/db/queries.ts reads
+ * it: a partly stored record is not a record, and reading it as one would let an
+ * import top up a fighter's losses without their wins.
+ */
+function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
+  return {
+    name: fighter.name,
+    record:
+      fighter.recordW !== null && fighter.recordL !== null && fighter.recordD !== null
+        ? { w: fighter.recordW, l: fighter.recordL, d: fighter.recordD }
+        : null,
+    age: fighter.age,
+    hometown: fighter.hometown,
+  };
 }
 
 /** A fighter is on a card if there is an invite for them on it, and not otherwise. */

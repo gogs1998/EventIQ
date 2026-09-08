@@ -8,6 +8,7 @@ import {
   Field,
   inputClass,
 } from "@/app/promoter/e/[slug]/card/fields";
+import { RecordImport } from "@/app/promoter/e/[slug]/card/RecordImport";
 import { ActionStatus } from "@/components/ActionStatus";
 import type { ActionResult } from "@/lib/action-result";
 import { WITHDRAWN } from "@/lib/copy";
@@ -310,36 +311,43 @@ function CornerForm({
   const [, start] = useTransition();
 
   return (
-    <form
-      // Run from a transition rather than through the `action` prop, so React's
-      // automatic reset does not put the stored name back over the promoter's
-      // correction the moment the save is refused. See AddBoutForm.
-      onSubmit={(event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        start(() => submit(form));
-      }}
-      className={`grid gap-3 border-l-2 pl-3 ${accent}`}
-    >
+    // The paste box sits beside the form rather than inside it, so Enter in the
+    // one is never a submit of the other.
+    <div className={`grid gap-3 border-l-2 pl-3 ${accent}`}>
       <span className="label">{label}</span>
-      <Field label="Name">
-        <input name="name" className={inputClass} defaultValue={fighter.name} />
-      </Field>
-      <Field label="Gym">
-        <input name="gym" className={inputClass} defaultValue={fighter.gym} />
-      </Field>
-      <button
-        type="submit"
-        disabled={pending}
-        className="border-hairline hover:border-chalk/40 label justify-self-start border px-3 py-1.5 transition-colors disabled:opacity-50"
+      <form
+        // Run from a transition rather than through the `action` prop, so React's
+        // automatic reset does not put the stored name back over the promoter's
+        // correction the moment the save is refused. See AddBoutForm.
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          start(() => submit(form));
+        }}
+        className="grid gap-3"
       >
-        Save
-      </button>
-      <ActionStatus error={result && !result.ok ? result.error : null} />
+        <Field label="Name">
+          <input name="name" className={inputClass} defaultValue={fighter.name} />
+        </Field>
+        <Field label="Gym">
+          <input name="gym" className={inputClass} defaultValue={fighter.gym} />
+        </Field>
+        <button
+          type="submit"
+          disabled={pending}
+          className="border-hairline hover:border-chalk/40 label justify-self-start border px-3 py-1.5 transition-colors disabled:opacity-50"
+        >
+          Save
+        </button>
+        <ActionStatus error={result && !result.ok ? result.error : null} />
+      </form>
+
+      <RecordImport slug={slug} fighterId={fighter.id} />
+
       <p className="text-ash-dim text-[0.65rem] leading-relaxed">
-        Everything else on this fighter comes from their own form, so it is not editable
-        here.
+        Everything else on this fighter comes from their own form, and anything they have
+        answered themselves stays as they left it.
       </p>
-    </form>
+    </div>
   );
 }

@@ -164,6 +164,40 @@ export const WITHDRAWN = {
     "Nothing is deleted, and it can go back on.",
 } as const;
 
+/* -------------------------------------------------------------------------
+ * The card editor's record importer
+ *
+ * The undercard is the weakest part of the product, and the reason is that
+ * thirty fighters never reply. This is how a promoter raises its floor without
+ * them, so the tone is about what the card gains and never about who has not
+ * answered — a blank profile is a state to be handled, not a fault to point at.
+ *
+ * Nothing here promises the numbers are right, either. Amateur records go stale,
+ * and what goes in front of the room is what the promoter confirmed, which is
+ * the same rule as the source badge on the fighter's own form.
+ * ---------------------------------------------------------------------- */
+
+export const RECORD_IMPORT = {
+  heading: "Fill this in from a record page",
+  blurb:
+    "Paste this fighter's Sherdog page and their record comes across. It fills only the boxes " +
+    "that are still empty, and shows you what it found before anything is saved.",
+  placeholder: "sherdog.com/fighter/Owen-Pryce-123456",
+  look: "Look it up",
+  looking: "Looking…",
+  apply: "Put these on the card",
+  applying: "Saving…",
+  /** After a save. The fields that changed are named after it. */
+  applied: "Added to the card",
+  nothing: "Nothing on that page fills a box this fighter has left empty.",
+  /** Beside a box the card already has an answer for. */
+  kept: "already on the card, so it stays",
+  caution: "Records on these pages go out of date. What the room reads is what you confirm here.",
+  notAProfile:
+    "That does not look like a Sherdog or Tapology fighter page. It should look like " +
+    "sherdog.com/fighter/Name-12345.",
+} as const;
+
 /**
  * How much of the running order has come off, or nothing.
  *
@@ -289,6 +323,17 @@ export const ACTION_ERRORS = {
   markNotStored:
     "That emblem would not upload. Try again, or add the sponsor without one — the name is set " +
     "in the programme's own type either way.",
+
+  /**
+   * The card editor's record importer. Both of these are read beside a box the
+   * promoter can type into, so both point back at it: a lookup that will not run
+   * is an inconvenience, not a dead end.
+   */
+  importTooMany:
+    "That is a lot of lookups at once, so they are paused for a moment. The boxes on this row " +
+    "still take anything you type.",
+  importNotRead:
+    "That page could not be read just now. The boxes on this row still take anything you type.",
 
   /** The fighter's side. Their typing stays in the boxes whatever these say. */
   unknownInvite: "This link is no longer active. Ask the promoter for a new one.",
