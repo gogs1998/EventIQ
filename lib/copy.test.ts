@@ -558,6 +558,32 @@ describe("the video panel", () => {
     expect(renderCountLabel(4, 15)).toBe("4 of 15 up to date");
     expect(renderCountLabel(0, 0)).toBe("No bouts yet");
   });
+
+  /**
+   * A bout that is off never reaches the queue, so the panel must not report it
+   * as a video somebody has yet to get round to. It is the same withdrawal the
+   * programme and the card editor name, so it wears the same word, and it says
+   * what would bring the bout back rather than anything about why it went.
+   */
+  it("says a withdrawn bout is off rather than calling its video unmade", () => {
+    const withdrawn = RENDER_STATE_COPY.withdrawn;
+    expect(withdrawn.label).toBe(WITHDRAWN.label);
+    expect(withdrawn.note).not.toBe(RENDER_STATE_COPY.missing.note);
+    expect(withdrawn.note).toMatch(/back on/i);
+    expect(withdrawn.note).not.toMatch(/cancel|withdrew|because/i);
+  });
+
+  /**
+   * A bout a machine already has is reported as such and not as something to
+   * ask for again — the dashboard offers no "Render again" on those two — so
+   * neither line may read as an instruction to press it.
+   */
+  it("reports a bout in flight rather than asking for it again", () => {
+    for (const state of [RENDER_STATE_COPY.queued, RENDER_STATE_COPY.running]) {
+      expect(state.note.toLowerCase()).not.toContain(RENDER_AGAIN.toLowerCase());
+      expect(state.note).not.toMatch(/\bagain\b|\bask\b|\brequest\b/i);
+    }
+  });
 });
 
 /**

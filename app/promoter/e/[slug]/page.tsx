@@ -7,6 +7,7 @@ import { RenderAgainButton } from "@/app/promoter/e/[slug]/RenderAgainButton";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
+import { boutsTopDown } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import {
   loadCard,
@@ -166,19 +167,23 @@ function Counts({
   );
 }
 
+/** A bout that is off is not a render state — nothing is ever queued for one. */
+type PanelState = RenderState | "withdrawn";
+
 /**
  * Six states, three of which are a machine's business rather than the
  * promoter's, so only "worth remaking" is coloured as something to act on.
  * A render that stopped early is the pipeline's problem and reads as neutral:
  * the video the programme was playing is still playing.
  */
-const RENDER_STYLE: Record<RenderState, string> = {
+const RENDER_STYLE: Record<PanelState, string> = {
   current: "text-gold border-gold/40",
   stale: "text-red-corner-hot border-red-corner/40",
   queued: "text-ash border-hairline",
   running: "text-ash border-hairline",
   failed: "text-ash border-hairline",
   missing: "text-ash-dim border-hairline",
+  withdrawn: "text-ash-dim border-hairline",
 };
 
 const STATE_STYLE = {
@@ -513,10 +518,18 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
 
         <div className="border-hairline divide-hairline divide-y border">
-          {bouts.map(({ bout }) => {
+          {/* Every bout on the running order, withdrawn ones included. They keep
+              their number on the programme, so a promoter who took bout seven
+              off should find it here saying why rather than simply gone. */}
+          {boutsTopDown(card).map((bout) => {
             const job = jobs[bout.number] ?? null;
-            const state = renderState(job, fingerprints[bout.number] ?? "");
+            const state: PanelState = bout.cancelled
+              ? "withdrawn"
+              : renderState(job, fingerprints[bout.number] ?? "");
             const copy = RENDER_STATE_COPY[state];
+            // A machine has this bout or is about to. Asking again would queue
+            // a bout that is already queued and tell the promoter nothing new.
+            const inHand = state === "queued" || state === "running" || state === "withdrawn";
             return (
               <div key={bout.number} className="p-3 sm:flex sm:items-center sm:gap-4">
                 <div className="flex items-center justify-between gap-3 sm:w-56 sm:shrink-0 sm:justify-start">
@@ -547,7 +560,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                       Watch
                     </Link>
                   ) : null}
-                  <RenderAgainButton slug={event.slug} bout={bout.number} />
+                  {inHand ? null : <RenderAgainButton slug={event.slug} bout={bout.number} />}
                 </div>
               </div>
             );
