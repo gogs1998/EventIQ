@@ -26,7 +26,7 @@ export default async function PromoterHome() {
   if (events.length === 1) redirect(`/promoter/e/${events[0].slug}`);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-10">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl px-5 py-10">
       <header className="border-hairline flex flex-wrap items-start justify-between gap-4 border-b pb-6">
         <div>
           <span className="label">Promoter</span>

@@ -107,16 +107,25 @@ function Field({
   label,
   hint,
   from,
+  group,
   children,
 }: {
   label: string;
   hint?: string;
   /** Where an imported value came from, shown until the fighter edits it. */
   from?: string;
+  /**
+   * Set where the field holds several controls, or none. A `<label>` names one
+   * control and one only, so three record boxes inside a single one told a
+   * screen reader that "Lost" and "Drawn" were both called "Your record", and a
+   * row of style buttons was a label attached to nothing. A group is named
+   * instead, and whatever is inside it carries its own labels.
+   */
+  group?: boolean;
   children: React.ReactNode;
 }) {
-  return (
-    <label className="block">
+  const body = (
+    <>
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="label">{label}</span>
         {from ? (
@@ -127,12 +136,33 @@ function Field({
       </span>
       {hint ? <span className="text-ash-dim mt-1 block text-[0.7rem]">{hint}</span> : null}
       <div className="mt-1.5">{children}</div>
+    </>
+  );
+
+  if (group) {
+    return (
+      <div role="group" aria-label={label} className="block">
+        {body}
+      </div>
+    );
+  }
+  return <label className="block">{body}</label>;
+}
+
+/** One box inside a Field group, with a name of its own. */
+function Box({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
+        {label}
+      </span>
+      {children}
     </label>
   );
 }
 
 const inputClass =
-  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm outline-none focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
+  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
 
 function Section({
   step,
@@ -531,7 +561,7 @@ export function Questionnaire({
   // form is replaced rather than left on screen with empty boxes in it.
   if (removed) {
     return (
-      <main className="mx-auto w-full max-w-xl px-5 py-24">
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl px-5 py-24">
         <h1 className="display text-3xl">{REMOVAL.done.heading}</h1>
         <p className="text-ash mt-4 text-sm leading-relaxed">{REMOVAL.done.body}</p>
         <Link href="/privacy" className="label hover:text-chalk mt-6 inline-block">
@@ -542,7 +572,14 @@ export function Questionnaire({
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12">
+    // The form is the whole of this page, so it is the page's landmark too. It
+    // was a bare div, which left a fighter reading it with a screen reader on a
+    // document where none of the content sat inside a region.
+    <main
+      id="main"
+      tabIndex={-1}
+      className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12"
+    >
       {/* ------------------------------------------------------- preview */}
       <div ref={previewRef} className="lg:sticky lg:top-8 lg:self-start">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -768,16 +805,22 @@ export function Questionnaire({
             </Field>
 
             <Field
+              group
               label="Photo"
               hint="We cut the background out for you. A plain wall and decent light is all it takes."
             >
               <div className="flex flex-wrap items-center gap-3">
-                <label className="border-hairline hover:border-chalk/40 cursor-pointer border px-3 py-2 text-xs transition-colors">
+                {/* The ring is on the label because the input is the thing that
+                    takes focus and the label is the thing that is drawn. It used
+                    to be `hidden`, which is `display: none` — so the one control
+                    that gets a fighter's photograph onto the card could not be
+                    reached with a keyboard at all. */}
+                <label className="border-hairline hover:border-chalk/40 focus-within:outline-gold cursor-pointer border px-3 py-2 text-xs transition-colors focus-within:outline-2 focus-within:outline-offset-2">
                   Choose a photo
                   <input
                     type="file"
                     accept="image/*"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) void onPhoto(file);
@@ -803,7 +846,7 @@ export function Questionnaire({
                 request, and on the card only once the fighter has looked at
                 what came back. */}
             {stylised && draft.photo ? (
-              <Field label={STYLISED.label} hint={STYLISED.hint}>
+              <Field group label={STYLISED.label} hint={STYLISED.hint}>
                 {artState === "approved" ? (
                   <div>
                     <p className="text-gold text-[0.7rem] leading-relaxed">{STYLISED.approved}</p>
@@ -887,6 +930,7 @@ export function Questionnaire({
             </Field>
 
             <Field
+              group
               label="Your sponsors"
               hint="Anyone putting money behind you gets their logo on your card and in your video."
             >
@@ -950,7 +994,7 @@ export function Questionnaire({
               />
             </Field>
 
-            <Field label="How you fight" hint="Pick up to three.">
+            <Field group label="How you fight" hint="Pick up to three.">
               <div className="flex flex-wrap gap-2">
                 {STYLE_OPTIONS.map((tag) => {
                   const on = draft.styleTags.includes(tag);
@@ -980,13 +1024,16 @@ export function Questionnaire({
             blurb="Last on purpose. If you're already on Sherdog, paste the link and most of it fills itself in."
           >
             <div className="border-hairline bg-panel/40 border p-4">
-              <div className="label mb-2">Fought before?</div>
+              <label htmlFor="record-import" className="label mb-2 block">
+                Fought before?
+              </label>
               <p className="text-ash mb-3 text-xs leading-relaxed">
                 Paste your Sherdog page and we&rsquo;ll pull your record across so you
                 don&rsquo;t have to type it.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
+                  id="record-import"
                   className={inputClass}
                   value={importUrl}
                   onChange={(e) => {
@@ -1067,7 +1114,7 @@ export function Questionnaire({
               </Field>
             </div>
 
-            <Field label="Stance">
+            <Field group label="Stance">
               <div className="flex gap-2">
                 {STANCES.map((stance: Stance) => (
                   <button
@@ -1094,10 +1141,7 @@ export function Questionnaire({
             >
               <div className="grid grid-cols-3 gap-3">
                 {(["w", "l", "d"] as const).map((key) => (
-                  <div key={key}>
-                    <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
-                      {{ w: "Won", l: "Lost", d: "Drawn" }[key]}
-                    </span>
+                  <Box key={key} label={{ w: "Won", l: "Lost", d: "Drawn" }[key]}>
                     <input
                       className={inputClass}
                       inputMode="numeric"
@@ -1105,7 +1149,7 @@ export function Questionnaire({
                       onChange={(e) => set(key, e.target.value)}
                       placeholder="0"
                     />
-                  </div>
+                  </Box>
                 ))}
               </div>
             </Field>
@@ -1115,10 +1159,7 @@ export function Questionnaire({
               from={importedKeys.has("finishes") ? sourceLabel : undefined}
             >
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
-                    Knockouts
-                  </span>
+                <Box label="Knockouts">
                   <input
                     className={inputClass}
                     inputMode="numeric"
@@ -1126,11 +1167,8 @@ export function Questionnaire({
                     onChange={(e) => set("ko", e.target.value)}
                     placeholder="0"
                   />
-                </div>
-                <div>
-                  <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
-                    Submissions
-                  </span>
+                </Box>
+                <Box label="Submissions">
                   <input
                     className={inputClass}
                     inputMode="numeric"
@@ -1138,7 +1176,7 @@ export function Questionnaire({
                     onChange={(e) => set("sub", e.target.value)}
                     placeholder="0"
                   />
-                </div>
+                </Box>
               </div>
             </Field>
           </Section>
@@ -1260,6 +1298,6 @@ export function Questionnaire({
           </button>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

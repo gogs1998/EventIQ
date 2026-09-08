@@ -24,7 +24,7 @@ export default async function AccountPage() {
   if (!promoter) redirect("/promoter/login?next=/promoter/account");
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-10">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl px-5 py-10">
       <header className="border-hairline flex flex-wrap items-start justify-between gap-4 border-b pb-6">
         <div>
           <span className="label">Account</span>

@@ -6,7 +6,7 @@ import { ActionStatus } from "@/components/ActionStatus";
 import { ACCOUNT_COPY } from "@/lib/copy";
 
 const inputClass =
-  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm outline-none focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
+  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

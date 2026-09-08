@@ -171,7 +171,13 @@ function LiveTape({ card, bout, onPlay }: { card: Card; bout: Bout; onPlay: () =
         ) : null}
       </Frame>
 
-      <div className="flex items-center gap-3">
+      {/* Named as a set, because on a card of fifteen bouts a control called
+          "Play" does not say which tape it plays. */}
+      <div
+        role="group"
+        aria-label={`Tale of the tape, bout ${bout.number}`}
+        className="flex items-center gap-3"
+      >
         <button
           type="button"
           onClick={() => {

@@ -14,7 +14,7 @@ import { PROGRAMME_NOT_FOUND } from "@/lib/copy";
  */
 export default function ProgrammeNotFound() {
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-5 py-24">
+    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-5 py-24">
       <h1 className="display text-4xl">{PROGRAMME_NOT_FOUND.heading}</h1>
       <p className="text-ash mt-4 text-sm leading-relaxed">{PROGRAMME_NOT_FOUND.body}</p>
     </main>

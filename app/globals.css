@@ -7,7 +7,13 @@
   --color-panel-2: #191d25;
   --color-chalk: #f4f5f7;
   --color-ash: #9aa1ad;
-  --color-ash-dim: #5d646f;
+  /* The quiet grey. It was #5d646f, which is 3.36:1 on the ink and fails AA for
+     body text at every size the design uses it at — and it is used for hints,
+     placeholders and the dashboard's own captions, which is exactly the text a
+     promoter reads once and has to get right. Lifted until the worst ground it
+     lands on (the panel behind an input) clears 4.5:1. It is still the dimmest
+     thing on the page and still reads as secondary. */
+  --color-ash-dim: #7a818e;
   --color-hairline: rgba(255, 255, 255, 0.09);
 
   --color-red-corner: #e8121f;
@@ -31,6 +37,18 @@
 
   body {
     background: var(--color-ink);
+  }
+
+  /* Where the keyboard is.
+     Stated once, here, because the design squares off the browser's own ring in
+     several places and a promoter tabbing through a chase list of thirty
+     fighters otherwise has no idea which one they are on. Gold rather than the
+     chalk the ring sits next to, and offset so it clears the hairline borders
+     the whole layout is built from. Do not turn this off in a utility class:
+     `outline-none` in a component beats this rule and takes the ring with it. */
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
   }
 
   /* Stats must never reflow while a counter is ticking. */
@@ -113,10 +131,26 @@
   animation: rise-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* A phone that has been asked to stop moving things about is asked once, by its
+   owner, and every surface has to honour it — not only the two entrances. So
+   this covers `anim-slam` and `anim-rise` and every transition the components
+   set as well, rather than naming the two animations and leaving the next one
+   somebody adds unguarded. `both` fill means a slammed heading still ends at
+   full opacity, so nothing disappears; it simply arrives.
+
+   The video composition is not exempted here because it needs no exemption:
+   components/sequence/ carries no CSS motion at all. Every frame of it is
+   interpolated in JS from the `frame` prop, which is what makes the mp4
+   exporter reproducible, and a rule about animations and transitions has
+   nothing there to switch off. */
 @media (prefers-reduced-motion: reduce) {
-  .anim-slam,
-  .anim-rise {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

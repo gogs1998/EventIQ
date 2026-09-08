@@ -11,7 +11,7 @@ import { NOT_FOUND } from "@/lib/copy";
  */
 export default function NotFound() {
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-5 py-24">
+    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-5 py-24">
       <span className="label">Not found</span>
       <h1 className="display mt-3 text-4xl">{NOT_FOUND.heading}</h1>
       <p className="text-ash mt-4 text-sm leading-relaxed">{NOT_FOUND.body}</p>

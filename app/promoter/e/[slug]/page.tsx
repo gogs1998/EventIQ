@@ -289,7 +289,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
    */
   if (!event.bouts.length) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
         <Head event={event} published={card.published} />
 
         <section className="mt-8">
@@ -341,7 +341,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   const last = previous ? { event: previous, ...previousAnalytics } : null;
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
       <Head event={event} published={card.published} />
 
       {/* ------------------------------------------------------------ stats */}

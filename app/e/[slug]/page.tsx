@@ -41,7 +41,7 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   const main = featuredBout(card);
 
   return (
-    <main className="mx-auto w-full max-w-xl">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl">
       <TrackOpen slug={event.slug} kind="programme_open" />
 
       {/* -------------------------------------------------------- hero */}

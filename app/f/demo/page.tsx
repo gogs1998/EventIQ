@@ -59,7 +59,7 @@ export default async function FighterDemoPage() {
 /** The preview needs a real bout behind it, so it says which part is missing. */
 function NothingToPreview({ because }: { because: string }) {
   return (
-    <main className="mx-auto w-full max-w-xl px-5 py-24">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl px-5 py-24">
       <h1 className="display text-3xl">Nothing to preview yet</h1>
       <p className="text-ash mt-4 text-sm leading-relaxed">
         This shows the form a fighter gets, filled in against a real bout. {because}

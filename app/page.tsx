@@ -108,7 +108,7 @@ export default async function PitchPage() {
   const inventory = card ? sponsorInventory(card) : null;
 
   return (
-    <main className="w-full">
+    <main id="main" tabIndex={-1} className="w-full">
       {/* ------------------------------------------------------------ hero */}
       <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
         <h1 className="display anim-slam text-5xl leading-[0.9] sm:text-6xl">

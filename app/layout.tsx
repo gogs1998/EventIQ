@@ -60,6 +60,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${anton.variable} ${oswald.variable} ${robotoMono.variable} h-full antialiased`}
     >
       <body className="bg-ink text-chalk min-h-full flex flex-col overflow-x-hidden">
+        {/* The first thing in the tab order on every page, and out of sight
+            until it has focus. A running order is fifteen bouts of headings,
+            portraits and sponsor lockups before the part somebody came for, and
+            the questionnaire puts a preview card ahead of the first question.
+            Every route's own `<main>` carries the id this points at. */}
+        <a
+          href="#main"
+          className="label focus:bg-chalk focus:text-ink sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:px-4 focus:py-3"
+        >
+          Skip to the content
+        </a>
         {/* Mounted here rather than per page so that the rule about which routes
             carry EventIQ's name is written down once. It renders nothing at all
             on the programme, the questionnaire and the render stage. */}

@@ -40,7 +40,7 @@ export default async function QrPage({ params }: PageProps<"/e/[slug]/qr">) {
   const sponsors = showSponsors(card).slice(0, 4);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10 print:max-w-none print:p-0">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl px-4 py-10 print:max-w-none print:p-0">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="display text-2xl">Table card</h1>

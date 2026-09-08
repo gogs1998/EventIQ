@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { applyFighterRecord, lookupFighterRecord } from "@/app/promoter/actions";
 import { inputClass } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
@@ -29,6 +29,9 @@ export function RecordImport({
   slug: string;
   fighterId: string;
 }) {
+  // One of these is drawn per corner per bout, so the box needs an id that is
+  // its own before a label can point at it.
+  const boxId = useId();
   const [url, setUrl] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -75,11 +78,14 @@ export function RecordImport({
 
   return (
     <div className="border-hairline bg-panel/30 grid gap-2 border p-3">
-      <span className="label">{RECORD_IMPORT.heading}</span>
+      <label htmlFor={boxId} className="label">
+        {RECORD_IMPORT.heading}
+      </label>
       <p className="text-ash-dim text-[0.65rem] leading-relaxed">{RECORD_IMPORT.blurb}</p>
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
+          id={boxId}
           value={url}
           onChange={(change) => {
             setUrl(change.target.value);

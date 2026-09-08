@@ -5,13 +5,13 @@ import Link from "next/link";
 import { login } from "@/app/promoter/login/actions";
 
 const inputClass =
-  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm outline-none focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
+  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
 
 export function LoginForm({ next }: { next: string }) {
   const [error, submit, pending] = useActionState(login, null);
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
+    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
       <h1 className="display text-4xl">Promoter sign in</h1>
       <p className="text-ash mt-3 text-sm leading-relaxed">
         Your card, your chase list and your sponsor sheet.

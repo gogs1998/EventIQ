@@ -99,7 +99,7 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
  */
 function DetailsRemoved() {
   return (
-    <main className="mx-auto w-full max-w-xl px-5 py-24">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl px-5 py-24">
       <h1 className="display text-3xl">{REMOVAL.done.heading}</h1>
       <p className="text-ash mt-4 text-sm leading-relaxed">{REMOVAL.done.body}</p>
       <Link href="/privacy" className="label hover:text-chalk mt-6 inline-block">

@@ -41,7 +41,7 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
   const off = boutsOffLabel(bouts.filter((bout) => bout.cancelled).length);
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <header className="border-hairline border-b pb-6">
         <Link href={`/promoter/e/${event.slug}`} className="label hover:text-chalk">
           ← Back to the dashboard

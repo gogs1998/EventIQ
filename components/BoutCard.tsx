@@ -184,6 +184,7 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
   const rows = buildTape(red, blue);
   const sponsor = sponsorOf(card, bout.sponsorId);
   const headline = bout.billing === "MAIN";
+  const panelId = `bout-${bout.number}-tape`;
 
   /**
    * A bout that has come off keeps its place in the running order, its number and
@@ -257,6 +258,10 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
         type="button"
         onClick={expand}
         aria-expanded={open}
+        // Named, so the control says what it opens rather than only that it is
+        // open. Bout numbers are unique on a card, which is what makes this safe
+        // on a page that draws fifteen of these.
+        aria-controls={panelId}
         className="block w-full p-4 text-left"
       >
         <header className="mb-3 flex items-start justify-between gap-3">
@@ -306,6 +311,7 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
           {open ? "Close" : "Tale of the tape"}
           <svg
             viewBox="0 0 24 24"
+            aria-hidden
             className={cx("h-3 w-3 fill-current transition-transform", open && "rotate-180")}
           >
             <path d="M7 10l5 5 5-5z" />
@@ -314,7 +320,7 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
       </button>
 
       {open ? (
-        <div className="anim-rise border-hairline grid gap-5 border-t p-4">
+        <div id={panelId} className="anim-rise border-hairline grid gap-5 border-t p-4">
           {hooks.length > 1 ? (
             <ul className="grid gap-1.5">
               {hooks.slice(1).map((hook) => (

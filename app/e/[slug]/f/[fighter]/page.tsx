@@ -69,7 +69,7 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
   ].filter((s) => s.value);
 
   return (
-    <main className="mx-auto w-full max-w-xl">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl">
       <TrackOpen slug={card.event.slug} kind="profile_view" fighterId={fighter.id} />
 
       <div className="relative">

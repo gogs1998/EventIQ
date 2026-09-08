@@ -42,7 +42,7 @@ export default async function ResetPage({ params }: PageProps<"/promoter/reset/[
   const live = await linkIsLive(token);
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
+    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
       <h1 className="display text-4xl">{live ? RESET_COPY.heading : RESET_COPY.deadHeading}</h1>
       <p className="text-ash mt-3 text-sm leading-relaxed">
         {live ? RESET_COPY.body : RESET_COPY.deadBody}
