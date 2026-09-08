@@ -431,7 +431,10 @@ function Reveal({
   // layer inside a moving frame looks like a stalled render.
   const travel = parallaxTravel(portrait);
   const cutoutX = interpolate(f, [0, 46], [dir * 150 * travel, 0], easeOutCubic);
-  const cutoutScale = interpolate(f, [0, 100], [portrait.kind === "photo" ? 1.08 : 1.16, 1.02]);
+  // The gentler push-in belongs to anything rectangular, which is the
+  // photograph and the poster art alike; the cutout and the plate take the full one.
+  const rectangular = portrait.kind === "photo" || portrait.kind === "stylised";
+  const cutoutScale = interpolate(f, [0, 100], [rectangular ? 1.08 : 1.16, 1.02]);
   const glowX = interpolate(f, [0, 46], [dir * 60, 0], easeOutCubic);
 
   const nameLift = interpolate(f, [12, 34], [64, 0], easeOutBack);
@@ -990,7 +993,10 @@ function FaceOff({
             maskImage: "linear-gradient(to bottom, #000 62%, transparent 96%)",
           }}
         />
-      ) : portrait.kind === "photo" ? (
+      ) : portrait.kind !== "plate" ? (
+        // Written as "anything but the plate" rather than as "a photograph", so
+        // a fourth kind added to lib/portrait.ts gets the rectangle treatment it
+        // needs instead of silently falling through to the no-photo plate.
         <FaceOffPhoto src={portrait.src} corner={corner} />
       ) : (
         <div style={{ position: "relative", width: "100%", height: "100%" }}>

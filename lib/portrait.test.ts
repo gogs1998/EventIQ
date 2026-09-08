@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cutoutSurvives, parallaxTravel, plateInitials, portraitOf } from "@/lib/portrait";
+import {
+  cutoutSurvives,
+  mediaKeyOf,
+  parallaxTravel,
+  plateInitials,
+  portraitOf,
+  stylisedBelongsTo,
+  stylisedKey,
+} from "@/lib/portrait";
 import type { Fighter } from "@/lib/types";
 
 const base: Fighter = { id: "f1", name: "Nadia Farrukh", gym: "Kettle Row" };
@@ -38,6 +46,91 @@ describe("portraitOf", () => {
   it("treats an empty string as absent, so a blanked column is not a broken image", () => {
     expect(portraitOf({ cutout: "", photo: "/media/fighters/f1-cd34.jpg" }).kind).toBe("photo");
     expect(portraitOf({ cutout: "", photo: "" }).kind).toBe("plate");
+  });
+});
+
+/**
+ * The precedence, which is a consent decision rather than a picture-quality one.
+ * A stylised portrait exists only because a fighter asked for one and then
+ * approved what came back, and a cutout exists because we made one without
+ * asking — so the approved thing wins. What must never happen is generated art
+ * appearing for a fighter who did neither.
+ */
+describe("the stylised portrait's place in the order", () => {
+  const photo = "/media/fighters/f1-cd34.jpg";
+  const cutout = "/media/cutouts/f1-ab12.webp";
+  const art = "/media/portraits/f1-ef56.png";
+
+  it("goes above the cutout and the photograph once it is approved", () => {
+    expect(portraitOf({ stylised: art, cutout, photo })).toEqual({ kind: "stylised", src: art });
+  });
+
+  it("changes nothing at all for a fighter who did not ask for one", () => {
+    expect(portraitOf({ cutout, photo }).kind).toBe("cutout");
+    expect(portraitOf({ photo }).kind).toBe("photo");
+    expect(portraitOf({}).kind).toBe("plate");
+  });
+
+  it("treats a blanked column as absent rather than as a broken image", () => {
+    expect(portraitOf({ stylised: "", cutout, photo }).kind).toBe("cutout");
+  });
+
+  /** It is a rectangle with a background of its own, so it moves like one. */
+  it("travels like a photograph rather than like a cutout", () => {
+    expect(parallaxTravel({ kind: "stylised", src: art })).toBe(
+      parallaxTravel({ kind: "photo", src: photo }),
+    );
+    expect(parallaxTravel({ kind: "stylised", src: art })).toBeLessThan(1);
+  });
+});
+
+describe("mediaKeyOf", () => {
+  it("gives the bucket key for something we stored", () => {
+    expect(mediaKeyOf("/media/fighters/f1-cd34.jpg")).toBe("fighters/f1-cd34.jpg");
+    expect(mediaKeyOf("/media/portraits/f1-ef56.png")).toBe("portraits/f1-ef56.png");
+  });
+
+  /** A committed asset, a preview and a foreign URL are none of them ours to delete. */
+  it("refuses anything that is not an object in the bucket", () => {
+    for (const path of [
+      "/fighters/nadia-farrukh.webp",
+      "https://example.com/x.jpg",
+      "blob:http://localhost/abc",
+      "/media/../secrets",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(mediaKeyOf(path)).toBeNull();
+    }
+  });
+});
+
+/**
+ * The approve action takes the path back from the browser, so it is checked
+ * rather than believed. Without this a fighter holding one invite could approve
+ * any object in the prefix onto their own card, including one drawn from
+ * somebody else's photograph.
+ */
+describe("stylisedBelongsTo", () => {
+  it("accepts the key this code writes for this fighter", () => {
+    const key = stylisedKey("chloe-baines", "a1b2c3d4", "png");
+    expect(stylisedBelongsTo(`/media/${key}`, "chloe-baines")).toBe(true);
+  });
+
+  it("refuses another fighter's portrait, hyphenated ids and all", () => {
+    const key = stylisedKey("chloe-baines", "a1b2c3d4", "png");
+    expect(stylisedBelongsTo(`/media/${key}`, "chloe")).toBe(false);
+    expect(stylisedBelongsTo(`/media/${key}`, "chloe-bainesworth")).toBe(false);
+    expect(stylisedBelongsTo("/media/portraits/otis-grant-a1b2c3d4.png", "chloe-baines")).toBe(
+      false,
+    );
+  });
+
+  it("refuses a path in another prefix, or none", () => {
+    expect(stylisedBelongsTo("/media/fighters/f1-a1b2c3d4.jpg", "f1")).toBe(false);
+    expect(stylisedBelongsTo("/fighters/f1-a1b2c3d4.jpg", "f1")).toBe(false);
+    expect(stylisedBelongsTo("/media/portraits/f1-a1b2c3d4.png/../x.png", "f1")).toBe(false);
   });
 });
 
