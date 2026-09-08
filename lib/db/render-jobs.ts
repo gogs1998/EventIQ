@@ -1,6 +1,7 @@
-import { eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { isNull, lt, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
+import { loadCardById, type LoadedCard } from "@/lib/db/queries";
 import { logError, type LogContext } from "@/lib/log";
 import { renderFingerprint, sponsorFingerprint, type RenderInputs } from "@/lib/renders";
 
@@ -24,76 +25,31 @@ export function renderJobId(eventId: string, boutNumber: number): string {
 }
 
 /**
- * The fingerprint of every bout on a show, as it stands now.
+ * The fingerprint of every bout on a card that has already been loaded.
  *
  * The same field list the renderer hashes — lib/renders.ts is imported by both,
  * and refuses an input object that is missing a field or carrying a spare one,
- * so the two cannot drift apart quietly.
+ * so the two cannot drift apart quietly. lib/db/render-jobs.test.ts builds one
+ * bout from both sides and asserts the digests match, because a fingerprint that
+ * is merely *nearly* the renderer's is worse than none: every video would read
+ * as out of date forever.
+ *
+ * A card rather than rows, because the dashboard already has one. Loading the
+ * bouts, the fighters and the sponsors a second time to answer the same question
+ * was half of what that page was spending.
  */
-export async function loadBoutFingerprints(
-  db: Db,
-  eventId: string,
-): Promise<Record<number, string>> {
-  const [event] = await db
-    .select()
-    .from(schema.events)
-    .where(eq(schema.events.id, eventId))
-    .limit(1);
-  if (!event) return {};
-
-  const [promoter] = await db
-    .select()
-    .from(schema.promoters)
-    .where(eq(schema.promoters.id, event.promoterId))
-    .limit(1);
-  if (!promoter) return {};
-
-  const bouts = await db
-    .select()
-    .from(schema.bouts)
-    .where(eq(schema.bouts.eventId, eventId))
-    .orderBy(schema.bouts.number);
-  if (!bouts.length) return {};
-
-  const fighterIds = [...new Set(bouts.flatMap((bout) => [bout.redId, bout.blueId]))];
-
-  const fighters = await db
-    .select({
-      id: schema.fighters.id,
-      updatedAt: schema.fighters.updatedAt,
-      photo: schema.fighters.photo,
-      cutout: schema.fighters.cutout,
-    })
-    .from(schema.fighters)
-    .where(inArray(schema.fighters.id, fighterIds));
-
-  const links = await db
-    .select()
-    .from(schema.fighterSponsors)
-    .where(inArray(schema.fighterSponsors.fighterId, fighterIds))
-    .orderBy(schema.fighterSponsors.position);
-
-  const sponsorRows = await db
-    .select()
-    .from(schema.sponsors)
-    .where(eq(schema.sponsors.promoterId, event.promoterId));
-
-  const byId = new Map(fighters.map((fighter) => [fighter.id, fighter]));
-  const sponsors = new Map(sponsorRows.map((sponsor) => [sponsor.id, sponsor]));
-  const sponsorsOf = new Map<string, string[]>();
-  for (const link of links) {
-    sponsorsOf.set(link.fighterId, [...(sponsorsOf.get(link.fighterId) ?? []), link.sponsorId]);
-  }
+export async function boutFingerprints(card: LoadedCard): Promise<Record<number, string>> {
+  const { event } = card;
 
   const lockup = (id: string | null | undefined) => {
-    const sponsor = id ? sponsors.get(id) : undefined;
+    const sponsor = id ? card.sponsors[id] : undefined;
     return sponsor ? sponsorFingerprint(sponsor) : null;
   };
 
   const hashes: Record<number, string> = {};
-  for (const bout of bouts) {
-    const red = byId.get(bout.redId);
-    const blue = byId.get(bout.blueId);
+  for (const bout of event.bouts) {
+    const red = card.fighters[bout.redId];
+    const blue = card.fighters[bout.blueId];
     // A bout naming a fighter who is not there is a broken database rather than
     // a bout with nothing rendered, so leave it out and let it read as missing.
     if (!red || !blue) continue;
@@ -104,8 +60,8 @@ export async function loadBoutFingerprints(
       eventVenue: event.venue,
       eventCity: event.city,
       eventBackdrop: event.backdrop,
-      promoterName: promoter.name,
-      promoterMark: promoter.mark,
+      promoterName: event.promoter.name,
+      promoterMark: event.promoter.mark,
       number: bout.number,
       discipline: bout.discipline,
       weightKg: bout.weightKg,
@@ -116,17 +72,17 @@ export async function loadBoutFingerprints(
       rounds: bout.rounds,
       roundMinutes: bout.roundMinutes,
       redId: red.id,
-      redUpdatedAt: red.updatedAt,
+      redUpdatedAt: card.fighterUpdatedAt[red.id],
       redPhoto: red.photo,
       redCutout: red.cutout,
       blueId: blue.id,
-      blueUpdatedAt: blue.updatedAt,
+      blueUpdatedAt: card.fighterUpdatedAt[blue.id],
       bluePhoto: blue.photo,
       blueCutout: blue.cutout,
       sponsors: [
         lockup(bout.sponsorId),
-        ...(sponsorsOf.get(red.id) ?? []).map(lockup),
-        ...(sponsorsOf.get(blue.id) ?? []).map(lockup),
+        ...(red.sponsorIds ?? []).map(lockup),
+        ...(blue.sponsorIds ?? []).map(lockup),
       ].filter((entry): entry is string => entry !== null),
     };
 
@@ -134,6 +90,18 @@ export async function loadBoutFingerprints(
   }
 
   return hashes;
+}
+
+/**
+ * The same, for a caller holding an event id and no card — the queue, and the
+ * server actions that ask for a render after saving something.
+ */
+export async function loadBoutFingerprints(
+  db: Db,
+  eventId: string,
+): Promise<Record<number, string>> {
+  const card = await loadCardById(db, eventId);
+  return card ? boutFingerprints(card) : {};
 }
 
 /**

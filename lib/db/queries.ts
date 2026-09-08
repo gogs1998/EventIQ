@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
@@ -159,63 +159,98 @@ export function toInvite(row: InviteRow): Invite {
 
 // ------------------------------------------------------------------- reads
 
-export type LoadedCard = Card & { eventId: string; promoterId: string; published: boolean };
+export type LoadedCard = Card & {
+  eventId: string;
+  promoterId: string;
+  published: boolean;
+  /**
+   * When each fighter's row was last written, by fighter id.
+   *
+   * Not part of `Fighter`, because nothing a page draws depends on it. It is
+   * here because the render fingerprint does — carrying it on the card is what
+   * lets the dashboard work out which videos are stale from the card it has
+   * already loaded rather than by loading the same rows a second time.
+   */
+  fighterUpdatedAt: Record<string, number>;
+};
 
 /**
- * Everything one show needs, in a fixed number of queries.
+ * Everything one show needs, in two round trips.
  *
- * Six round trips regardless of how many bouts are on the card, rather than one
- * per fighter. D1 charges per row read and a fifteen-bout card touches thirty
+ * Two rather than six, and still a fixed number regardless of how many bouts are
+ * on the card. D1 charges per row read and a fifteen-bout card touches thirty
  * fighters, so the difference between this and the obvious loop is the
- * difference between a page that is cheap and one that is not.
+ * difference between a page that is cheap and one that is not — and the
+ * difference between six statements and two batches is six edge-to-database
+ * waits against two, which is what the promoter's dashboard was spending.
+ *
+ * It cannot be one batch. Everything in the second batch is keyed on the show's
+ * id or on the fighters its running order names, and neither is known until the
+ * first batch has answered.
  */
-export async function loadCard(db: Db, slug: string): Promise<LoadedCard | null> {
-  const [eventRow] = await db
-    .select()
-    .from(schema.events)
-    .where(eq(schema.events.slug, slug))
-    .limit(1);
+export function loadCard(db: Db, slug: string): Promise<LoadedCard | null> {
+  return cardWhere(db, eq(schema.events.slug, slug));
+}
+
+/**
+ * The same card, addressed by row id rather than by slug.
+ *
+ * The queue and the dashboard both hold an event id and no slug, and a card
+ * loaded twice through two code paths is two code paths that can disagree about
+ * what a bout is made of.
+ */
+export function loadCardById(db: Db, eventId: string): Promise<LoadedCard | null> {
+  return cardWhere(db, eq(schema.events.id, eventId));
+}
+
+async function cardWhere(db: Db, where: SQL): Promise<LoadedCard | null> {
+  // The bouts are fetched beside the event rather than after it, by joining on
+  // the same condition, because the fighter ids they carry are what the second
+  // batch is keyed on.
+  const [eventRows, boutRows] = await db.batch([
+    db.select().from(schema.events).where(where).limit(1),
+    db
+      .select({ bout: schema.bouts })
+      .from(schema.bouts)
+      .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
+      .where(where)
+      .orderBy(schema.bouts.number),
+  ]);
+
+  const eventRow = eventRows[0];
   if (!eventRow) return null;
 
-  const [promoterRow] = await db
-    .select()
-    .from(schema.promoters)
-    .where(eq(schema.promoters.id, eventRow.promoterId))
-    .limit(1);
-  if (!promoterRow) return null;
+  const bouts = boutRows.map((row) => row.bout);
+  const fighterIds = [...new Set(bouts.flatMap((bout) => [bout.redId, bout.blueId]))];
 
-  const boutRows = await db
-    .select()
-    .from(schema.bouts)
-    .where(eq(schema.bouts.eventId, eventRow.id))
-    .orderBy(schema.bouts.number);
-
-  const fighterIds = [...new Set(boutRows.flatMap((bout) => [bout.redId, bout.blueId]))];
-
-  const fighterRows = fighterIds.length
-    ? await db.select().from(schema.fighters).where(inArray(schema.fighters.id, fighterIds))
-    : [];
-
-  const fighterSponsorRows = fighterIds.length
-    ? await db
+  const [promoterRows, eventSponsorRows, sponsorRows, fighterRows, fighterSponsorRows] =
+    await db.batch([
+      db
+        .select()
+        .from(schema.promoters)
+        .where(eq(schema.promoters.id, eventRow.promoterId))
+        .limit(1),
+      db
+        .select()
+        .from(schema.eventSponsors)
+        .where(eq(schema.eventSponsors.eventId, eventRow.id))
+        .orderBy(schema.eventSponsors.position),
+      // Every sponsor this promoter has, so bout sponsors, show sponsors and
+      // fighter sponsors all resolve from one map. A promoter's book is a few
+      // dozen rows.
+      db.select().from(schema.sponsors).where(eq(schema.sponsors.promoterId, eventRow.promoterId)),
+      // An empty id list compiles to `where false`, so a show with no running
+      // order costs these two statements and reads no rows.
+      db.select().from(schema.fighters).where(inArray(schema.fighters.id, fighterIds)),
+      db
         .select()
         .from(schema.fighterSponsors)
         .where(inArray(schema.fighterSponsors.fighterId, fighterIds))
-        .orderBy(schema.fighterSponsors.position)
-    : [];
+        .orderBy(schema.fighterSponsors.position),
+    ]);
 
-  const eventSponsorRows = await db
-    .select()
-    .from(schema.eventSponsors)
-    .where(eq(schema.eventSponsors.eventId, eventRow.id))
-    .orderBy(schema.eventSponsors.position);
-
-  // Every sponsor this promoter has, so bout sponsors, show sponsors and fighter
-  // sponsors all resolve from one map. A promoter's book is a few dozen rows.
-  const sponsorRows = await db
-    .select()
-    .from(schema.sponsors)
-    .where(eq(schema.sponsors.promoterId, eventRow.promoterId));
+  const promoterRow = promoterRows[0];
+  if (!promoterRow) return null;
 
   const sponsorsByFighter = new Map<string, string[]>();
   for (const link of fighterSponsorRows) {
@@ -225,8 +260,10 @@ export async function loadCard(db: Db, slug: string): Promise<LoadedCard | null>
   }
 
   const fighters: Record<string, Fighter> = {};
+  const fighterUpdatedAt: Record<string, number> = {};
   for (const row of fighterRows) {
     fighters[row.id] = toFighter(row, sponsorsByFighter.get(row.id) ?? []);
+    fighterUpdatedAt[row.id] = row.updatedAt;
   }
 
   const sponsors: Record<string, Sponsor> = {};
@@ -236,10 +273,11 @@ export async function loadCard(db: Db, slug: string): Promise<LoadedCard | null>
     eventId: eventRow.id,
     promoterId: eventRow.promoterId,
     published: eventRow.published,
+    fighterUpdatedAt,
     event: toEvent(
       eventRow,
       promoterRow,
-      boutRows.map(toBout),
+      bouts.map(toBout),
       eventSponsorRows.map((link) => link.sponsorId),
     ),
     fighters,
@@ -452,10 +490,6 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
     .orderBy(desc(schema.events.date));
 }
 
-export async function loadRenderJobs(db: Db, eventId: string) {
-  return db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId));
-}
-
 /**
  * Bout number to playable URL, for the videos that exist.
  *
@@ -465,20 +499,85 @@ export async function loadRenderJobs(db: Db, eventId: string) {
  * be the worst way to fail. `currentR2Key` is written by a successful publish
  * and by nothing else, which is what makes that safe.
  */
-export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
-  const rows = await db
-    .select({
-      boutNumber: schema.renderJobs.boutNumber,
-      currentR2Key: schema.renderJobs.currentR2Key,
-    })
-    .from(schema.renderJobs)
-    .where(eq(schema.renderJobs.eventId, eventId));
-
+export function rendersFrom(
+  rows: readonly { boutNumber: number; currentR2Key: string | null }[],
+): Renders {
   const renders: Renders = {};
   for (const row of rows) {
     if (row.currentR2Key) renders[row.boutNumber] = renderUrl(row.currentR2Key);
   }
   return renders;
+}
+
+export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
+  return rendersFrom(
+    await db
+      .select({
+        boutNumber: schema.renderJobs.boutNumber,
+        currentR2Key: schema.renderJobs.currentR2Key,
+      })
+      .from(schema.renderJobs)
+      .where(eq(schema.renderJobs.eventId, eventId)),
+  );
+}
+
+/**
+ * Everything the promoter's dashboard reads beside the card, in one round trip.
+ *
+ * The first three have nothing to do with each other — who has sent their
+ * profile in, what the renderer has been doing, and which show came before this
+ * one — which is exactly why they belong in a batch. Asked one at a time they
+ * were three waits on a page that already had too many.
+ *
+ * The render jobs come back whole rather than as two selects: the dashboard
+ * wants the status and the error, and the video the programme plays is a column
+ * on the same row, so `rendersFrom` reads it off these instead of asking again.
+ *
+ * The counting comes with them, for this show and for the last one. The last
+ * show's looks like it cannot be in here, because it counts a show this same
+ * batch is still in the middle of naming — so it is keyed on the same subquery
+ * that names it. SQLite finds the show twice and the page waits once instead of
+ * twice, which is the last dependent step the dashboard had. `previous` is null
+ * when the promoter has not run a show before, and the page says so rather than
+ * filling the space.
+ */
+export async function loadDashboardRows(
+  db: Db,
+  eventId: string,
+  promoterId: string,
+  before: string,
+) {
+  const previousShow = db
+    .select({ id: schema.events.id })
+    .from(schema.events)
+    .where(and(eq(schema.events.promoterId, promoterId), sql`${schema.events.date} < ${before}`))
+    .orderBy(desc(schema.events.date))
+    .limit(1);
+
+  const [inviteRows, jobRows, previousRows, kinds, taps, previousKinds, previousTaps] =
+    await db.batch([
+      db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId)),
+      db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId)),
+      db
+        .select()
+        .from(schema.events)
+        .where(and(eq(schema.events.promoterId, promoterId), sql`${schema.events.date} < ${before}`))
+        .orderBy(desc(schema.events.date))
+        .limit(1),
+      ...analyticsStatements(db, eventId),
+      ...analyticsStatements(db, previousShow),
+    ]);
+
+  const invites: Record<string, Invite> = {};
+  for (const row of inviteRows) invites[row.fighterId] = toInvite(row);
+
+  return {
+    invites,
+    jobRows,
+    analytics: analyticsFrom(kinds, taps),
+    previous: previousRows[0] ?? null,
+    previousAnalytics: analyticsFrom(previousKinds, previousTaps),
+  };
 }
 
 // --------------------------------------------------------------- analytics
@@ -497,60 +596,67 @@ const EMPTY_TOTALS: AnalyticsTotals = {
   spectators: 0,
 };
 
+export type Analytics = { totals: AnalyticsTotals; taps: Record<string, number> };
+
+type KindRow = { kind: string; count: number; sessions: number };
+type TapRow = { sponsorId: string | null; count: number };
+
+/**
+ * The two aggregations of `analytics_events`: the five counts, and the sponsor
+ * taps broken down, which is the line a sponsor actually asks about.
+ *
+ * Two statements rather than one because a query cannot group by kind and by
+ * sponsor at the same time, and they are handed back unrun so that a caller with
+ * other work to do can put them in the same batch as it. `eventId` is a
+ * `SQLWrapper` rather than a string for exactly that: the dashboard's last-show
+ * panel keys them on the subquery that finds the show, so naming it and counting
+ * it is one round trip.
+ */
+function analyticsStatements(db: Db, eventId: string | SQLWrapper) {
+  return [
+    db
+      .select({
+        kind: schema.analyticsEvents.kind,
+        count: sql<number>`count(*)`,
+        sessions: sql<number>`count(distinct ${schema.analyticsEvents.sessionId})`,
+      })
+      .from(schema.analyticsEvents)
+      .where(eq(schema.analyticsEvents.eventId, eventId))
+      .groupBy(schema.analyticsEvents.kind),
+    db
+      .select({ sponsorId: schema.analyticsEvents.sponsorId, count: sql<number>`count(*)` })
+      .from(schema.analyticsEvents)
+      .where(
+        and(
+          eq(schema.analyticsEvents.eventId, eventId),
+          eq(schema.analyticsEvents.kind, "sponsor_tap"),
+        ),
+      )
+      .groupBy(schema.analyticsEvents.sponsorId),
+  ] as const;
+}
+
 /**
  * Real counts, or zeroes. There is no third option and there must never be one:
  * the whole reason this table exists is so the promoter can hand a sponsor a
  * number that is true, and a plausible-looking estimate would destroy that the
  * first time somebody checked it.
  */
-export async function analyticsTotals(db: Db, eventId: string): Promise<AnalyticsTotals> {
-  const rows = await db
-    .select({
-      kind: schema.analyticsEvents.kind,
-      count: sql<number>`count(*)`,
-      sessions: sql<number>`count(distinct ${schema.analyticsEvents.sessionId})`,
-    })
-    .from(schema.analyticsEvents)
-    .where(eq(schema.analyticsEvents.eventId, eventId))
-    .groupBy(schema.analyticsEvents.kind);
-
+function analyticsFrom(kindRows: readonly KindRow[], sponsorRows: readonly TapRow[]): Analytics {
   const totals: AnalyticsTotals = { ...EMPTY_TOTALS };
-  for (const row of rows) {
+  for (const row of kindRows) {
     if (row.kind in totals) totals[row.kind as AnalyticsKind] = row.count;
     if (row.kind === "programme_open") totals.spectators = row.sessions;
   }
-  return totals;
-}
-
-/** Sponsor taps broken down, which is the line a sponsor actually asks about. */
-export async function sponsorTaps(db: Db, eventId: string): Promise<Record<string, number>> {
-  const rows = await db
-    .select({ sponsorId: schema.analyticsEvents.sponsorId, count: sql<number>`count(*)` })
-    .from(schema.analyticsEvents)
-    .where(
-      and(
-        eq(schema.analyticsEvents.eventId, eventId),
-        eq(schema.analyticsEvents.kind, "sponsor_tap"),
-      ),
-    )
-    .groupBy(schema.analyticsEvents.sponsorId);
 
   const taps: Record<string, number> = {};
-  for (const row of rows) if (row.sponsorId) taps[row.sponsorId] = row.count;
-  return taps;
+  for (const row of sponsorRows) if (row.sponsorId) taps[row.sponsorId] = row.count;
+
+  return { totals, taps };
 }
 
-/**
- * The promoter's previous show, for the panel that turns a sponsor conversation
- * into a transaction. Returns null when there is not one yet, and the page says
- * so rather than filling the space with something.
- */
-export async function previousShow(db: Db, promoterId: string, before: string) {
-  const [row] = await db
-    .select()
-    .from(schema.events)
-    .where(and(eq(schema.events.promoterId, promoterId), sql`${schema.events.date} < ${before}`))
-    .orderBy(desc(schema.events.date))
-    .limit(1);
-  return row ?? null;
+/** Both aggregations for one show, in one round trip. */
+export async function analyticsFor(db: Db, eventId: string): Promise<Analytics> {
+  const [kindRows, sponsorRows] = await db.batch([...analyticsStatements(db, eventId)]);
+  return analyticsFrom(kindRows, sponsorRows);
 }
