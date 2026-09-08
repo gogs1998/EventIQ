@@ -1,5 +1,7 @@
 import { INVITE_OVERRIDES } from "@/data/promoter";
 import { newId } from "@/lib/auth";
+import type { LoadedCard } from "@/lib/db/queries";
+import { boutFingerprints } from "@/lib/db/render-jobs";
 import { newInviteToken } from "@/lib/invite-token";
 import { completeness } from "@/lib/tape";
 import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
@@ -198,6 +200,10 @@ export async function buildSeed({
 }: SeedInput): Promise<SeedResult> {
   const promoterId = `pr_${event.slug.split("-").slice(0, 2).join("-")}`;
   const eventId = `ev_${event.slug}`;
+  // Worked out once and used both in the events row and in the fingerprints
+  // below, because a date the two disagreed about would leave every seeded
+  // video reading as out of date the moment the dashboard loaded.
+  const showDate = showDateFor(now);
   const statements: string[] = [];
   const inviteLinks: SeedResult["inviteLinks"] = [];
 
@@ -271,7 +277,7 @@ export async function buildSeed({
       // Not the fixture's date. See showDateFor: the seeded demo show is dated
       // from when it was seeded so it presents as imminent, which is the only
       // state in which the dashboard argues for itself.
-      date: showDateFor(now),
+      date: showDate,
       doors_time: event.doorsTime,
       first_bell_time: event.firstBellTime,
       venue: event.venue,
@@ -367,6 +373,25 @@ export async function buildSeed({
     );
   }
 
+  // What the app and the renderer would both make of the rows written above.
+  //
+  // Through boutFingerprints rather than a field list of its own, for the reason
+  // lib/renders.ts exists at all: the dashboard's "worth remaking" and the
+  // renderer's --stale are the same question, and a third answer to it would be
+  // wrong in a way nothing reports. The card is assembled the way
+  // lib/db/queries.ts will read these rows back — the seeded show date rather
+  // than the fixture's, one `updated_at` for every fighter — so the two cannot
+  // come apart.
+  const hashes = await boutFingerprints({
+    eventId,
+    promoterId,
+    published: true,
+    event: { ...event, date: showDate },
+    fighters,
+    sponsors,
+    fighterUpdatedAt: Object.fromEntries(seededFighters.map((fighter) => [fighter.id, now])),
+  } satisfies LoadedCard);
+
   // The renders that already exist. They predate the bucket and are committed
   // under public/, so the job records where they are rather than claiming the
   // renderer produced them: the app only ever asks this table what is playable.
@@ -377,10 +402,13 @@ export async function buildSeed({
         event_id: eventId,
         bout_number: boutNumber,
         status: "done",
-        // No current_hash: these predate fingerprinting, so nothing can say they
-        // are of the card as it stands. They play, and they read as wanting a
-        // render again, which is the honest pair of answers.
         current_r2_key: `/renders/bout-${boutNumber}.mp4`,
+        // The pair a successful publish writes: the video, and the fingerprint
+        // it was made from. These were left null, so the demo dashboard opened
+        // on five videos reading as worth remaking — about the five renders the
+        // pitch is built on, made from exactly the card being seeded beside them.
+        current_hash: hashes[boutNumber],
+        input_hash: hashes[boutNumber],
         requested_at: now,
         finished_at: now,
       }),

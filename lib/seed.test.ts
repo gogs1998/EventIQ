@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
+import { boutFingerprints } from "@/lib/db/render-jobs";
 import { daysUntilShow } from "@/lib/promoter";
 import { buildSeed, seedInviteFor, showDateFor } from "@/lib/seed";
+
+const NOW = 1_700_000_000_000;
+const SEEDED_RENDERS = [15, 14];
 
 const seed = () =>
   buildSeed({
@@ -9,9 +13,9 @@ const seed = () =>
     fighters,
     sponsors,
     passwordHash: "not-a-real-hash",
-    renderedBouts: [15, 14],
+    renderedBouts: SEEDED_RENDERS,
     inviteSecret: "not-a-real-invite-key",
-    now: 1_700_000_000_000,
+    now: NOW,
   });
 
 function tablesIn(sql: string, verb: "INSERT INTO" | "DELETE FROM"): Set<string> {
@@ -89,6 +93,63 @@ describe("buildSeed", () => {
       .find((statement) => statement.startsWith("INSERT INTO fighters") && statement.includes(`'${blank!.id}'`));
     expect(line).toBeDefined();
     expect(line).toMatch(/NULL, NULL, NULL/);
+  });
+});
+
+/**
+ * The five renders committed under public/ were seeded with no `current_hash`,
+ * so the demo dashboard opened on "Worth remaking" against the five videos the
+ * whole pitch is built on — made from exactly the card being seeded beside them.
+ *
+ * The fix is only worth anything while the hash the seed writes is the hash the
+ * dashboard works out when it loads the same rows back. So this builds the card
+ * the way lib/db/queries.ts will hand it to the dashboard — the seeded show
+ * date, one `updated_at` per fighter — and holds the SQL to it. A hash that is
+ * merely nearly right is worse than none: it would report the same five as
+ * stale and re-render them every hour.
+ */
+function renderJobLine(sql: string, boutNumber: number): string {
+  const line = sql
+    .split("\n")
+    .find((statement) => statement.startsWith("INSERT INTO render_jobs") && statement.includes(`, ${boutNumber}, `));
+  expect(line).toBeDefined();
+  return line!;
+}
+
+describe("the fingerprints the seed records", () => {
+  /** The card the dashboard loads back, built from the fixture rather than from the seed. */
+  const asTheDashboardSeesIt = () => {
+    const onCard = new Set(event.bouts.flatMap((bout) => [bout.redId, bout.blueId]));
+    return boutFingerprints({
+      eventId: `ev_${event.slug}`,
+      promoterId: "pr_cage-county",
+      published: true,
+      event: { ...event, date: showDateFor(NOW) },
+      fighters,
+      sponsors,
+      fighterUpdatedAt: Object.fromEntries([...onCard].map((id) => [id, NOW])),
+    });
+  };
+
+  it("says each committed render is of the card as it was seeded", async () => {
+    const [{ sql }, expected] = await Promise.all([seed(), asTheDashboardSeesIt()]);
+
+    for (const boutNumber of SEEDED_RENDERS) {
+      expect(expected[boutNumber]).toBeTruthy();
+      expect(renderJobLine(sql, boutNumber)).toContain(`'${expected[boutNumber]}'`);
+    }
+  });
+
+  it("leaves no seeded render without a fingerprint to be compared against", async () => {
+    const { sql } = await seed();
+    for (const boutNumber of SEEDED_RENDERS) {
+      expect(renderJobLine(sql, boutNumber)).not.toContain("NULL");
+    }
+  });
+
+  it("gives two different bouts two different fingerprints", async () => {
+    const expected = await asTheDashboardSeesIt();
+    expect(expected[15]).not.toBe(expected[14]);
   });
 });
 
