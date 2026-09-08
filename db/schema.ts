@@ -491,6 +491,67 @@ export const analyticsEvents = sqliteTable(
 );
 
 /**
+ * The same counting, folded by day once it has stopped moving.
+ *
+ * `analytics_events` grows for ever and is read by scanning a show's whole slice
+ * of it. That is the right answer for one show and the wrong one for a
+ * promoter's third season, and the fold is what stands in front of it:
+ * scripts/rollup-analytics.mjs sums every row older than the window into a row
+ * per day and deletes what it summed. So a show's counts live in two places at
+ * once — the folded days here, and whatever is still in `analytics_events` —
+ * and the dashboard adds them together. It has to add *everything* that is left
+ * rather than only the recent tail, because that is what makes the fold
+ * invisible: rows move from one table to the other and no total changes.
+ *
+ * The grouping columns are the same ones a row carries, so nothing a promoter
+ * can ask today stops being answerable — taps per sponsor, expands per bout,
+ * views per fighter. What is lost is the *hour* and the individual session, and
+ * both are deliberate: the report is a day's figures, and a session id that
+ * outlived the visit it was made for would be the identifier this table has
+ * never had.
+ *
+ * Rows are appended rather than merged, because a unique index over columns that
+ * are mostly null does not do what it looks like it does in SQLite — NULLs are
+ * distinct there, so an upsert would silently duplicate. Summing on read is
+ * correct whichever way the rows arrive.
+ *
+ * `distinctSessions` is distinct sessions *within one day's group*, and summing
+ * it across days is what "spectators" then means. A session is a sessionStorage
+ * value that lasts one visit, so the only way to be counted twice is a tab left
+ * open across midnight UTC. That is the one figure here that is an
+ * approximation, and the day is the boundary the fold already had.
+ */
+export const analyticsDaily = sqliteTable(
+  "analytics_daily",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /**
+     * Calendar day in UTC, ISO `YYYY-MM-DD`, which is what a day is here for the
+     * same reason `events.date` is text: it is a calendar fact rather than an
+     * instant. UTC rather than the show's own evening because D1 has no
+     * timezone and a fold that guessed one would be wrong for half the year.
+     */
+    day: text("day").notNull(),
+    /** programme_open | bout_expand | tape_play | sponsor_tap | profile_view */
+    kind: text("kind").notNull(),
+    boutNumber: integer("bout_number"),
+    fighterId: text("fighter_id"),
+    sponsorId: text("sponsor_id"),
+    count: integer("count").notNull(),
+    distinctSessions: integer("distinct_sessions").notNull(),
+  },
+  (table) => [
+    // The dashboard's two aggregations, exactly as they are on the table this
+    // stands in front of. Reading a folded show must not become the scan the
+    // fold was written to remove.
+    index("analytics_daily_event_kind").on(table.eventId, table.kind),
+  ],
+);
+
+/**
  * Fetched record pages, keyed by canonical URL.
  *
  * Caching is not an optimisation here, it is the good manners that keep this

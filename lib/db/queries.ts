@@ -721,6 +721,11 @@ export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
  * twice, which is the last dependent step the dashboard had. `previous` is null
  * when the promoter has not run a show before, and the page says so rather than
  * filling the space.
+ *
+ * Each show's counting is four statements rather than two, because a folded show
+ * has its numbers in `analytics_daily` and its last two days in
+ * `analytics_events`. It is still one wait: they go in the same batch as
+ * everything else here, which is the whole reason these are handed back unrun.
  */
 export async function loadDashboardRows(
   db: Db,
@@ -735,28 +740,42 @@ export async function loadDashboardRows(
     .orderBy(desc(schema.events.date))
     .limit(1);
 
-  const [inviteRows, jobRows, previousRows, kinds, taps, previousKinds, previousTaps] =
-    await db.batch([
-      db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId)),
-      db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId)),
-      db
-        .select()
-        .from(schema.events)
-        .where(and(eq(schema.events.promoterId, promoterId), sql`${schema.events.date} < ${before}`))
-        .orderBy(desc(schema.events.date))
-        .limit(1),
-      ...analyticsStatements(db, eventId),
-      ...analyticsStatements(db, previousShow),
-    ]);
+  const [
+    inviteRows,
+    jobRows,
+    previousRows,
+    kinds,
+    taps,
+    foldedKinds,
+    foldedTaps,
+    previousKinds,
+    previousTaps,
+    previousFoldedKinds,
+    previousFoldedTaps,
+  ] = await db.batch([
+    db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId)),
+    db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId)),
+    db
+      .select()
+      .from(schema.events)
+      .where(and(eq(schema.events.promoterId, promoterId), sql`${schema.events.date} < ${before}`))
+      .orderBy(desc(schema.events.date))
+      .limit(1),
+    ...analyticsStatements(db, eventId),
+    ...analyticsStatements(db, previousShow),
+  ]);
 
   const invites = await invitesWithLinks(inviteRows);
 
   return {
     invites,
     jobRows,
-    analytics: analyticsFrom(kinds, taps),
+    analytics: analyticsFrom([...kinds, ...foldedKinds], [...taps, ...foldedTaps]),
     previous: previousRows[0] ?? null,
-    previousAnalytics: analyticsFrom(previousKinds, previousTaps),
+    previousAnalytics: analyticsFrom(
+      [...previousKinds, ...previousFoldedKinds],
+      [...previousTaps, ...previousFoldedTaps],
+    ),
   };
 }
 
@@ -782,15 +801,26 @@ type KindRow = { kind: string; count: number; sessions: number };
 type TapRow = { sponsorId: string | null; count: number };
 
 /**
- * The two aggregations of `analytics_events`: the five counts, and the sponsor
- * taps broken down, which is the line a sponsor actually asks about.
+ * The two aggregations a show's counts are read as — the five counts, and the
+ * sponsor taps broken down, which is the line a sponsor actually asks about —
+ * over both of the places those counts live.
  *
  * Two statements rather than one because a query cannot group by kind and by
- * sponsor at the same time, and they are handed back unrun so that a caller with
- * other work to do can put them in the same batch as it. `eventId` is a
- * `SQLWrapper` rather than a string for exactly that: the dashboard's last-show
- * panel keys them on the subquery that finds the show, so naming it and counting
- * it is one round trip.
+ * sponsor at the same time, and four rather than two because the rows a show has
+ * accumulated sit in `analytics_daily` once the fold has been past them and in
+ * `analytics_events` until then. They are added together in `analyticsFrom`.
+ *
+ * The tail is read **whole** rather than from the fold's boundary. That is the
+ * property that matters here: the fold moves rows out of one table and into the
+ * other in a single batch, so there is no instant at which a row is in both and
+ * none at which it is in neither, and a promoter watching the dashboard while
+ * the cron runs sees no number move. Reading the tail from a time instead would
+ * lose anything the fold had not reached yet.
+ *
+ * They are handed back unrun so that a caller with other work to do can put them
+ * in the same batch as it. `eventId` is a `SQLWrapper` rather than a string for
+ * exactly that: the dashboard's last-show panel keys them on the subquery that
+ * finds the show, so naming it and counting it is one round trip.
  */
 function analyticsStatements(db: Db, eventId: string | SQLWrapper) {
   return [
@@ -813,6 +843,30 @@ function analyticsStatements(db: Db, eventId: string | SQLWrapper) {
         ),
       )
       .groupBy(schema.analyticsEvents.sponsorId),
+    db
+      .select({
+        kind: schema.analyticsDaily.kind,
+        count: sql<number>`sum(${schema.analyticsDaily.count})`,
+        // Distinct within a day, summed across days. See the note on the table:
+        // a spectator counted twice is one who left a tab open across midnight.
+        sessions: sql<number>`sum(${schema.analyticsDaily.distinctSessions})`,
+      })
+      .from(schema.analyticsDaily)
+      .where(eq(schema.analyticsDaily.eventId, eventId))
+      .groupBy(schema.analyticsDaily.kind),
+    db
+      .select({
+        sponsorId: schema.analyticsDaily.sponsorId,
+        count: sql<number>`sum(${schema.analyticsDaily.count})`,
+      })
+      .from(schema.analyticsDaily)
+      .where(
+        and(
+          eq(schema.analyticsDaily.eventId, eventId),
+          eq(schema.analyticsDaily.kind, "sponsor_tap"),
+        ),
+      )
+      .groupBy(schema.analyticsDaily.sponsorId),
   ] as const;
 }
 
@@ -821,22 +875,38 @@ function analyticsStatements(db: Db, eventId: string | SQLWrapper) {
  * the whole reason this table exists is so the promoter can hand a sponsor a
  * number that is true, and a plausible-looking estimate would destroy that the
  * first time somebody checked it.
+ *
+ * Rows arrive from two tables now and are **added**, not assigned. That one word
+ * is what makes the fold invisible: a kind that has some of its counting folded
+ * and some of it still live appears in both lists, and the total is the same
+ * number it was before anything moved.
+ *
+ * Exported because it is the whole of the combining, with no database in it, and
+ * "the numbers do not change when the fold runs" is a claim worth a test rather
+ * than an argument.
  */
-function analyticsFrom(kindRows: readonly KindRow[], sponsorRows: readonly TapRow[]): Analytics {
+export function analyticsFrom(
+  kindRows: readonly KindRow[],
+  sponsorRows: readonly TapRow[],
+): Analytics {
   const totals: AnalyticsTotals = { ...EMPTY_TOTALS };
   for (const row of kindRows) {
-    if (row.kind in totals) totals[row.kind as AnalyticsKind] = row.count;
-    if (row.kind === "programme_open") totals.spectators = row.sessions;
+    if (row.kind in totals) totals[row.kind as AnalyticsKind] += row.count;
+    if (row.kind === "programme_open") totals.spectators += row.sessions;
   }
 
   const taps: Record<string, number> = {};
-  for (const row of sponsorRows) if (row.sponsorId) taps[row.sponsorId] = row.count;
+  for (const row of sponsorRows) {
+    if (row.sponsorId) taps[row.sponsorId] = (taps[row.sponsorId] ?? 0) + row.count;
+  }
 
   return { totals, taps };
 }
 
-/** Both aggregations for one show, in one round trip. */
+/** Both aggregations for one show, over both tables, in one round trip. */
 export async function analyticsFor(db: Db, eventId: string): Promise<Analytics> {
-  const [kindRows, sponsorRows] = await db.batch([...analyticsStatements(db, eventId)]);
-  return analyticsFrom(kindRows, sponsorRows);
+  const [liveKinds, liveTaps, foldedKinds, foldedTaps] = await db.batch([
+    ...analyticsStatements(db, eventId),
+  ]);
+  return analyticsFrom([...liveKinds, ...foldedKinds], [...liveTaps, ...foldedTaps]);
 }

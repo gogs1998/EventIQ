@@ -92,6 +92,13 @@
       "when": 1788850000006,
       "tag": "0012_analytics_events_by_time",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788850000007,
+      "tag": "0013_analytics_daily_rollup",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,7 @@
     "assets": "node scripts/prepare-assets.mjs",
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
+    "analytics:rollup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/rollup-analytics.mjs",
     "retention": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/ts-alias-loader-register.mjs scripts/retention.mjs",
     "render": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-tape.mjs",
     "render-key": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-key.mjs",
