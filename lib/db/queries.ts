@@ -349,6 +349,18 @@ export async function loadShowcase(
  */
 export async function loadInvites(db: Db, eventId: string): Promise<Record<string, Invite>> {
   const rows = await db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId));
+  return invitesWithLinks(rows);
+}
+
+/**
+ * The rows of a card's invites, keyed by fighter, with the links opened.
+ *
+ * One place for the decryption, because the dashboard reads these rows inside a
+ * batch with everything else it needs, and a second mapping that forgot the
+ * cipher column handed every fighter a link of nothing — which the chase list
+ * shows as a Copy button that copies nothing.
+ */
+export async function invitesWithLinks(rows: InviteRow[]): Promise<Record<string, Invite>> {
   const secret = rows.some((row) => !row.token && row.tokenCipher) ? await inviteSecret() : null;
 
   const invites: Record<string, Invite> = {};
@@ -737,8 +749,7 @@ export async function loadDashboardRows(
       ...analyticsStatements(db, previousShow),
     ]);
 
-  const invites: Record<string, Invite> = {};
-  for (const row of inviteRows) invites[row.fighterId] = toInvite(row);
+  const invites = await invitesWithLinks(inviteRows);
 
   return {
     invites,
