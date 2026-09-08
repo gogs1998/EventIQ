@@ -45,7 +45,7 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 404 unit tests in 27 files, about a second
+npm test           # 564 unit tests in 32 files, about a second
 npm run lint
 npm run typecheck
 npm run build

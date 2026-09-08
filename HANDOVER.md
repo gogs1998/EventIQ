@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 404 unit tests and a 27-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 564 unit tests and a 27-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -422,6 +422,8 @@ npm run retention -- --apply
 npm run retention -- --remote --apply   # the live database
 ```
 
+**The same sweep now takes two other things**, because they want the same schedule and the same default: `analytics_events` rows the fold has already summed into `analytics_daily` (never a show-day it has not — section 9), and `import_cache` rows over thirty days old, which the importer prunes on its way past and therefore prunes only when somebody is importing. And the bucket has a sweep of its own, `npm run r2:orphans`, for objects no row points at — a photograph a fighter replaced, a cutout the renderer superseded, a stylised portrait nobody approved. It never takes a current render and never takes anything written in the last day, because a portrait waiting to be approved is unreferenced on purpose.
+
 **The privacy notice is [/privacy](app/privacy/page.tsx), and it is a draft.** The position it states — the promoter is the controller, EventIQ the processor — is in a comment at the top of that file rather than on the page, in those words, for the owner to put in front of a lawyer. Two things sit awkwardly with it and want raising at the same time: the `fighters` table is global rather than owned by a promoter (section 19 item 11), and **the lawful basis for publishing is still not stated anywhere**. Consent is what the questionnaire takes; whether consent or legitimate interests is the right basis for a public programme is exactly the question to ask. The page claims no legal review and a test fails if it starts to.
 
 **The copy is tested.** [lib/copy.test.ts](lib/copy.test.ts) and [lib/consent.test.ts](lib/consent.test.ts) hold all of it to the tone rules plus two of its own: nothing may suggest that asking for your details back is a failing, and nothing may present generated artwork as a picture of anybody.
@@ -571,15 +573,31 @@ Two properties are worth keeping if this is ever changed:
 
 **There is no user identifier and none is wanted.** `sessionId` is a random value held for the length of one visit, so opens can be counted per spectator rather than per reload, and it is stored nowhere else.
 
-The table is append-only and unaggregated, because the value to a promoter is a report they can hand a sponsor and the questions a sponsor asks are not known in advance. It is still read by scanning every row for a show, which is the right answer while a show is a few thousand rows and is the thing a rollup would replace. `analytics_events(event_id, created_at)` is indexed as of migration 0007 — nothing reads by time yet, and a report over the hours of a show and the rollup that stands in front of these scans both will, and the index is cheap on a quiet afternoon and awkward on a table with a season of counting in it.
+The table is append-only and unaggregated, because the value to a promoter is a report they can hand a sponsor and the questions a sponsor asks are not known in advance. That is the right shape for one show and the wrong one for a promoter's third season, so **the fold now stands in front of it**. `analytics_daily` (migration 0013) holds the same grouping columns summed by UTC day, and [scripts/rollup-analytics.mjs](scripts/rollup-analytics.mjs) sums everything older than 48 hours into it and deletes what it summed. Nothing a sponsor asks stops being answerable — taps per sponsor, expands per bout, views per fighter all survive; what goes is the hour and the session id, and the session id is the one value in this table that was never meant to outlive the visit it was made for.
 
-The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same function so they cannot end up meaning different things — `analyticsFor()`, which is the two aggregations in one `db.batch`. They are two statements because one query cannot group by kind and by sponsor at once; they are one round trip because there is no reason for them to be two.
+**The numbers do not move when the fold runs**, which is the property the whole design is arranged around. `analyticsStatements` reads the folded days *plus everything still in `analytics_events`*, whole, with no time boundary on either side, and `analyticsFrom` adds them — so a row changing tables changes no total. There is a test on that combining function and a before-and-after reading of the seeded card's dashboard through a real browser.
+
+Three things about the fold are worth carrying forward.
+
+- **Whole days only.** The cutoff is midnight UTC at the start of the day containing "48 hours ago", never part way through a day. A day half in each table would contribute its distinct sessions twice for one evening's spectators.
+- **It is not one transaction, and cannot be.** D1 runs each statement of a file in its own transaction — the same thing the restore rehearsal found out about `PRAGMA defer_foreign_keys`. So the sum goes in before the delete, because a day counted twice is visible and fixable where a day gone is neither, and a run interrupted between the two is *detected* rather than repeated: a day that is both summed and still live refuses and says what to remove.
+- **"Spectators" is now the only approximate figure on the page**, and only just. It is distinct sessions within a day, summed across days, so the way to be counted twice is to leave a tab open across midnight UTC. A session is a sessionStorage value that lasts one visit.
+
+`analytics_events(event_id, created_at)` was indexed by migration 0012 for exactly this, before there was a table with a season of counting in it.
+
+[scripts/retention.mjs](scripts/retention.mjs) sweeps what is left, and it will **not** remove counting for a show-day that has never been folded, whatever its age: until the fold has run, those rows are the only copy of those numbers. The cron lines for both are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps), and nobody has installed them.
+
+The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same function so they cannot end up meaning different things — `analyticsFor()`. It is four statements now rather than two: one query cannot group by kind and by sponsor at once, and each of those has to ask the folded table as well as the live one. It is still one round trip, because they are handed back unrun and go in the same `db.batch` as everything else the dashboard needs.
 
 **The invented "last show" figures are gone.** They were the most dangerous thing in the demo: plausible numbers that would have been repeated to a sponsor. The panel now shows real counts or explicit zeroes, and says in the footer that nothing on the page is estimated.
 
-Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Four things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme.
+Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Five things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), **whether the caller looks like a person reading a programme at all**, the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme.
 
-None of that changes what is stored. There is still no address, no cookie and nothing identifying a person; `sessionId` is bounded rather than parsed.
+**The crawler check falls the opposite way from the one on invite links**, and that is the whole reason [lib/bots.ts](lib/bots.ts) now holds two lists. An unrecognised unfurler marking a fighter's link as opened costs a promoter one wasted phone call, so `isLinkPreviewBot` guesses towards recording; an unrecognised crawler counted as a spectator goes into the report a sponsor is handed, so `countableRequest` guesses towards dropping. Between them they take the unfurlers, the search and model crawlers, headless browsers and scripted clients by name, a request with no user agent at all, a POST carrying none of the `Sec-Fetch-*` headers every browser sends with a beacon, and one posted `cross-site` or with no page behind it. The walkthrough is the case that made the split necessary: it is real Chrome, it opens invite links for real, and its taps are a test run rather than an audience.
+
+The cost of that is under-counting, which is the error this product is allowed to make. Safari before 16.4 sent no `Sec-Fetch-*` headers, so those spectators go uncounted rather than miscounted.
+
+None of that changes what is stored. There is still no address, no cookie and nothing identifying a person; `sessionId` is bounded rather than parsed, and the user agent and `Sec-Fetch-*` headers the check reads are read and thrown away.
 
 ---
 
@@ -878,6 +896,12 @@ Three more, and the first is the most serious thing found in this project so far
 30. **A fighter's photograph never reached their video.** Nothing generated a cutout on upload — background removal existed only in `npm run assets`, run by hand against curated artwork — and the sequence branched on the cutout alone, so a fighter who sent a photograph appeared in the video as though they had sent nothing. The demo looked right only because the cutouts had been prepared in advance. Two fixes, and they are different in kind: the sequence now falls back to the photograph, and the renderer makes the cutouts. Both are in section 4. **What made this survivable for as long as it did is that the seeded card is the one card where every fighter already has a cutout**, so every check of the centrepiece was a check of the one state that was never in question. Anything only ever exercised against the demo data is worth re-checking against a fighter who has just filled the form in.
 31. **The exporter screenshotted before newly mounted images had painted.** Found while proving the above and it had been latent all along: `seek` set the frame and took the picture, which was fine for 480 frames of images that were already in the document and not fine the first time a scene mounted one. The first generated cutout came back correct in R2, served correctly over curl, loaded in a standalone Chrome — and was a blank space in the mp4. It now waits a frame for React to commit, `decode()`s every image in the document, then waits two more frames for the paint. **A pure composition guarantees the same markup per frame; it does not guarantee the pixels are there when you photograph it.**
 
+
+### From making the numbers trustworthy and the bucket tidy
+
+32. **A fighter's own photograph answered 404 for the second after they sent it.** `uploadPhoto` stored the object and returned a path, and the questionnaire previewed that path immediately — a `/media` URL for an object no row pointed at yet. The gate refuses one of those on purpose (an object attached to no show belongs to nobody), so the picture failed once and then quietly worked when the debounced autosave landed. It looked like a slow bucket and was a missing write. The action puts the path on the fighter itself now, beside the object. **The lesson is the same one as bug 30 in different clothes:** the seeded card is the only card where every fighter's photograph is already on the row, so every check of the media gate was a check of the state that was never in question.
+33. **The counting endpoint counted whatever could POST at it.** No credential is possible there, and the shape checks that were in place answer "is this a plausible interaction", not "is this a person". A link unfurled into a group chat, a model crawler reading a public programme and the end-to-end suite filling in a fighter all wrote rows that a promoter would later hand a sponsor. `countableRequest` in lib/track.ts is the other half of the question, and it deliberately guesses the opposite way from `isLinkPreviewBot` — section 9.
+
 ---
 
 ## 15. Environment notes
@@ -894,7 +918,7 @@ Three more, and the first is the most serious thing found in this project so far
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 404 unit tests
+npm test                     # 564 unit tests
 npm run lint
 npm run typecheck
 
@@ -941,11 +965,24 @@ npm run render-key -- mint --promoter cage-county --label "Ross's laptop" --days
 npm run render-key -- mint --label "the hourly runner"    # unscoped: every promoter
 npm run render-key -- revoke --id rk_...
 
-# The retention sweep. Dry run unless --apply, because it is the one script here
-# that destroys data on purpose. Section 6e.
+# The retention sweep: fighters past the policy, counting the fold has already
+# summed, and cached record pages over a month old. Dry run unless --apply,
+# because it is the one script here that destroys data on purpose. Section 6e.
 npm run retention
 npm run retention -- --apply
 npm run retention -- --days 90 --remote --apply
+
+# Folding the counting table into a row a day, and removing what it folded. The
+# dashboard's numbers do not move when it runs. Dry run unless --apply. Section 9.
+npm run analytics:rollup
+npm run analytics:rollup -- --apply
+npm run analytics:rollup -- --remote --apply
+
+# Objects in the bucket that no row points at. Never a current render, never
+# anything written in the last day. Dry run unless --apply; --remote wants an R2
+# read token, DEPLOY.md.
+npm run r2:orphans
+npm run r2:orphans -- --remote --apply
 
 # Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
 # deployed site. Whatever is in it — a minted key, or the old secret. Section 6c.
@@ -1079,7 +1116,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 ## 20. Risks worth tracking
 
 - **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
-- **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It now asks first, records what was agreed to and when, refuses under-eighteens, offers removal and sweeps on a retention policy, with a notice at `/privacy` — section 6e. **The lawful basis for publishing is still stated nowhere**, and the controller/processor position is a draft in a source comment that no lawyer has seen. Both are section 19 item 2, and both need the originator rather than a commit. The residual risks are ordinary rather than structural now: a column added to the questionnaire and not added to `clearedFighterColumns` is a field that survives a fighter asking for it to go, and the retention sweep is a command nobody has scheduled — the same shape of gap as the backup below.
+- **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It now asks first, records what was agreed to and when, refuses under-eighteens, offers removal and sweeps on a retention policy, with a notice at `/privacy` — section 6e. **The lawful basis for publishing is still stated nowhere**, and the controller/processor position is a draft in a source comment that no lawyer has seen. Both are section 19 item 2, and both need the originator rather than a commit. The residual risks are ordinary rather than structural now: a column added to the questionnaire and not added to `clearedFighterColumns` is a field that survives a fighter asking for it to go, and **the retention sweep, the analytics fold and the bucket sweep are three commands nobody has scheduled** — the same shape of gap as the backup below, and the cron lines for all of them are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps).
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
 - **So is the render key, and it is now per promoter.** It used to be one shared secret held by whatever machine rendered the videos, and anybody holding it could read any card on the instance, published or not. Keys are rows in `render_keys` now, scoped to a promoter, expiring and revocable — section 6c. Two things are left of the risk. The runner's key is unscoped by necessity, because the hourly job renders whatever is queued, so it is still a credential that reads every draft on the instance and it lives in repository secrets: anyone who can read those, or push a workflow that echoes them, holds it. And **the `RENDER_KEY` secret is still accepted**, which means the old cross-tenant credential exists until somebody mints a runner key and runs `wrangler secret delete RENDER_KEY`. That is the one piece of this that is a chore rather than a decision, and it is not done. Rotation costs nothing else: nothing but the renderer reads it.
 - **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.
