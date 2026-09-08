@@ -248,31 +248,32 @@ export async function loadCard(db: Db, slug: string): Promise<LoadedCard | null>
 }
 
 /**
- * The card that the pitch page, the sitemap and the bare /qr route fall back to.
+ * The one show the shop window runs on: the pitch page, the sitemap, `/f/demo`
+ * and the bare `/qr` route.
  *
- * The published show with the furthest-out date, because that is the one a
- * promoter is currently selling. Returns null when nothing is published, and
- * every caller says so rather than inventing a card to fill the space.
+ * It used to be "the published show with the furthest-out date", picked across
+ * the whole instance. With one promoter that was a fair guess at which card was
+ * being sold. With two it is a leak in the ordinary course of business: the
+ * second promoter publishes a show dated later than the demo, and EventIQ's own
+ * front page, its sitemap and its printable table card all swing onto their
+ * event, their venue and their fighters, with nobody having done anything and
+ * nothing on the page to say it has happened.
  *
- * A show with no bouts on it is skipped where there is any alternative. A
- * promoter can create next month's show and publish it before typing the running
- * order in, and that show has the furthest-out date by definition — so without
- * this the shop window would swap a full card for an empty one the moment a draft
- * went live. It is a preference rather than a filter: if the only published show
- * is empty, that is still the show, and the pages leave out the parts that need a
- * bout.
+ * So the demo is named rather than inferred, in `SHOWCASE_SLUG`. Unset, unknown
+ * or unpublished all mean no showcase, and the pages make their argument without
+ * a live card — which is the state a fresh instance is in anyway.
+ *
+ * **Published only**, rather than the `visibleTo` rule the public routes use.
+ * This is a shop window and there is no viewer to ask about: a draft named here
+ * must not become a public page by being named.
  */
-export async function loadShowcase(db: Db): Promise<LoadedCard | null> {
-  const rows = await db
-    .select({ slug: schema.events.slug, bouts: sql<number>`count(${schema.bouts.id})` })
-    .from(schema.events)
-    .leftJoin(schema.bouts, eq(schema.bouts.eventId, schema.events.id))
-    .where(eq(schema.events.published, true))
-    .groupBy(schema.events.id)
-    .orderBy(desc(schema.events.date));
-
-  const pick = rows.find((row) => row.bouts > 0) ?? rows[0];
-  return pick ? loadCard(db, pick.slug) : null;
+export async function loadShowcase(
+  db: Db,
+  slug: string | null | undefined,
+): Promise<LoadedCard | null> {
+  if (!slug) return null;
+  const card = await loadCard(db, slug);
+  return card?.published ? card : null;
 }
 
 export async function loadInvites(db: Db, eventId: string): Promise<Record<string, Invite>> {

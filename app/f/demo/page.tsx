@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Questionnaire } from "@/components/Questionnaire";
 import { emptiestEntry } from "@/lib/card";
-import { getDb } from "@/lib/db";
+import { getDb, readVar } from "@/lib/db";
 import { loadShowcase } from "@/lib/db/queries";
 
 export const metadata: Metadata = {
@@ -21,13 +21,16 @@ export const dynamic = "force-dynamic";
  * needs to be able to type in it and watch the card fill up. Doing that against
  * a real fighter's profile would edit a real fighter's profile, so this runs the
  * same component with no save, no submit and no upload, and says so at the foot
- * of the form. The bout and the opponent are real rows from the published card,
+ * of the form. The bout and the opponent are real rows from the showcase card,
  * because a preview built from a second set of invented data is a second thing
- * to keep in step.
+ * to keep in step — and from the showcase card rather than from whatever is
+ * published latest, because a fighter shown here is a real person on a real
+ * card, and a promoter demonstrating the form should not be opening it as
+ * somebody else's fighter.
  */
 export default async function FighterDemoPage() {
-  const card = await loadShowcase(await getDb());
-  if (!card) return <NothingToPreview because="There is no published show on this instance." />;
+  const card = await loadShowcase(await getDb(), await readVar("SHOWCASE_SLUG"));
+  if (!card) return <NothingToPreview because="There is no show on display on this instance." />;
 
   // The emptiest fighter on the card, so the preview opens on a blank form the
   // way a fighter's own link does rather than on somebody else's finished one.
