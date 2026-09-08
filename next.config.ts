@@ -136,7 +136,26 @@ const nextConfig: NextConfig = {
       // accept are written out rather than inferred. If a promoter's action
       // starts answering "Invalid Server Actions request", this is the list to
       // look at first.
-      allowedOrigins: ["eventiq.win", "www.eventiq.win", "localhost:3000", "localhost:3101"],
+      //
+      // The workers.dev entry is not a convenience. Every Worker answers on one
+      // of these whether or not a custom domain is in front of it — staging has
+      // none — so without it a sign-in POST on staging is refused by the origin
+      // check and the promoter is handed the login page back with nothing said.
+      // A wildcard rather than the two hostnames because the subdomain is this
+      // account's and nobody else can publish under it, and because a Worker
+      // added or renamed would otherwise fail the same silent way. Next matches
+      // these one DNS label at a time (server/app-render/csrf-protection.js), so
+      // a single `*` covers the hosts directly under it and nothing deeper.
+      // Nothing else wants the host: the CSP is written in terms of 'self' and
+      // HSTS names no host at all, so both follow whatever origin served
+      // the page.
+      allowedOrigins: [
+        "eventiq.win",
+        "www.eventiq.win",
+        "*.gordonshepherd1.workers.dev",
+        "localhost:3000",
+        "localhost:3101",
+      ],
     },
   },
   async headers() {
