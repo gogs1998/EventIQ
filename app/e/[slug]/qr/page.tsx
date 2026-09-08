@@ -4,7 +4,6 @@ import { QrCode } from "@/components/QrCode";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { showSponsors } from "@/lib/card";
 import { tableCardNote } from "@/lib/copy";
-import { getDb } from "@/lib/db";
 import { formatEventDateShort } from "@/lib/tape";
 import { loadVisibleCard } from "@/lib/visibility";
 
@@ -12,7 +11,7 @@ export async function generateMetadata({
   params,
 }: PageProps<"/e/[slug]/qr">): Promise<Metadata> {
   const { slug } = await params;
-  const card = await loadVisibleCard(await getDb(), slug);
+  const card = await loadVisibleCard(slug);
   return card
     ? {
         title: `Table card — ${card.event.name}`,
@@ -33,7 +32,7 @@ export async function generateMetadata({
  */
 export default async function QrPage({ params }: PageProps<"/e/[slug]/qr">) {
   const { slug } = await params;
-  const card = await loadVisibleCard(await getDb(), slug);
+  const card = await loadVisibleCard(slug);
   if (!card) notFound();
 
   const { event } = card;

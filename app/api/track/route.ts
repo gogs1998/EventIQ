@@ -2,7 +2,7 @@ import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { eventVisibility, trackRefsBelong } from "@/lib/db/queries";
 import { withinTrackLimit } from "@/lib/rate-limit";
-import { parseTrackBody } from "@/lib/track";
+import { countableRequest, parseTrackBody, trackSignals } from "@/lib/track";
 
 /**
  * Counts one interaction.
@@ -15,18 +15,26 @@ import { parseTrackBody } from "@/lib/track";
  * Which is why what it will write has to be narrow. It takes no credential and
  * cannot — the beacon is sent as the page goes — so an open endpoint that wrote
  * whatever it was handed would be a table anybody could fill, and these counts
- * are the evidence a promoter puts in front of a sponsor. Three things bound it:
- * the caller's allowance, the shape check in lib/track.ts, and the requirement
- * that the show is published and that every id named is actually on it.
+ * are the evidence a promoter puts in front of a sponsor. Four things bound it:
+ * the caller's allowance, whether the request looks like a browser at all, the
+ * shape check in lib/track.ts, and the requirement that the show is published
+ * and that every id named is actually on it.
  *
  * Privacy is unchanged and is the point: no address is stored, no cookie is set
- * and nothing here identifies a person. See section 9.
+ * and nothing here identifies a person. The crawler check reads the user agent
+ * and the `Sec-Fetch-*` headers and stores neither. See section 9.
  */
 
 const ok = () => new Response(null, { status: 204 });
 
 export async function POST(request: Request) {
   if (!(await withinTrackLimit(request))) return ok();
+
+  // A crawler, an unfurler, a headless browser or a scripted client is not a
+  // spectator, and counting one puts a number in front of a sponsor that nobody
+  // could defend. Refused before the body is even read: this costs nothing and
+  // the rest of the route costs two queries.
+  if (!countableRequest(trackSignals(request.headers))) return ok();
 
   let body: unknown;
   try {

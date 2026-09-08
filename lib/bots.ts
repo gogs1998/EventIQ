@@ -25,6 +25,8 @@ const FETCHERS = [
   "whatsapp",
   "facebookexternalhit",
   "facebookbot",
+  "meta-externalagent",
+  "meta-externalfetcher",
   "instagram",
   "slackbot",
   "slack-imgproxy",
@@ -36,8 +38,13 @@ const FETCHERS = [
   "viber",
   "redditbot",
   "pinterest",
+  "tumblr",
+  "flipboard",
+  "vkshare",
+  "mastodon",
   "googlebot",
   "google-inspectiontool",
+  "googleother",
   "bingbot",
   "yandexbot",
   "duckduckbot",
@@ -45,6 +52,21 @@ const FETCHERS = [
   "petalbot",
   "ahrefsbot",
   "semrushbot",
+  "mj12bot",
+  "dotbot",
+  "bytespider",
+  "amazonbot",
+  // The model crawlers. They read a public programme the way a search crawler
+  // does, and on a page with a QR code behind it they are a larger share of what
+  // arrives than anything a promoter would recognise as a visitor.
+  "gptbot",
+  "oai-searchbot",
+  "chatgpt-user",
+  "claudebot",
+  "claude-web",
+  "anthropic-ai",
+  "perplexitybot",
+  "ccbot",
   "embedly",
   "quora link preview",
   "ia_archiver",
@@ -54,8 +76,65 @@ const FETCHERS = [
   "preview",
 ];
 
-export function isLinkPreviewBot(userAgent: string | null | undefined): boolean {
+/**
+ * Automation driving a browser, and the plain HTTP clients.
+ *
+ * A separate list from the one above because the two are read in opposite
+ * directions. An unfurler must never mark a fighter's invite as opened, and that
+ * is the whole of what `isLinkPreviewBot` decides. This list is only ever asked
+ * about a *count*, where the cost of being wrong is the other way round — so the
+ * browser walkthrough, which is real Chrome with `HeadlessChrome` in its agent,
+ * belongs here and not there. It writes as it goes, and its taps are not
+ * spectators.
+ */
+const AUTOMATED = [
+  "headlesschrome",
+  "chrome-lighthouse",
+  "phantomjs",
+  "puppeteer",
+  "playwright",
+  "selenium",
+  "webdriver",
+  "cypress",
+  "python-requests",
+  "python-urllib",
+  "aiohttp",
+  "scrapy",
+  "curl/",
+  "wget",
+  "okhttp",
+  "go-http-client",
+  "java/",
+  "axios/",
+  "node-fetch",
+  "undici",
+  "libwww-perl",
+  "httpie",
+  "postmanruntime",
+  "insomnia",
+  "apachebench",
+  "guzzlehttp",
+];
+
+function agentHolds(userAgent: string | null | undefined, names: readonly string[]): boolean {
   if (!userAgent) return false;
   const agent = userAgent.toLowerCase();
-  return FETCHERS.some((name) => agent.includes(name));
+  return names.some((name) => agent.includes(name));
+}
+
+export function isLinkPreviewBot(userAgent: string | null | undefined): boolean {
+  return agentHolds(userAgent, FETCHERS);
+}
+
+/**
+ * Anything that is not a person reading a programme: the fetchers above, plus a
+ * headless browser or a scripted client.
+ *
+ * Absence still answers false here, because "no user agent at all" is a
+ * different judgement from "an agent that says what it is" and it belongs beside
+ * the other request signals rather than in a list of names — `countableRequest`
+ * in lib/track.ts makes it.
+ */
+export function isAutomatedAgent(userAgent: string | null | undefined): boolean {
+  return isLinkPreviewBot(userAgent) || agentHolds(userAgent, AUTOMATED);
 }

@@ -586,11 +586,24 @@ const counted = (page) =>
     return { opens: read("programme opens"), expands: read("bouts expanded") };
   });
 
-await step("interactions are counted as they happen", async () => {
-  const before = await counted(page);
+/**
+ * A spectator's phone, as far as the counter is concerned.
+ *
+ * This browser is headless and says so in its agent, and /api/track drops a
+ * headless browser on purpose — a walkthrough that writes as it goes is not an
+ * audience, and these counts are what a promoter hands a sponsor. So the two
+ * steps below are the two halves of that rule, and the agent is the only thing
+ * that differs between them.
+ */
+const PHONE =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 " +
+  "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
 
+/** Opens the programme and expands a bout, as one visit. */
+const readProgramme = async (userAgent) => {
   const spectator = await browser.newPage();
   await spectator.setViewport({ width: 430, height: 932 });
+  if (userAgent) await spectator.setUserAgent(userAgent);
 
   // The beacons themselves, rather than a pause long enough to cover them: one
   // for the open and one for the expand, and the counts cannot move before both
@@ -609,6 +622,11 @@ await step("interactions are counted as they happen", async () => {
   await spectator.evaluate(() => document.querySelector("article button")?.click());
   await bothCounted;
   await spectator.close();
+};
+
+await step("interactions are counted as they happen", async () => {
+  const before = await counted(page);
+  await readProgramme(PHONE);
 
   await page.reload({ waitUntil: "networkidle0" });
   const after = await counted(page);
@@ -619,6 +637,22 @@ await step("interactions are counted as they happen", async () => {
     throw new Error(`bouts expanded went ${before.expands} to ${after.expands}`);
   }
   return `opens ${before.opens} to ${after.opens}, expands ${before.expands} to ${after.expands}`;
+});
+
+await step("a headless browser is not a spectator", async () => {
+  const before = await counted(page);
+  // The default agent, which carries HeadlessChrome. Same page, same taps.
+  await readProgramme(null);
+
+  await page.reload({ waitUntil: "networkidle0" });
+  const after = await counted(page);
+  if (after.opens !== before.opens || after.expands !== before.expands) {
+    throw new Error(
+      `counted a headless browser: opens ${before.opens} to ${after.opens}, ` +
+        `expands ${before.expands} to ${after.expands}`,
+    );
+  }
+  return `held at ${after.opens} opens`;
 });
 
 await step("a Sherdog link is read for real", async () => {

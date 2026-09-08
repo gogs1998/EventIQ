@@ -13,7 +13,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 800 lines, and the most valuable thing in the repo. Section 14 is 40 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 800 lines, and the most valuable thing in the repo. Section 14 is 41 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 
@@ -31,7 +31,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 404 unit tests in 27 files, ~2s
+npm test           # 564 unit tests in 32 files, ~2s
 npm run lint
 npm run typecheck
 npm run build
@@ -67,7 +67,7 @@ Each of these looks like an improvement from the outside and is a regression. Ne
 
 **Background removal happens in the renderer and nowhere else.** It is an ONNX model, ~3.5s of CPU per image; Workers cannot run it and a fighter's phone should not be asked to. `scripts/cutouts.mjs` runs before any bout renders. The upload path stores a photograph and clears any stale cutout. `lib/portrait.ts` is the single place that decides between stylised portrait, cutout, photograph and initialled plate — the sequence, the head-to-head and the questionnaire preview all read it, so a fighter sees in the preview what the video will show. The stylised one sits above the cutout for a consent reason rather than a picture-quality one, and it is null unless a fighter asked for it and approved what came back: HANDOVER section 6h.
 
-**The demo card's unevenness is the pitch, not unfinished work.** The main event is fully filled in; bouts 1–9 are a name and a gym like the paper programme. In particular **Chloe Baines has opened her link and done nothing since**, which makes her the warmest name on the chase list and the clearest illustration of what the dashboard is for. The end-to-end suite finishes by submitting and photographing her, so **re-seed after any production run** and delete the photograph it pushed to R2, which the seed does not clear (bugs 19, 20). Do not "fix" the card by filling everyone in.
+**The demo card's unevenness is the pitch, not unfinished work.** The main event is fully filled in; bouts 1–9 are a name and a gym like the paper programme. In particular **Chloe Baines has opened her link and done nothing since**, which makes her the warmest name on the chase list and the clearest illustration of what the dashboard is for. The end-to-end suite finishes by submitting and photographing her, so **re-seed after any production run** and delete the photograph it pushed to R2, which the seed does not clear (bugs 19, 20) — `npm run r2:orphans` finds it, because after a re-seed no row points at it. Do not "fix" the card by filling everyone in.
 
 **No pinned clocks.** `daysUntilShow()` measures against the real clock; the *seed* dates the demo show a fortnight ahead of seed time so the dashboard still reads as urgent. A pinned date was tried and had to go once the database held real shows (bug 18).
 
@@ -103,7 +103,7 @@ The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `B
 
 `npm test` is the derivation layer, which is pure and therefore cheap to test. It does not touch a database or a browser.
 
-The other half is `scripts/e2e.mjs`, 27 steps through a real browser:
+The other half is `scripts/e2e.mjs`, 28 steps through a real browser:
 
 ```bash
 npm run e2e -- --base http://localhost:8788        # against the Workers runtime

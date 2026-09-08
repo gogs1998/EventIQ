@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { RETENTION_DAYS } from "@/lib/consent";
+import { PRUNE_AFTER_MS } from "@/lib/record-import";
+import { foldBefore } from "./rollup-analytics.mjs";
 import {
+  IMPORT_CACHE_DAYS,
   alreadyClear,
   bucketKeys,
   clearStatements,
   cutoffDate,
+  foldedAnalyticsCountSql,
+  foldedAnalyticsDeleteSql,
+  foldedAnalyticsWhere,
   lit,
   pastRetention,
+  staleCacheCountSql,
+  staleCacheDeleteSql,
 } from "./retention.mjs";
 
 /**
@@ -137,5 +145,55 @@ describe("clearStatements", () => {
 describe("lit", () => {
   it("escapes a quote rather than closing the string on it", () => {
     expect(lit("O'Rourke")).toBe("'O''Rourke'");
+  });
+});
+
+/**
+ * The two tables that grow whether or not anybody is looking.
+ *
+ * The counting one is the dangerous half. `analytics_events` is the only copy of
+ * a show's numbers until the fold has been past it, so a sweep that took rows by
+ * age alone would delete a promoter's evidence on any instance where the rollup
+ * had never been scheduled — which is every instance, until somebody installs
+ * the cron line.
+ */
+describe("the counting sweep", () => {
+  const before = 1_788_000_000_000;
+
+  it("takes only a day that has been summed already", () => {
+    for (const sql of [foldedAnalyticsCountSql(before), foldedAnalyticsDeleteSql(before)]) {
+      expect(sql).toContain("EXISTS (SELECT 1 FROM analytics_daily");
+      expect(sql).toContain("d.event_id = analytics_events.event_id");
+      // The same show-day, not merely some folded day of some show.
+      expect(sql).toContain("d.day = date(analytics_events.created_at / 1000, 'unixepoch')");
+    }
+  });
+
+  it("asks and deletes over exactly the same rows", () => {
+    const where = foldedAnalyticsWhere(before);
+    expect(foldedAnalyticsCountSql(before)).toContain(where);
+    expect(foldedAnalyticsDeleteSql(before)).toContain(where);
+  });
+
+  it("never reaches past the fold's own window", () => {
+    // The cutoff comes from the rollup script, so the sweep cannot be told to
+    // take rows the fold has not looked at yet.
+    expect(foldBefore(NOW)).toBeLessThanOrEqual(NOW - 48 * 3_600_000);
+    expect(foldedAnalyticsWhere(foldBefore(NOW))).toContain(`created_at < ${foldBefore(NOW)}`);
+  });
+});
+
+describe("the cache sweep", () => {
+  /**
+   * One month, in two places that must not drift: the importer prunes on its way
+   * past, and this takes what is left on an instance nobody has imported on.
+   */
+  it("uses the same month the importer does", () => {
+    expect(IMPORT_CACHE_DAYS * 86_400_000).toBe(PRUNE_AFTER_MS);
+  });
+
+  it("takes a cached page by when it was fetched", () => {
+    expect(staleCacheCountSql(1_788_000_000_000)).toContain("fetched_at < 1788000000000");
+    expect(staleCacheDeleteSql(1_788_000_000_000)).toContain("fetched_at < 1788000000000");
   });
 });

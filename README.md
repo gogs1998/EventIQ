@@ -45,7 +45,7 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 404 unit tests in 27 files, about a second
+npm test           # 564 unit tests in 32 files, about a second
 npm run lint
 npm run typecheck
 npm run build
@@ -76,7 +76,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 27 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
 
 ## The tale of the tape
 

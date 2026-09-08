@@ -14,7 +14,8 @@ import { loadInviteByToken } from "@/lib/db/queries";
 import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
-import { cutoutSurvives } from "@/lib/portrait";
+import { logError } from "@/lib/log";
+import { cutoutSurvives, mediaKeyOf } from "@/lib/portrait";
 import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
 
 /**
@@ -306,6 +307,20 @@ const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
  * served with a one-year cache, and without that suffix a fighter who changed
  * their picture would keep seeing the old one until the cache gave up.
  *
+ * **The path goes on the fighter here, rather than waiting for the autosave.**
+ * It used to come back as a path and nothing else, and the questionnaire would
+ * put it straight into the preview — a `/media/...` URL for an object no row
+ * pointed at yet. `/media` refuses one of those by design (an object attached to
+ * no show belongs to nobody), so the preview 404'd until the debounced save
+ * landed and then quietly worked on the next attempt. The object exists the
+ * moment this returns and the row is what makes it readable, so the two are
+ * written together. The browser holds the same path in its draft, so the save
+ * that follows writes what is already there.
+ *
+ * The cutout and the stylised portrait go with the old photograph, for the same
+ * reason `saveDraft` clears them: both are derived from one particular picture,
+ * and left behind they would put the fighter's previous face in the video.
+ *
  * The three refusals below are separate sentences because they have separate
  * answers: a different file, a smaller one, or nothing the fighter can do. R2
  * being unavailable is the third and comes back as the general one.
@@ -320,7 +335,8 @@ export async function uploadPhoto(
     async () => {
       const found = await inviteFor(token);
       if (!found.ok) return found;
-      const { fighter, invite } = found.row;
+      const { db, row } = found;
+      const { fighter, invite } = row;
       // A photograph is the most exposed thing this form takes, and this action
       // is reachable without the form. Nothing is stored before the tick.
       if (!hasConsented(invite)) return refuse(ACTION_ERRORS.consentNeeded);
@@ -339,7 +355,33 @@ export async function uploadPhoto(
       const media = await getMedia();
       await media.put(key, bytes, { httpMetadata: { contentType } });
 
-      return done({ path: `/media/${key}` });
+      const path = `/media/${key}`;
+      // The three paths this write is about to orphan, read before it lands.
+      const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
+        .map(mediaKeyOf)
+        .filter((old): old is string => old !== null && old !== key);
+
+      // After the object, so a row can never point at bytes that are not there.
+      await db
+        .update(schema.fighters)
+        .set({ photo: path, cutout: null, stylised: null, updatedAt: Date.now() })
+        .where(eq(schema.fighters.id, fighter.id));
+
+      // And after the row, best effort, exactly as the removal control does it:
+      // by this point nothing points at them, /media refuses an object nothing
+      // points at, and a delete that failed is litter rather than exposure.
+      // Without this a fighter who tried three pictures left two in the bucket
+      // for ever — nobody could read them and nobody would ever find them.
+      // `npm run r2:orphans` sweeps whatever this missed.
+      for (const old of superseded) {
+        await media
+          .delete(old)
+          .catch((error) =>
+            logError({ event: "uploadPhoto", route: "/f/[token]", fighterId: fighter.id }, error),
+          );
+      }
+
+      return done({ path });
     },
   );
 }

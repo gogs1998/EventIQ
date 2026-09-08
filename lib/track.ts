@@ -1,3 +1,4 @@
+import { isAutomatedAgent } from "@/lib/bots";
 import type { AnalyticsKind } from "@/lib/types";
 
 /**
@@ -18,6 +19,66 @@ import type { AnalyticsKind } from "@/lib/types";
  * random value from sessionStorage, bounded rather than parsed, and it is the
  * only thing in the row that outlives the request. See section 9.
  */
+
+/**
+ * What the request itself says about who is asking. Never the address, never a
+ * cookie: nothing here is stored and nothing here identifies a person.
+ */
+export type RequestSignals = {
+  userAgent: string | null;
+  secFetchMode: string | null;
+  secFetchSite: string | null;
+  secFetchDest: string | null;
+};
+
+export function trackSignals(headers: Headers): RequestSignals {
+  return {
+    userAgent: headers.get("user-agent"),
+    secFetchMode: headers.get("sec-fetch-mode"),
+    secFetchSite: headers.get("sec-fetch-site"),
+    secFetchDest: headers.get("sec-fetch-dest"),
+  };
+}
+
+/** `Sec-Fetch-Site` values that are not a page of ours calling its own endpoint. */
+const FOREIGN_SITE = new Set(["none", "cross-site"]);
+
+/**
+ * Whether this request is a spectator reading a programme.
+ *
+ * The guess falls the opposite way from the one in lib/bots.ts, and on purpose.
+ * An unrecognised fetcher marking an invite as opened costs a promoter one
+ * wasted phone call; an unrecognised fetcher counted as a spectator goes into
+ * the report that promoter hands a sponsor, and a number that cannot be defended
+ * is worth less than no number. So anything that does not look like a browser is
+ * dropped, and the cost of that is under-counting, which is the error this
+ * product is allowed to make.
+ *
+ * Three things, all free, none of them stored:
+ *
+ * - **The agent.** Crawlers, unfurlers, headless browsers and scripted clients,
+ *   by name — `isAutomatedAgent`. A request with no agent at all is dropped as
+ *   well: every browser sends one, and the beacon is sent by a browser.
+ * - **`Sec-Fetch-*`.** A beacon from our own page arrives with all three set by
+ *   the browser, which will not let a caller forge them. A POST with none of
+ *   them is something else holding an HTTP client. The cost is Safari before
+ *   16.4, which sent none of these — those spectators go uncounted rather than
+ *   miscounted, which is the trade this whole function makes.
+ * - **Where it came from.** `none` is somebody typing an address, `cross-site`
+ *   is another origin posting at us. Neither is a programme counting itself.
+ *
+ * `same-site` is kept alongside `same-origin` because the programme is reachable
+ * on more than one hostname of the same zone and a beacon from one of those is
+ * still a spectator.
+ */
+export function countableRequest(signals: RequestSignals): boolean {
+  if (!signals.userAgent || isAutomatedAgent(signals.userAgent)) return false;
+
+  const site = signals.secFetchSite?.toLowerCase() ?? null;
+  if (site && FOREIGN_SITE.has(site)) return false;
+
+  return Boolean(signals.secFetchMode || site || signals.secFetchDest);
+}
 
 const KINDS = new Set<string>([
   "programme_open",

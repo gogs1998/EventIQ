@@ -5,7 +5,6 @@ import { FighterPortrait } from "@/components/FighterPortrait";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { fighterSponsors, type Card } from "@/lib/card";
-import { getDb } from "@/lib/db";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -31,7 +30,7 @@ export async function generateMetadata({
   const { slug, fighter: id } = await params;
   // Through the same gate as the body, so a draft card's fighters are not named
   // to a crawler or in a chat app's preview of the link.
-  const card = await loadVisibleCard(await getDb(), slug);
+  const card = await loadVisibleCard(slug);
   const fighter = card?.fighters[id];
   if (!card || !fighter) return {};
 
@@ -43,7 +42,7 @@ export async function generateMetadata({
 
 export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fighter]">) {
   const { slug, fighter: id } = await params;
-  const card = await loadVisibleCard(await getDb(), slug);
+  const card = await loadVisibleCard(slug);
   if (!card) notFound();
 
   const fighter = card.fighters[id];
