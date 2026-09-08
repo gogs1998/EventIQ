@@ -117,6 +117,8 @@ function toBout(row: BoutRow): Bout {
     redId: row.redId,
     blueId: row.blueId,
     sponsorId: optional(row.sponsorId),
+    cancelled: row.cancelled || undefined,
+    cancelledNote: optional(row.cancelledNote),
   };
 }
 

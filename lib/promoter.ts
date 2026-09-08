@@ -1,4 +1,4 @@
-import { boutsTopDown, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
+import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
 import {
   boutBillingLabel,
   completeness,
@@ -89,9 +89,10 @@ function rowFor(card: Card, invites: Invites, bout: Bout, corner: Corner): Chase
 }
 
 export function allRows(card: Card, invites: Invites): ChaseRow[] {
-  // The running order rather than the raw bouts, so a bout missing a corner
-  // leaves a gap in the chase list rather than taking the dashboard down.
-  return boutsTopDown(card).flatMap((bout) => [
+  // The bouts still going ahead, so a bout missing a corner leaves a gap in the
+  // chase list rather than taking the dashboard down, and a bout that came off
+  // stops putting two fighters on it who have nothing left to send in for.
+  return boutsRunning(card).flatMap((bout) => [
     rowFor(card, invites, bout, "red"),
     rowFor(card, invites, bout, "blue"),
   ]);
@@ -137,7 +138,7 @@ export type BoutReadiness = {
  * least looks consistent.
  */
 export function boutReadiness(card: Card, invites: Invites): BoutReadiness[] {
-  return boutsTopDown(card).map((bout) => {
+  return boutsRunning(card).map((bout) => {
     const red = rowFor(card, invites, bout, "red");
     const blue = rowFor(card, invites, bout, "blue");
     const done = [red, blue].filter((row) => row.score >= DONE_AT).length;

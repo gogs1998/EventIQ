@@ -131,6 +131,52 @@ export const EMPTY_DASHBOARD = {
 /** The card editor, where the running order is actually typed. */
 export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. Add the first bout below.";
 
+/* -------------------------------------------------------------------------
+ * A bout that is off
+ *
+ * Withdrawals happen on every amateur card — weight, injury, a no-show — and
+ * they are nobody's fault as far as this product is concerned. So none of these
+ * lines say why unless the promoter has, none of them name a fighter, and none
+ * of them read as an apology for a card that has changed, which is a normal
+ * thing for a card to do on the week of a show.
+ *
+ * The other rule here is the one every count-bearing string is held to: a card
+ * with nothing off says nothing, rather than announcing that no bouts are off.
+ * ---------------------------------------------------------------------- */
+
+export const WITHDRAWN = {
+  /** Beside the bout number the withdrawal keeps, on the public programme. */
+  label: "Withdrawn",
+  /** Where the tale of the tape and the video would have been. */
+  note: "This bout is off. The rest of the running order is unchanged.",
+  /** The card editor's control. Short, because it sits in a row of them. */
+  toggle: "Bout off",
+  back: "Put the bout back on",
+  reasonLabel: "Reason, if you want to give one",
+  reasonPlaceholder: "Withdrew at the weigh-in",
+  /**
+   * Under the control. It has to say what stays, because the alternative a
+   * promoter would otherwise reach for is deleting the bout, which takes the
+   * sponsor placement and the bout's figures with it.
+   */
+  editorNote:
+    "The bout keeps its number and its sponsor on the programme and is shown as withdrawn. " +
+    "Nothing is deleted, and it can go back on.",
+} as const;
+
+/**
+ * How much of the running order has come off, or nothing.
+ *
+ * Null rather than a sentence on the ordinary card, because most cards lose
+ * nobody and "no bouts off" is a withdrawal on the promoter's screen that has
+ * not happened. Same rule as every other count here: no zero-bout string states
+ * a count.
+ */
+export function boutsOffLabel(cancelled: number): string | null {
+  if (cancelled <= 0) return null;
+  return `${cancelled} off`;
+}
+
 /** The sub-line under a count of sponsor taps. */
 export function sponsorTapNote(sponsors: number): string {
   if (sponsors <= 0) return "No sponsor has been tapped yet";

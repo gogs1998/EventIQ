@@ -1,4 +1,4 @@
-import { buildHooks, buildTape, completeness, type TapeRow } from "@/lib/tape";
+import { buildHooks, buildTape, completeness, isRunning, type TapeRow } from "@/lib/tape";
 import type { Bout, FightEvent, Fighter, Sponsor } from "@/lib/types";
 
 /**
@@ -52,11 +52,28 @@ export function boutOf(card: Card, numberOrSlug: number | string): Bout | undefi
   return card.event.bouts.find((bout) => bout.number === n && bothCorners(card, bout));
 }
 
-/** Running order runs openers first; the programme lists the main event first. */
+/**
+ * Running order runs openers first; the programme lists the main event first.
+ *
+ * A withdrawn bout is still in here, because the programme still prints it — see
+ * `boutsRunning` for the list everything that measures the card works from.
+ */
 export function boutsTopDown(card: Card): Bout[] {
   return card.event.bouts
     .filter((bout) => bothCorners(card, bout))
     .sort((a, b) => b.number - a.number);
+}
+
+/**
+ * The bouts still going ahead, main event first.
+ *
+ * Everything that asks how ready a card is asks this rather than the running
+ * order: a bout that came off is not a hole in the card, and counting it as one
+ * would have the dashboard chase two fighters who are no longer fighting and
+ * report a show as less ready the more honest the promoter had been about it.
+ */
+export function boutsRunning(card: Card): Bout[] {
+  return boutsTopDown(card).filter(isRunning);
 }
 
 /**
@@ -76,7 +93,9 @@ export function boutsTopDown(card: Card): Bout[] {
  * where nobody has billed anything.
  */
 export function featuredBout(card: Card): Bout | undefined {
-  const running = boutsTopDown(card);
+  // The bouts still going ahead. Leading the programme on a bout that is off
+  // would put two names under the show's title that nobody is going to see.
+  const running = boutsRunning(card);
   return running.find((bout) => bout.billing === "MAIN") ?? running[0];
 }
 
@@ -104,7 +123,7 @@ export function hooksFor(card: Card, bout: Bout): string[] {
 export function emptiestEntry(
   card: Card,
 ): { bout: Bout; fighter: Fighter; opponent: Fighter } | undefined {
-  const entries = boutsTopDown(card).flatMap((bout) => {
+  const entries = boutsRunning(card).flatMap((bout) => {
     const { red, blue } = cornersOf(card, bout);
     return [
       { bout, fighter: red, opponent: blue },
@@ -139,7 +158,7 @@ export function fighterSponsors(card: Card, fighter: Fighter): Sponsor[] {
  * asserted: if the seeded card changes, the sentence on the page changes with it.
  */
 export function cardCompleteness(card: Card, doneAt: number) {
-  const fighters = boutsTopDown(card).flatMap((bout) => [
+  const fighters = boutsRunning(card).flatMap((bout) => [
     fighterOf(card, bout.redId),
     fighterOf(card, bout.blueId),
   ]);

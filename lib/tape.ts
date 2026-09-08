@@ -74,6 +74,22 @@ export function boutFormat(bout: Bout): string {
   return `${bout.rounds} x ${bout.roundMinutes} min`;
 }
 
+/**
+ * A bout that is still going ahead.
+ *
+ * A withdrawal is not a deletion. The bout keeps its number, its sponsor and its
+ * place on the programme, because the number is on a poster, in a message and in
+ * the analytics rows, and because a paper programme leaves it there too. What it
+ * stops being is a bout anybody is still preparing for — so nothing that
+ * measures how ready a card is may count it, and nothing leads on it.
+ *
+ * Declared here, beside the other things that are true of one bout, so the
+ * running order and the dashboard cannot end up asking it differently.
+ */
+export function isRunning(bout: Bout): boolean {
+  return !bout.cancelled;
+}
+
 export function boutBillingLabel(bout: Bout): string {
   if (bout.billing === "MAIN") return "Main Event";
   if (bout.billing === "CO_MAIN") return "Co Main";

@@ -63,6 +63,14 @@ export type Bout = {
   blueId: string;
   /** Individual bouts are sold to sponsors on paper cards, so they are here too. */
   sponsorId?: string;
+  /**
+   * The bout is off. It keeps its number and its sponsor on the programme and is
+   * shown struck through, because the number is on a poster and in the analytics
+   * rows and because that is what a paper programme does with a withdrawal.
+   */
+  cancelled?: boolean;
+  /** Why, where the promoter said. Never a fault, and never anybody's name. */
+  cancelledNote?: string;
 };
 
 export type FightEvent = {

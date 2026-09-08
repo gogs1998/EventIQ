@@ -3,6 +3,7 @@ import {
   ACTION_ERRORS,
   APP_ERROR,
   boutCountLabel,
+  boutsOffLabel,
   chaseNote,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
@@ -22,6 +23,7 @@ import {
   tapeForEveryBout,
   winsEdge,
   renderCountLabel,
+  WITHDRAWN,
 } from "@/lib/copy";
 
 /**
@@ -51,6 +53,8 @@ const EMPTY_STRINGS = [
   EMPTY_DASHBOARD.body,
   EMPTY_CARD_EDITOR,
 ];
+
+const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
 
 const RENDER_STRINGS = [
   RENDER_SECTION.heading,
@@ -342,6 +346,69 @@ describe("the action refusals", () => {
     expect(ACTION_ERRORS.profileNotSaved).toContain("still on the page");
     expect(ACTION_ERRORS.profileNotSubmitted).toContain("still here");
     expect(ACTION_ERRORS.autosaveOffline).toContain("try again as you type");
+  });
+});
+
+/**
+ * The withdrawal copy.
+ *
+ * Withdrawals happen on every amateur card and none of them are the product's
+ * business, so these lines are held to the same rules as everything else plus
+ * one of their own: nothing here may read as a fault, and nothing may name or
+ * characterise the fighter who came off. A promoter marking a bout off on the
+ * morning of the show is doing the right thing, and the screen should not make
+ * it feel like an admission.
+ */
+describe("the withdrawal copy", () => {
+  it("keeps the established tone", () => {
+    for (const line of WITHDRAWN_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("never uses a gendered pronoun or blames anybody", () => {
+    for (const line of WITHDRAWN_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b|\bcancelled\b/i);
+      expect(line).not.toMatch(/pulled out|dropped out|no.show|let (you|us) down/i);
+    }
+  });
+
+  /**
+   * The reason a promoter would otherwise delete the bout, said out loud: the
+   * sponsor placement was sold and the bout's figures are keyed on its number.
+   */
+  it("says what a withdrawal keeps", () => {
+    expect(WITHDRAWN.editorNote).toContain("number");
+    expect(WITHDRAWN.editorNote).toContain("sponsor");
+    expect(WITHDRAWN.editorNote).toContain("can go back on");
+  });
+
+  /** The rest of the card is fine, and a spectator should be told that plainly. */
+  it("tells a spectator the rest of the card is unchanged", () => {
+    expect(WITHDRAWN.note).toContain("rest of the running order");
+  });
+});
+
+describe("boutsOffLabel", () => {
+  it("counts what has come off", () => {
+    expect(boutsOffLabel(1)).toBe("1 off");
+    expect(boutsOffLabel(3)).toBe("3 off");
+  });
+
+  /**
+   * The zero-bout rule, in the one place it would be easiest to forget: most
+   * cards lose nobody, and "0 off" on a card where nothing has happened is a
+   * withdrawal on the promoter's screen that has not happened.
+   */
+  it("says nothing at all where nothing has come off", () => {
+    expect(boutsOffLabel(0)).toBeNull();
+    expect(boutsOffLabel(-1)).toBeNull();
   });
 });
 

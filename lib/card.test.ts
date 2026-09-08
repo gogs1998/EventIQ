@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import {
   boutOf,
+  boutsRunning,
   boutsTopDown,
   cardCompleteness,
   emptiestEntry,
@@ -101,6 +102,67 @@ describe("a bout naming a fighter who is not on the card", () => {
 
   it("scores the card on the bouts that are actually there", () => {
     expect(cardCompleteness(dangling, DONE_AT)).toEqual(cardCompleteness(card, DONE_AT));
+  });
+});
+
+/**
+ * A withdrawal keeps its place and stops counting.
+ *
+ * Both halves are the point. The programme still prints the bout — the number is
+ * on a poster, in a message and on every analytics row for it, and a spectator
+ * looking for bout eleven has to find it where it was — so the running order
+ * still carries it. Everything that measures the card works from `boutsRunning`
+ * instead, because a bout nobody is fighting is not a hole in the card and must
+ * not be scored as one.
+ */
+describe("a bout that is off", () => {
+  const off = (numbers: number[]): Card => ({
+    ...card,
+    event: {
+      ...event,
+      bouts: event.bouts.map((bout) =>
+        numbers.includes(bout.number) ? { ...bout, cancelled: true } : bout,
+      ),
+    },
+  });
+
+  it("stays in the running order the programme prints", () => {
+    expect(boutsTopDown(off([11])).map((bout) => bout.number)).toContain(11);
+    expect(boutsTopDown(off([11])).length).toBe(event.bouts.length);
+  });
+
+  it("is not one of the bouts still going ahead", () => {
+    expect(boutsRunning(off([11])).map((bout) => bout.number)).not.toContain(11);
+    expect(boutsRunning(off([11])).length).toBe(event.bouts.length - 1);
+  });
+
+  /**
+   * Bout 15 is the one billed MAIN, so taking it off has to move the billing as
+   * well as the number. Two names under the show's own title for a bout nobody
+   * is going to see is the one thing here a spectator would act on.
+   */
+  it("is not what the top of the programme leads on", () => {
+    expect(featuredBout(card)?.number).toBe(15);
+    expect(featuredBout(off([15]))?.number).toBe(14);
+  });
+
+  it("does not count towards how full the card is", () => {
+    expect(cardCompleteness(off([15]), DONE_AT).total).toBe(
+      cardCompleteness(card, DONE_AT).total - 2,
+    );
+  });
+
+  it("is never the profile the questionnaire preview opens on", () => {
+    const emptiest = emptiestEntry(card)!;
+    expect(emptiestEntry(off([emptiest.bout.number]))?.fighter.id).not.toBe(emptiest.fighter.id);
+  });
+
+  it("leaves a wholly withdrawn card with no main event rather than a broken one", () => {
+    const none = off(event.bouts.map((bout) => bout.number));
+    expect(featuredBout(none)).toBeUndefined();
+    expect(boutsRunning(none)).toEqual([]);
+    expect(boutsTopDown(none).length).toBe(event.bouts.length);
+    expect(cardCompleteness(none, DONE_AT)).toEqual({ score: 0, done: 0, total: 0 });
   });
 });
 

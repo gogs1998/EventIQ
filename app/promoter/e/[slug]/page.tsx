@@ -314,7 +314,10 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   const chase = chaseList(card, invites);
   const bouts = boutReadiness(card, invites);
   const inventory = sponsorInventory(card);
-  const rendered = event.bouts.filter((bout) => renders[bout.number]).length;
+  // Counted over the bouts still going ahead, the same list the video panel
+  // below works from: nothing is rendered for a bout that is off, so counting it
+  // in the total would report a card as permanently short of a video.
+  const rendered = bouts.filter(({ bout }) => renders[bout.number]).length;
 
   const live = await analyticsTotals(db, card.eventId);
   const liveTaps = await sponsorTaps(db, card.eventId);
@@ -353,7 +356,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         />
         <Stat
           label="Videos rendered"
-          value={`${rendered}/${event.bouts.length}`}
+          value={`${rendered}/${bouts.length}`}
           sub="Head to head, ready to post"
         />
       </section>

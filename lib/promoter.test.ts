@@ -161,6 +161,52 @@ describe("sponsorInventory", () => {
   });
 });
 
+/**
+ * A withdrawal is not a hole in the card.
+ *
+ * The dashboard exists to say who is still to send their details in, and two
+ * fighters who are no longer fighting have nothing left to send. Counted, they
+ * would sit at the top of the chase list — the list leads on the highest bout
+ * number — and the show would read as less ready the more honest the promoter
+ * had been about it.
+ */
+describe("a bout that is off", () => {
+  const withdrawn = event.bouts.find((bout) => bout.number === 11)!;
+
+  const off: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: event.bouts.map((bout) =>
+        bout.number === 11 ? { ...bout, cancelled: true, cancelledNote: "Withdrew" } : bout,
+      ),
+    },
+  };
+
+  it("takes both corners off the chase list", () => {
+    const chased = chaseList(off, invites).map((row) => row.fighter.id);
+    expect(chaseList(card, invites).map((row) => row.fighter.id)).toContain(withdrawn.blueId);
+    expect(chased).not.toContain(withdrawn.redId);
+    expect(chased).not.toContain(withdrawn.blueId);
+  });
+
+  it("is not one of the bouts that could be ready", () => {
+    const bouts = boutReadiness(off, invites);
+    expect(bouts).toHaveLength(14);
+    expect(bouts.map(({ bout }) => bout.number)).not.toContain(11);
+  });
+
+  it("does not drag the card's progress down with it", () => {
+    expect(eventProgress(off, invites).total).toBe(eventProgress(card, invites).total - 2);
+  });
+
+  /** The placement was sold and it is still on the programme, so it still counts. */
+  it("keeps its sponsor slot in the inventory", () => {
+    const { sold, unsold } = sponsorInventory(off);
+    expect(sold.length + unsold.length).toBe(15);
+  });
+});
+
 describe("a bout missing a corner", () => {
   const dangling: Card = {
     ...card,

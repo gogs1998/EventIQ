@@ -349,6 +349,16 @@ export async function updateBout(
         if (!theirs) return refuse(ACTION_ERRORS.noSuchSponsor);
       }
 
+      // Read before the write, because a bout that is off has no video to bring
+      // up to date and must not be queued for one. `loadBoutFingerprints` leaves
+      // it out anyway, so this is belt and braces — but the queue call is where
+      // the decision reads, and a reader should not have to go and check.
+      const [existing] = await db
+        .select({ cancelled: schema.bouts.cancelled })
+        .from(schema.bouts)
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)))
+        .limit(1);
+
       await db
         .update(schema.bouts)
         .set({
@@ -364,7 +374,66 @@ export async function updateBout(
         })
         .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
 
-      await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+      if (!existing?.cancelled) {
+        await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+      }
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
+}
+
+/** Longest a withdrawal note can be. It is set beside a bout number, not under it. */
+const CANCELLED_NOTE_MAX = 60;
+
+/**
+ * Takes a bout off the card, or puts it back on.
+ *
+ * The alternative a promoter would otherwise reach for is `removeBout`, and on a
+ * published show that is the wrong remedy: it destroys the sponsor placement
+ * that was sold and the analytics rows keyed on the bout number, and it leaves
+ * the programme wrong at the one moment several hundred people are reading it.
+ * So the row stays exactly where it is and carries a flag, which is what a paper
+ * programme does with a withdrawal.
+ *
+ * Nothing is rendered for a bout that is off. The video is a walkout for a
+ * walkout that is not happening, and it would sit on the programme behind a line
+ * saying the bout is withdrawn.
+ */
+export async function setBoutOff(
+  slug: string,
+  boutNumber: number,
+  off: boolean,
+  note: string,
+): Promise<ActionResult> {
+  return attempt(
+    { event: "setBoutOff", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { event } = owned;
+
+      await db
+        .update(schema.bouts)
+        .set({
+          cancelled: off,
+          // Cleared when the bout goes back on, so a bout that came off for a
+          // weight miss and was rematched does not carry the old line.
+          cancelledNote: off ? note.trim().slice(0, CANCELLED_NOTE_MAX) || null : null,
+        })
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+
+      // A bout coming back on is a bout that needs its video again; one going off
+      // is not asked for at all. The queued row is left where it is: the runner
+      // reads the fingerprints, which no longer carry this bout, and a bout put
+      // back on the following morning gets its place in the queue back with it.
+      if (!off) {
+        await requestRenderQuietly(db, event.id, [boutNumber], { event: "setBoutOff", route: `/promoter/e/${slug}/card` });
+      }
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
