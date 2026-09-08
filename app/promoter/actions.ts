@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
@@ -458,6 +458,22 @@ export async function setBoutOff(
  * behind everyone would silently reattribute one bout's figures to another and
  * put the wrong number on the screen mid-show. A published card skips the
  * number instead, which is exactly what a paper programme does.
+ *
+ * **A corner this leaves on no other bout is off the card, and their link is
+ * pulled.** It used to be left live: a fighter taken off a show could still open
+ * their questionnaire and go on filling in a profile for a card they are not on,
+ * for the ninety days the expiry gives it, and the promoter had no way to see
+ * that had happened. The link is the whole of the authorisation, so revoking it
+ * is what taking somebody off the card means.
+ *
+ * **The profile itself stays, and that is deliberate.** Withdrawals happen on
+ * every amateur card and so do mistakes, and the two are the same click. A bout
+ * removed in error must not destroy the photograph, the record and the answers
+ * the fighter sent — put back on the card the next morning, they are re-invited
+ * with a new link and everything they typed is still there. What clears a
+ * profile nobody is putting on a card any more is `npm run retention`, which
+ * dates a fighter by their last connection to any show, and the fighter's own
+ * removal control, which is theirs to press. Section 6g.
  */
 export async function removeBout(slug: string, boutNumber: number): Promise<ActionResult> {
   return attempt(
@@ -469,15 +485,54 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
       if (!owned.ok) return owned;
       const { card } = owned;
 
-      await db
-        .delete(schema.bouts)
-        .where(and(eq(schema.bouts.eventId, card.eventId), eq(schema.bouts.number, boutNumber)));
-      // The video request goes with the bout. Left behind, it is a queued job
-      // for a bout that no longer exists, which the runner would try, fail and
-      // report against a card that has nothing at that number.
-      await db
-        .delete(schema.renderJobs)
-        .where(and(eq(schema.renderJobs.eventId, card.eventId), eq(schema.renderJobs.boutNumber, boutNumber)));
+      // Worked out from the card the ownership check already loaded, before the
+      // bout goes out of it: a corner on no other bout of this show has nothing
+      // left on the card at all.
+      const going = card.event.bouts.find((bout) => bout.number === boutNumber);
+      const orphaned = [going?.redId, going?.blueId].filter(
+        (fighterId): fighterId is string =>
+          !!fighterId &&
+          !card.event.bouts.some(
+            (bout) =>
+              bout.number !== boutNumber &&
+              (bout.redId === fighterId || bout.blueId === fighterId),
+          ),
+      );
+
+      // One batch, which D1 runs as a single transaction, because a bout deleted
+      // with its fighters' links still open is exactly the half-state this is
+      // here to avoid — and nobody would ever see it, since every screen is
+      // derived from the running order the bout has just left.
+      const removals: BatchItem<"sqlite">[] = [
+        db
+          .delete(schema.bouts)
+          .where(and(eq(schema.bouts.eventId, card.eventId), eq(schema.bouts.number, boutNumber))),
+        // The video request goes with the bout. Left behind, it is a queued job
+        // for a bout that no longer exists, which the runner would try, fail and
+        // report against a card that has nothing at that number. Nothing is
+        // queued in its place either: the fingerprints are built from the
+        // running order, which no longer carries it.
+        db
+          .delete(schema.renderJobs)
+          .where(and(eq(schema.renderJobs.eventId, card.eventId), eq(schema.renderJobs.boutNumber, boutNumber))),
+      ];
+      if (orphaned.length) {
+        removals.push(
+          db
+            .update(schema.invites)
+            // Only the ones still open, so a link the fighter had already pulled
+            // themselves keeps the timestamp that says when they did.
+            .set({ revokedAt: Date.now() })
+            .where(
+              and(
+                eq(schema.invites.eventId, card.eventId),
+                inArray(schema.invites.fighterId, orphaned),
+                isNull(schema.invites.revokedAt),
+              ),
+            ),
+        );
+      }
+      await db.batch(removals as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
       if (!card.published) {
         const remaining = await db

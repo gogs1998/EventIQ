@@ -190,6 +190,76 @@ describe("what the owning promoter's actions actually do", () => {
     expect(bouts.map((bout) => bout.number)).toEqual([1, 2]);
   });
 
+  it("pulls the link of a corner it leaves on no other bout", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    const [red, blue] = show.fighterIds;
+
+    await removeBout(show.slug, 1);
+
+    const invites = await db
+      .select()
+      .from(schema.invites)
+      .where(eq(schema.invites.eventId, show.eventId));
+    const revoked = invites.filter((invite) => invite.revokedAt !== null);
+    expect(revoked.map((invite) => invite.fighterId).sort()).toEqual([red, blue].sort());
+    // The rows are still there: a revoked invite records that the fighter was
+    // asked, and the removal has to be visible afterwards.
+    expect(invites).toHaveLength(6);
+  });
+
+  it("leaves the profile itself alone, because a bout removed in error is a click", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    const red = show.fighterIds[0];
+    await db
+      .update(schema.fighters)
+      .set({ recordW: 4, recordL: 1, recordD: 0, hometown: "Falkirk" })
+      .where(eq(schema.fighters.id, red));
+
+    await removeBout(show.slug, 1);
+
+    const [fighter] = await db.select().from(schema.fighters).where(eq(schema.fighters.id, red));
+    // Clearing this is `npm run retention` and the fighter's own control, never
+    // a promoter's mis-click. See section 6g.
+    expect(fighter).toMatchObject({ recordW: 4, hometown: "Falkirk" });
+  });
+
+  it("leaves a fighter still on another bout of the same show their link", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    const red = show.fighterIds[0];
+    // The same person matched twice on one card, which happens on a smoker.
+    await db
+      .update(schema.bouts)
+      .set({ redId: red })
+      .where(eq(schema.bouts.id, `bo_${show.slug}_3`));
+
+    await removeBout(show.slug, 1);
+
+    const invites = await db
+      .select()
+      .from(schema.invites)
+      .where(eq(schema.invites.eventId, show.eventId));
+    expect(invites.find((invite) => invite.fighterId === red)?.revokedAt).toBeNull();
+    // Their opponent has nothing left on the card, so theirs goes.
+    expect(invites.find((invite) => invite.fighterId === show.fighterIds[1])?.revokedAt).not.toBeNull();
+  });
+
+  it("does not ask for a video for the bout that has gone", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    await requestRender(show.slug, "all");
+
+    await removeBout(show.slug, 3);
+
+    const jobs = await db
+      .select()
+      .from(schema.renderJobs)
+      .where(eq(schema.renderJobs.eventId, show.eventId));
+    expect(jobs.map((job) => job.boutNumber).sort()).toEqual([1, 2]);
+  });
+
   it("skips the number instead once spectators are reading the card", async () => {
     const { db, show } = await twoPromoters();
     await signInAs("pr_cage");
