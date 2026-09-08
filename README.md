@@ -126,6 +126,17 @@ npm run db:reset            # both
 npm run db:studio -- "select count(*) from fighters"
 ```
 
+Promoter accounts are made by an operator rather than by signing up, and that is one command. `--local` by default, `--remote` for the live database, and neither while a dev server is running:
+
+```bash
+npm run promoter -- list
+npm run promoter -- create --slug budo --name "BUDO Fight Series" --generate
+npm run promoter -- set-password --slug budo --generate
+npm run promoter -- reset-link --slug budo    # one use, half an hour, no email needed
+```
+
+A generated password is printed once and stored nowhere. Setting a password — by either of those commands, or by the promoter at `/promoter/account` — signs that account out everywhere else. [DEPLOY.md](DEPLOY.md) section 5a has the rest.
+
 [`db/schema.ts`](db/schema.ts) is the single description of the schema. The seed is generated from `data/event.ts` at run time and never committed, because it contains working invite tokens.
 
 `db:migrate:remote` is there for a schema change that needs applying without a deploy. It is not the usual path: `npm run deploy` applies pending migrations itself, before the Worker goes up, because the Worker expects the schema that ships with it. See [DEPLOY.md](DEPLOY.md).
@@ -216,4 +227,4 @@ node scripts/deploy.mjs --check    # what the current token can and cannot do
 
 Every fighter, gym and event here is invented, and the portraits are generated images. Three sponsors are real brands — Mouthguards.pro, FightIQ.win and EventIQ — and nothing is claimed about them that has not been said. Swap in real photographs before showing this to a specific promoter.
 
-There is no email or SMS, so invite links are copied and pasted by the promoter. There is no self-service signup; promoter accounts are created by the seed. Video rendering runs outside Cloudflare and is not part of a deploy.
+There is no email or SMS, so invite links are copied and pasted by the promoter, and a promoter who has forgotten their password needs an operator to mint them a reset link. There is no self-service signup; promoter accounts are created with `npm run promoter -- create`. Video rendering runs outside Cloudflare and is not part of a deploy.

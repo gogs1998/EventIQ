@@ -221,9 +221,60 @@ the same command that refreshes the invite timestamps beside it. Real events kee
 their own dates and the real clock — nothing fakes the clock any more.
 
 Skip this if the first show is going to be created through the UI instead. In
-that case you still need a promoter row to sign in as, which today only the seed
-creates. Adding a second promoter is a `wrangler d1 execute` away and there is
-no self-service signup; with one operator that is the right amount of ceremony.
+that case you still need a promoter row to sign in as, and the next section is
+how to make one without the demo card coming with it.
+
+## 5a. Onboarding a promoter
+
+There is no signup form, and that is a decision rather than a gap: a fight
+promoter is somebody who has already been spoken to, and an open form on a
+product with one operator collects support burden rather than customers. So
+accounts are made with one command.
+
+```bash
+npm run promoter -- list
+npm run promoter -- create --slug budo --name "BUDO Fight Series" --generate --remote
+npm run promoter -- set-password --slug budo --password '…' --remote
+npm run promoter -- reset-link --slug budo --remote
+```
+
+Without `--remote` every one of them works on the local Miniflare D1 instead,
+which is where to try them first. **Not while a dev server is running** — two
+writers on one Miniflare file and the second one loses, silently, which is the
+same trap as `wrangler d1 execute --local`.
+
+[scripts/promoter.mjs](scripts/promoter.mjs) hashes through
+[lib/auth.ts](lib/auth.ts) rather than through a copy of the algorithm, so the
+verifier it writes is the one the login reads, at the count the edge will
+actually run. That is [the PBKDF2 problem](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
+avoided by construction rather than by somebody remembering.
+
+Four things worth knowing about it.
+
+- **`--generate` prints the password once and stores it nowhere.** There is no
+  way to ask for it again: `set-password` or a reset link is what replaces one
+  that has been lost. A password passed in with `--password` is held to the same
+  twelve-character floor the promoter's own form enforces.
+- **A slug that already exists is refused**, before any password is generated,
+  and it says what to run instead. The slug is the promoter's username and the
+  sign-in form lowercases what is typed into it, so a slug with a capital in it
+  would be an account nobody could reach; that is refused too.
+- **`set-password` and `reset-link` both sign that account out everywhere.**
+  Setting a password bumps `session_version` on the promoter row, and every
+  cookie already issued names the generation before it.
+- **A reset link is a bearer credential with no email behind it.** It lasts half
+  an hour, works once, and only its digest is stored, because it travels through
+  whatever channel you already use to talk to that promoter. Minting a second one
+  kills the first. They open `/promoter/reset/<token>`, set a password, and sign
+  in with it.
+
+A promoter who is already signed in changes their own password at
+`/promoter/account`, which asks for the current one and signs out every other
+device. That is the route for the ordinary case; these commands are for the one
+where nobody can get in at all.
+
+A new account has no shows on it. The promoter creates the first one themselves
+at `/promoter`, so nothing here has to seed a card for them.
 
 ## 6. Deploy
 
@@ -716,8 +767,10 @@ once, before a promoter's card and a room full of spectators depend on it.
       anywhere. That is survivable while one person renders on their own laptop
       and is the wrong shape the moment two people, a second machine or a cron
       job need one. Rotating `RENDER_KEY` costs nothing else; rotating
-      `SESSION_SECRET` signs the promoter out, which is the whole of the
-      revocation story and is deliberate.
+      `SESSION_SECRET` signs **everybody** out at once, which is the blunt
+      instrument. Signing out one account is a password change or
+      `npm run promoter -- set-password`, which bumps that promoter's
+      `session_version` and leaves everyone else alone.
 - [ ] **Point an external uptime check at `/api/health`.** Anything that will
       send a message to a phone — a free tier is fine. Nothing here phones home,
       so a 500 on show night stays a 500 until somebody happens to log in, and

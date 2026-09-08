@@ -224,14 +224,18 @@ Three kinds of caller, and none of them justifies an identity provider. The
 promoter and the fighter are here; the third is the mp4 renderer, which is a
 machine holding one shared key, and it gets section 6c.
 
-**The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at **100,000 iterations**, and the session is a **signed cookie**, not a row: `{promoterId, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. The expiry is inside the signature so the holder cannot extend it. Comparison is constant-time.
+**The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at **100,000 iterations**, and the session is a **signed cookie**, not a row: `{promoterId, version, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. Both the expiry and the version are inside the signature so the holder cannot edit either. Comparison is constant-time. Off localhost the cookie is named `__Host-eventiq_session`: the prefix is a rule the *browser* enforces, refusing to store one that is not secure, path `/` and domain-less, and refusing to let any other host on the zone — or plain http on our own — set one. The attributes already satisfied it, so the name was the only part missing.
 
 That iteration count is **imposed by the runtime, not chosen**, and it is below OWASP's floor of 600,000 because the deployed Workers runtime will not go above 100,000 — it throws `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`. Do not raise it back. The full account, including a measured table of what each environment enforces, is in [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it); the short version is that Node and the local `wrangler dev` both accept any count, so only the real edge or `wrangler dev --remote` can see the limit at all. Two consequences worth carrying in your head:
 
 - Verification reads the iteration count **out of the stored hash**, not out of the constant, so a wrong constant does not break an existing login. It breaks the *next* one that gets minted. This is precisely how the repository and production came to disagree without anyone noticing.
 - The unknown-promoter path derives against a decoy hash, which depends on nothing stored, so it fails on its own. It is now built from the same constant rather than written out separately, because writing it out is what let the two drift apart.
 
-There is deliberately **no server-side revocation**. With one operator it would be ceremony rather than security, and rotating `SESSION_SECRET` invalidates every session at once, which is the entire threat model handled in one command.
+**Revocation is one integer.** `promoters.session_version` is carried in the cookie and compared against the row on every request, so bumping the column ends every session that account has open. Changing a password bumps it, and so do `set-password` and `reset-link` in the operator script. This used to say there was deliberately no revocation at all, on the reasoning that with one operator it was ceremony and that rotating `SESSION_SECRET` handled the whole threat model in one command. That reasoning stopped holding the moment a second promoter existed: rotating the secret signs out *everybody*, including the promoter with a show on Saturday who has done nothing wrong. The stateless design is otherwise untouched — the row is read on every request anyway, so the check is free — and rotating the secret is still there as the blunt instrument.
+
+The cheapest way to see the whole of it: a promoter changes their password on their laptop, and the browser doing the changing is handed a cookie naming the new generation while every other one is a generation behind and fails on its next request. The phone in someone else's hand is signed out; the laptop in front of them is not.
+
+**Promoter accounts are created by an operator, not by signing up.** [scripts/promoter.mjs](scripts/promoter.mjs) — `npm run promoter -- create|set-password|reset-link|list`, `--local` by default and `--remote` for the live database — is the whole of onboarding, and [DEPLOY.md](DEPLOY.md) section 5a is how to run it. A promoter who has forgotten their password cannot start a reset themselves, because there is no email or SMS to send one through; an operator mints a link that lasts half an hour, works once, and is stored only as a digest. That is a deliberate trade for now rather than a missing feature, and the thing that would change it is email, not a form.
 
 [proxy.ts](proxy.ts) redirects cookieless requests to the login form. **That is not the authorisation check** and must never be mistaken for one: it runs before the database is reachable. The real check is `currentPromoter()` in every page and `requirePromoter()` in every action, and every promoter action re-reads the event and confirms the signed-in promoter owns it. A forged cookie gets past the proxy and fails there.
 
@@ -739,6 +743,13 @@ npm run db:studio -- "select count(*) from fighters"
 # The live database. A rewrite rather than an insert, so it wants the flag spelled
 # out and refuses if any promoter but the seeded one is on there.
 SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
+
+# Promoter accounts. --local by default; --remote for the live database, and
+# neither while a dev server is up. Section 6a, and DEPLOY.md section 5a.
+npm run promoter -- list
+npm run promoter -- create --slug budo --name "BUDO Fight Series" --generate
+npm run promoter -- set-password --slug budo --generate
+npm run promoter -- reset-link --slug budo
 
 npm run db:backup                                   # export the live D1 into R2
 npm run db:restore-rehearsal -- --date 2026-09-07   # load one back and count the rows
