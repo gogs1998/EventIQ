@@ -40,7 +40,7 @@
     "shots": "node scripts/shots.mjs"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "1.20.3",
+    "@opennextjs/cloudflare": "1.20.6",
     "drizzle-orm": "^0.45.2",
     "next": "16.3.3",
     "qrcode": "^1.5.4",
@@ -48,7 +48,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260826.1",
+    "@cloudflare/workers-types": "^5.20260905.1",
     "@imgly/background-removal-node": "^1.4.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -62,7 +62,7 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.11",
-    "wrangler": "4.126.0"
+    "wrangler": "4.129.0"
   },
   "allowScripts": {
     "esbuild@0.18.20": true,
