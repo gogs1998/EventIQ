@@ -1,4 +1,4 @@
-import { eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, lt, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import { parseProfileUrl, type ImportOutcome, type ImportedTape } from "@/lib/fighter-import";
@@ -23,7 +23,56 @@ const FETCH_TIMEOUT_MS = 8000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * How many pages the importer will fetch in an hour, across everybody.
+ * A month. Past this a cached page is a row nobody will ever read again: the
+ * cache answers for a week, and a fighter whose link was pasted last spring is
+ * on a card that has already happened.
+ */
+const PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Which parser produced the payloads under a cache key.
+ *
+ * The cache holds what `parseSherdog` made of a page, not the page, so fixing
+ * the parser fixes nothing for anybody whose row is already there — they get the
+ * old shape for the rest of the week, and the fighter most likely to press the
+ * button again is the one whose page did not read properly. Putting the version
+ * in the key means a parser change is a different row and the next lookup does
+ * the work again.
+ *
+ * **Bump this whenever `lib/record-import/sherdog.ts` changes what it returns.**
+ * 2 added the hometown.
+ */
+export const PARSER_VERSION = 2;
+
+/** The row a fighter's page is cached under, for this version of the parser. */
+export function cacheKeyFor(canonicalUrl: string): string {
+  return `${canonicalUrl}#p${PARSER_VERSION}`;
+}
+
+/**
+ * Who a lookup is on behalf of, for the ceiling below.
+ *
+ * The promoter working down an undercard and the fighters on one show are the
+ * two real actors here, and each gets an allowance of their own.
+ */
+export function promoterScope(promoterId: string): string {
+  return `promoter:${promoterId}`;
+}
+
+export function eventScope(eventId: string): string {
+  return `event:${eventId}`;
+}
+
+/**
+ * Everything that cannot say which of the two it is shares one allowance — the
+ * same reasoning as `callerKey` in lib/rate-limit.ts. It means a caller cannot
+ * escape the ceiling by declining to say who they are, and it costs only that
+ * such callers count against each other.
+ */
+export const UNATTRIBUTED_SCOPE = "unattributed";
+
+/**
+ * How many pages the importer will fetch in an hour, per promoter and per show.
  *
  * The per-address limiter in lib/rate-limit.ts is the first answer to somebody
  * asking too often, but it is not the whole one. Cloudflare's limiter counts per
@@ -37,6 +86,11 @@ const HOUR_MS = 60 * 60 * 1000;
  * A fifteen-bout card is thirty fighters. Two full cards an hour is far more
  * than a promoter filling in an undercard will ever need and far less than
  * anything that would read as a scrape from the other end.
+ *
+ * It used to be counted across everybody, which made it a way for one busy
+ * promoter to pause every other promoter's lookups — and the promoter working
+ * down an undercard is the person this feature exists for. It is counted per
+ * scope now, off the `scope` column, which records who caused each fetch.
  */
 export const FETCHES_PER_HOUR = 120;
 
@@ -99,6 +153,27 @@ export function cachedTape(payload: string): ImportedTape | undefined {
   }
 }
 
+/**
+ * Drops rows nobody will read again, on the way past a write.
+ *
+ * Nothing else ever deletes from this table — the seed leaves it alone, because
+ * it is not scoped to a promoter — so without this it only grows, and it grows
+ * fastest from the failures, which are cached deliberately and are the rows
+ * least worth keeping. Done here rather than on a schedule because the one
+ * moment we are certainly awake and already writing to this table is a fetch,
+ * and there are at most a couple of those a minute.
+ *
+ * Best effort on purpose. A tidy-up that could not run is not a reason to tell
+ * somebody their link did not work, and the next fetch will try again.
+ */
+async function prune(db: Db, now: number): Promise<void> {
+  try {
+    await db.delete(schema.importCache).where(lt(schema.importCache.fetchedAt, now - PRUNE_AFTER_MS));
+  } catch {
+    // The lookup itself succeeded, which is the thing the caller is waiting on.
+  }
+}
+
 function isChallenge(html: string): boolean {
   return html.includes("Just a moment...") || html.includes("cf-browser-verification");
 }
@@ -136,7 +211,11 @@ async function fetchPage(url: string): Promise<{ html: string } | { failed: stri
  * button again, and re-fetching a page we already know we cannot read is exactly
  * the behaviour that gets a scraper blocked.
  */
-export async function importRecord(db: Db, input: string): Promise<ImportOutcome> {
+export async function importRecord(
+  db: Db,
+  input: string,
+  scope: string = UNATTRIBUTED_SCOPE,
+): Promise<ImportOutcome> {
   const ref = parseProfileUrl(input);
   if (!ref) return { ok: false, kind: "not-a-profile" };
 
@@ -147,11 +226,14 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
   // Keyed on the canonical form rather than on what was pasted, so a link with a
   // query string on it is the same fighter as the same link without one. Anything
   // else is a row in D1 and a request to somebody else's website per variation.
+  // The parser version goes on the end so a parser fix is a different row rather
+  // than a week of stale payloads nobody can clear.
   const now = Date.now();
+  const key = cacheKeyFor(ref.cacheKey);
   const [cached] = await db
     .select()
     .from(schema.importCache)
-    .where(eq(schema.importCache.url, ref.cacheKey))
+    .where(eq(schema.importCache.url, key))
     .limit(1);
 
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
@@ -175,7 +257,7 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
   const [recent] = await db
     .select({ fetches: sql<number>`count(*)` })
     .from(schema.importCache)
-    .where(gt(schema.importCache.fetchedAt, now - HOUR_MS));
+    .where(and(eq(schema.importCache.scope, scope), gt(schema.importCache.fetchedAt, now - HOUR_MS)));
 
   if (!withinFetchBudget(recent?.fetches ?? 0)) return IMPORTER_AT_CAPACITY;
 
@@ -185,15 +267,20 @@ export async function importRecord(db: Db, input: string): Promise<ImportOutcome
   await db
     .insert(schema.importCache)
     .values({
-      url: ref.cacheKey,
+      url: key,
       source: ref.source,
       payload: parsed ? JSON.stringify(parsed) : null,
+      scope,
       fetchedAt: now,
     })
     .onConflictDoUpdate({
       target: schema.importCache.url,
-      set: { payload: parsed ? JSON.stringify(parsed) : null, fetchedAt: now },
+      // The scope moves with the fetch, because it records who caused this one
+      // rather than who first asked for the page.
+      set: { payload: parsed ? JSON.stringify(parsed) : null, scope, fetchedAt: now },
     });
+
+  await prune(db, now);
 
   if (!parsed) {
     return {

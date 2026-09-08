@@ -173,7 +173,19 @@ export const sponsors = sqliteTable(
       .references(() => promoters.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     qualifier: text("qualifier"),
+    /** Curated artwork under public/sponsors, produced by scripts/prepare-assets.mjs. */
     mark: text("mark"),
+    /**
+     * An emblem the promoter uploaded, as an object key in the media bucket.
+     *
+     * assets-src/ is not in the repository, so the curated marks cannot be
+     * regenerated from a clean clone and a promoter adding a sponsor of their own
+     * had no way to give it artwork at all. This is that way. It wins over `mark`
+     * where both exist, and neither ever carries the sponsor's *name*: image
+     * generators misspell text and a real business's name is set in the app's own
+     * typography.
+     */
+    markKey: text("mark_key"),
     url: text("url"),
     createdAt: integer("created_at").notNull(),
   },
@@ -256,6 +268,16 @@ export const bouts = sqliteTable(
       .references(() => fighters.id),
     /** Bout sponsorship is a line promoters already sell, so it lives on the bout. */
     sponsorId: text("sponsor_id").references(() => sponsors.id, { onDelete: "set null" }),
+    /**
+     * The bout is off. Withdrawals happen on every amateur card — weight, injury,
+     * a no-show — and deleting the row is the wrong remedy: it destroys the
+     * sponsor placement that was sold and the analytics rows keyed on the number,
+     * and it renumbers a card several hundred people are reading. So the bout
+     * keeps its place and is shown as withdrawn.
+     */
+    cancelled: integer("cancelled", { mode: "boolean" }).notNull().default(false),
+    /** Why, in the promoter's own words. Short, because it is set beside a bout number. */
+    cancelledNote: text("cancelled_note"),
   },
   (table) => [uniqueIndex("bouts_event_number").on(table.eventId, table.number)],
 );
@@ -410,9 +432,21 @@ export const importCache = sqliteTable(
     source: text("source").notNull(),
     /** JSON ImportedTape, or null when the page parsed to nothing useful. */
     payload: text("payload"),
+    /**
+     * Who caused the last fetch of this page — `promoter:<id>` from the card
+     * editor, `event:<id>` from a fighter's questionnaire. The hourly ceiling is
+     * counted off this table, and counting it across everybody meant one busy
+     * promoter could pause every other promoter's lookups. See lib/record-import.
+     */
+    scope: text("scope"),
     fetchedAt: integer("fetched_at").notNull(),
   },
-  // The importer counts the last hour's fetches before it makes another one, so
-  // that question has to stay cheap however many rows have accumulated.
-  (table) => [index("import_cache_fetched_at").on(table.fetchedAt)],
+  // The importer counts the last hour's fetches before it makes another one and
+  // prunes anything older than a month on the way past, so both questions have to
+  // stay cheap however many rows have accumulated. The count is per scope now,
+  // which is a different index from the prune's.
+  (table) => [
+    index("import_cache_fetched_at").on(table.fetchedAt),
+    index("import_cache_scope").on(table.scope, table.fetchedAt),
+  ],
 );

@@ -67,6 +67,8 @@ export type ImportedTape = {
   age?: number;
   heightCm?: number;
   gym?: string;
+  /** The town they are billed out of, not the country. */
+  hometown?: string;
   record?: { w: number; l: number; d: number };
   finishes?: { ko: number; sub: number };
   /**
@@ -138,6 +140,83 @@ export const SOURCE_LABEL: Record<ImportSource, string> = {
   tapology: "Tapology",
 };
 
+/**
+ * What an import would do to one box, shown before it does it.
+ *
+ * The promoter's paste box writes to somebody else's profile — a fighter who has
+ * not answered, on the promoter's own card — so it does not simply save. It
+ * shows what is on the card, what is on the page, and which of the two would
+ * win, and waits. That is the same principle as the badge on the fighter's own
+ * form: an imported value is a suggestion, and amateur records go stale.
+ */
+export type ImportField = "name" | "record" | "age" | "hometown";
+
+export type RecordFill = {
+  key: ImportField;
+  label: string;
+  /** What the card says now, or null where the box is empty. */
+  from: string | null;
+  /** What the page says. */
+  to: string;
+  /**
+   * Whether confirming would write it. False wherever the card already has an
+   * answer: anything a person typed wins over anything a page said, and the row
+   * is still shown so the promoter can see the two disagree.
+   */
+  fills: boolean;
+};
+
+/** "From" rather than "Hometown", because that is what the tape row is called. */
+const FIELD_LABEL: Record<ImportField, string> = {
+  name: "Name",
+  record: "Record",
+  age: "Age",
+  hometown: "From",
+};
+
+/** What the card holds now for the four boxes an import can fill. */
+export type ImportTarget = {
+  name?: string | null;
+  record?: { w: number; l: number; d: number } | null;
+  age?: number | null;
+  hometown?: string | null;
+};
+
+/** The way a card prints a record: the draws only where there are any. */
+function recordLabel(record: { w: number; l: number; d: number }): string {
+  return record.d > 0 ? `${record.w}-${record.l}-${record.d}` : `${record.w}-${record.l}`;
+}
+
+/** Text somebody has actually given us. A box of spaces is an empty box. */
+function given(value: string | null | undefined): string | undefined {
+  const trimmed = (value ?? "").trim();
+  return trimmed || undefined;
+}
+
+/**
+ * Every box this import has something to say about, and which of them it would
+ * fill. Pure, so the confirmation the promoter reads and the write that follows
+ * it are worked out by the same function rather than by two that might differ.
+ */
+export function recordDiff(
+  target: ImportTarget,
+  tape: ImportedTape & { name?: string },
+): RecordFill[] {
+  const rows: RecordFill[] = [];
+
+  const add = (key: ImportField, from: string | undefined, to: string | undefined) => {
+    if (!to) return;
+    rows.push({ key, label: FIELD_LABEL[key], from: from ?? null, to, fills: !from });
+  };
+
+  add("name", given(target.name), given(tape.name));
+  add("record", target.record ? recordLabel(target.record) : undefined, tape.record ? recordLabel(tape.record) : undefined);
+  add("age", target.age ? String(target.age) : undefined, tape.age ? String(tape.age) : undefined);
+  add("hometown", given(target.hometown), given(tape.hometown));
+
+  return rows;
+}
+
 export type ImportOutcome =
   | { ok: true; tape: ImportedTape & { name?: string } }
   /** Recognised the link but could not read the page. `reason` is shown as-is. */
@@ -156,15 +235,24 @@ export type ImportOutcome =
  * nothing and never reaches the other site. Fetching a single page, on the
  * fighter's own instruction, at human rate is a far more defensible posture than
  * bulk crawling, and it is worth keeping it that way deliberately.
+ *
+ * `slug` is the show the fighter is on. It is not a credential and is not
+ * treated as one — this endpoint takes none, by design — it is only what the
+ * hourly ceiling is counted against, so one show's thirty fighters cannot use up
+ * another show's allowance. A caller who names somebody else's show is choosing
+ * which bounded allowance to spend, which is not worth anything to them.
+ *
+ * The promoter's own paste box does not come through here at all: it goes to a
+ * server action with their session on it, and is counted against them.
  */
-export async function lookupTape(input: string): Promise<ImportOutcome> {
+export async function lookupTape(input: string, slug?: string): Promise<ImportOutcome> {
   const ref = parseProfileUrl(input);
   if (!ref) return { ok: false, kind: "not-a-profile" };
 
   const response = await fetch("/api/import-record", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url: ref.url }),
+    body: JSON.stringify({ url: ref.url, slug }),
   });
 
   // A refusal on grounds of rate carries its own message and its own status, so

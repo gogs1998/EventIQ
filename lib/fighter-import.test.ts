@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProfileUrl } from "@/lib/fighter-import";
+import { parseProfileUrl, recordDiff, type ImportedTape } from "@/lib/fighter-import";
 
 describe("parseProfileUrl", () => {
   it("reads a Sherdog fighter link", () => {
@@ -85,5 +85,62 @@ describe("the cache key", () => {
     expect(parseProfileUrl("sherdog.com/fighter/Owen-Pryce-1?bust=9")?.url).toBe(
       "https://www.sherdog.com/fighter/Owen-Pryce-1",
     );
+  });
+});
+
+/**
+ * The promoter's paste box writes to somebody else's profile — a fighter on
+ * their card who has not answered — so it never simply saves. The diff is what
+ * it shows first, and it is the same function that decides what gets written, so
+ * the confirmation and the write cannot disagree.
+ *
+ * The rule underneath all of it is the fighter's side's rule read from the other
+ * end: an import fills blanks. Anything a person typed wins over anything a page
+ * said, because amateur records go stale and the person is the one who knows.
+ */
+describe("recordDiff", () => {
+  const tape: ImportedTape & { name?: string } = {
+    source: "sherdog",
+    name: "Owen Pryce",
+    age: 24,
+    hometown: "Wrexham",
+    record: { w: 4, l: 1, d: 0 },
+    notCovered: [],
+  };
+
+  const fills = (rows: ReturnType<typeof recordDiff>) =>
+    rows.filter((row) => row.fills).map((row) => row.key);
+
+  it("fills every box the card has left empty", () => {
+    expect(fills(recordDiff({ name: "Owen Pryce" }, tape))).toEqual(["record", "age", "hometown"]);
+  });
+
+  it("leaves an answer the card already carries exactly where it is", () => {
+    const rows = recordDiff(
+      { name: "O Pryce", age: 25, hometown: "Rhosllanerchrugog", record: { w: 2, l: 2, d: 0 } },
+      tape,
+    );
+    expect(fills(rows)).toEqual([]);
+    // Still shown, so the promoter can see the two disagree and decide for
+    // themselves rather than finding out on the night.
+    expect(rows.map((row) => row.key)).toEqual(["name", "record", "age", "hometown"]);
+    expect(rows.find((row) => row.key === "age")).toMatchObject({ from: "25", to: "24" });
+  });
+
+  it("says nothing about a box the page has nothing for", () => {
+    const bare: ImportedTape = { source: "sherdog", notCovered: [] };
+    expect(recordDiff({ name: "Owen Pryce" }, bare)).toEqual([]);
+  });
+
+  it("prints a record the way the card does", () => {
+    const drawn = { ...tape, record: { w: 4, l: 1, d: 2 } };
+    expect(recordDiff({}, tape).find((row) => row.key === "record")?.to).toBe("4-1");
+    expect(recordDiff({}, drawn).find((row) => row.key === "record")?.to).toBe("4-1-2");
+  });
+
+  /** A box of spaces is an empty box, the same as everywhere else here. */
+  it("treats whitespace as nothing rather than as an answer", () => {
+    expect(fills(recordDiff({ name: "   ", hometown: " " }, tape))).toContain("name");
+    expect(fills(recordDiff({ name: "   ", hometown: " " }, tape))).toContain("hometown");
   });
 });

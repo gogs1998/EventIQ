@@ -97,6 +97,11 @@ export async function loadBoutFingerprints(
     // A bout naming a fighter who is not there is a broken database rather than
     // a bout with nothing rendered, so leave it out and let it read as missing.
     if (!red || !blue) continue;
+    // A bout that is off is not rendered. Leaving it out here is what makes that
+    // true everywhere at once: enqueueRender only queues bouts it has a hash for,
+    // and the hourly --stale run compares against these, so neither can ask for a
+    // walkout video for a walkout that is not happening.
+    if (bout.cancelled) continue;
 
     const inputs: RenderInputs = {
       eventName: event.name,

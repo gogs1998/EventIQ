@@ -8,6 +8,7 @@ import { TapeTable } from "@/components/TapeTable";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { track } from "@/lib/analytics";
 import { fighterOf, fighterSponsors, sponsorOf, type Card } from "@/lib/card";
+import { WITHDRAWN } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
   boutBillingLabel,
@@ -183,6 +184,55 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
   const rows = buildTape(red, blue);
   const sponsor = sponsorOf(card, bout.sponsorId);
   const headline = bout.billing === "MAIN";
+
+  /**
+   * A bout that has come off keeps its place in the running order, its number and
+   * its sponsor, and loses everything that implies it is still going ahead: no
+   * tale of the tape, no video, nothing to tap. A spectator scrolling the card
+   * needs to find the bout where they left it and be told it is off, which is
+   * exactly what the paper programme cannot do once it is printed.
+   */
+  if (bout.cancelled) {
+    return (
+      <article className="border-hairline bg-ink-2/40 border p-4">
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="display text-ash text-lg leading-none line-through">
+              {boutBillingLabel(bout)}
+            </div>
+            <div className="text-ash-dim mt-1.5 text-[0.7rem] uppercase tracking-wider line-through">
+              {boutClassLine(bout)}
+            </div>
+          </div>
+
+          {sponsor ? (
+            <div className="shrink-0 text-right">
+              <div className="text-ash-dim mb-1 font-mono text-[0.45rem] uppercase tracking-[0.2em]">
+                Bout sponsor
+              </div>
+              <SponsorLockup sponsor={sponsor} size="sm" className="justify-end" />
+            </div>
+          ) : null}
+        </header>
+
+        <div className="display text-ash mt-3 truncate text-xl line-through">
+          {lastName(red)} <span className="text-ash-dim">v</span> {lastName(blue)}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="border-hairline text-ash-dim border px-1.5 py-1 font-mono text-[0.5rem] uppercase tracking-[0.14em]">
+            {WITHDRAWN.label}
+          </span>
+          {/* Only where the promoter gave one. A blank reason is not a mystery to
+              be filled in with a guess. */}
+          {bout.cancelledNote ? (
+            <span className="text-ash text-xs">{bout.cancelledNote}</span>
+          ) : null}
+        </div>
+        <p className="text-ash-dim mt-2 text-xs leading-relaxed">{WITHDRAWN.note}</p>
+      </article>
+    );
+  }
 
   const expand = () => {
     setOpen((wasOpen) => {

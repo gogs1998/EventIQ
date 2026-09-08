@@ -8,8 +8,18 @@ import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { newId, newToken } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
-import { getDb, type Db } from "@/lib/db";
+import { getDb, getMedia, type Db } from "@/lib/db";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
+import {
+  recordDiff,
+  type ImportOutcome,
+  type ImportTarget,
+  type RecordFill,
+} from "@/lib/fighter-import";
+import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
+import { logError } from "@/lib/log";
+import { withinPromoterImportLimit } from "@/lib/rate-limit";
+import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
@@ -349,6 +359,16 @@ export async function updateBout(
         if (!theirs) return refuse(ACTION_ERRORS.noSuchSponsor);
       }
 
+      // Read before the write, because a bout that is off has no video to bring
+      // up to date and must not be queued for one. `loadBoutFingerprints` leaves
+      // it out anyway, so this is belt and braces — but the queue call is where
+      // the decision reads, and a reader should not have to go and check.
+      const [existing] = await db
+        .select({ cancelled: schema.bouts.cancelled })
+        .from(schema.bouts)
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)))
+        .limit(1);
+
       await db
         .update(schema.bouts)
         .set({
@@ -364,7 +384,66 @@ export async function updateBout(
         })
         .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
 
-      await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+      if (!existing?.cancelled) {
+        await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+      }
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/e/${slug}`);
+      return DONE;
+    },
+  );
+}
+
+/** Longest a withdrawal note can be. It is set beside a bout number, not under it. */
+const CANCELLED_NOTE_MAX = 60;
+
+/**
+ * Takes a bout off the card, or puts it back on.
+ *
+ * The alternative a promoter would otherwise reach for is `removeBout`, and on a
+ * published show that is the wrong remedy: it destroys the sponsor placement
+ * that was sold and the analytics rows keyed on the bout number, and it leaves
+ * the programme wrong at the one moment several hundred people are reading it.
+ * So the row stays exactly where it is and carries a flag, which is what a paper
+ * programme does with a withdrawal.
+ *
+ * Nothing is rendered for a bout that is off. The video is a walkout for a
+ * walkout that is not happening, and it would sit on the programme behind a line
+ * saying the bout is withdrawn.
+ */
+export async function setBoutOff(
+  slug: string,
+  boutNumber: number,
+  off: boolean,
+  note: string,
+): Promise<ActionResult> {
+  return attempt(
+    { event: "setBoutOff", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+      const { event } = owned;
+
+      await db
+        .update(schema.bouts)
+        .set({
+          cancelled: off,
+          // Cleared when the bout goes back on, so a bout that came off for a
+          // weight miss and was rematched does not carry the old line.
+          cancelledNote: off ? note.trim().slice(0, CANCELLED_NOTE_MAX) || null : null,
+        })
+        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+
+      // A bout coming back on is a bout that needs its video again; one going off
+      // is not asked for at all. The queued row is left where it is: the runner
+      // reads the fingerprints, which no longer carry this bout, and a bout put
+      // back on the following morning gets its place in the queue back with it.
+      if (!off) {
+        await requestRenderQuietly(db, event.id, [boutNumber], { event: "setBoutOff", route: `/promoter/e/${slug}/card` });
+      }
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
@@ -487,6 +566,179 @@ export async function updateFighter(
   );
 }
 
+// --------------------------------------------------- filling a fighter in
+
+/**
+ * The promoter's own record importer, one fighter at a time.
+ *
+ * The weakest part of the product is the undercard, and the reason is that
+ * thirty fighters never reply. The endpoint at /api/import-record has always
+ * been able to fix that; what it lacked was a box in the place the promoter is
+ * already standing. This is that box, and it deliberately does not go through
+ * the open endpoint: it runs with the promoter's session, on a fighter their own
+ * card carries, and it is counted against the promoter rather than against
+ * whatever address they happen to be on — an office entering two cards from one
+ * connection is two promoters, and a promoter on a train is one.
+ *
+ * **One fighter at a time, deliberately.** Doing a whole card on one press is
+ * the obvious next thing and is not built here. Sherdog's robots.txt permits
+ * crawling and robots.txt is not a licence (HANDOVER section 8a), the owner has
+ * not settled the terms question, and thirty pages on one button press is
+ * exactly what turns "one page, on a person's instruction, at human rate" into
+ * something that would have to be defended. That is a decision for a person, not
+ * one for this file to take on their behalf.
+ *
+ * Nothing is written here. It reads the page and answers with what it would do.
+ */
+export async function lookupFighterRecord(
+  slug: string,
+  fighterId: string,
+  url: string,
+): Promise<ActionResult<{ outcome: ImportOutcome; diff: RecordFill[] }>> {
+  return attempt(
+    { event: "lookupFighterRecord", route: `/promoter/e/${slug}/card`, fighterId },
+    ACTION_ERRORS.importNotRead,
+    async () => {
+      const found = await importableFighter(slug, fighterId);
+      if (!found.ok) return found;
+      const { db, promoter, fighter } = found;
+
+      const outcome = await importRecord(db, url, promoterScope(promoter.id));
+      if (!outcome.ok) return done({ outcome, diff: [] });
+
+      return done({ outcome, diff: recordDiff(targetOf(fighter), outcome.tape) });
+    },
+  );
+}
+
+/**
+ * Writes the boxes that were empty, and only those.
+ *
+ * The page is read again rather than the confirmation being taken at its word,
+ * so what goes on the card is what the source actually said rather than what
+ * came back through a browser. It costs one cached row read: the lookup a moment
+ * ago put the page in `import_cache`, and nothing goes out to Sherdog again.
+ *
+ * "Where empty" is decided here rather than when the diff was drawn, because a
+ * fighter can fill their own form in between the two — and if they have, theirs
+ * wins. Anything a person typed beats anything a page said.
+ */
+export async function applyFighterRecord(
+  slug: string,
+  fighterId: string,
+  url: string,
+): Promise<ActionResult<{ applied: string[] }>> {
+  return attempt(
+    { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const found = await importableFighter(slug, fighterId);
+      if (!found.ok) return found;
+      const { db, promoter, event, fighter } = found;
+
+      const outcome = await importRecord(db, url, promoterScope(promoter.id));
+      if (!outcome.ok) {
+        return refuse("reason" in outcome ? outcome.reason : ACTION_ERRORS.importNotRead);
+      }
+
+      const { tape } = outcome;
+      const filled = recordDiff(targetOf(fighter), tape).filter((row) => row.fills);
+      const filling = new Set(filled.map((row) => row.key));
+      if (!filling.size) return done({ applied: [] });
+
+      await db
+        .update(schema.fighters)
+        .set({
+          // Bounded on the way in like everything else off a form: this is text
+          // from somebody else's website, and it lands on a card.
+          ...(filling.has("name") && tape.name ? { name: tape.name.trim().slice(0, 60) } : {}),
+          ...(filling.has("age") ? { age: tape.age } : {}),
+          ...(filling.has("hometown") && tape.hometown
+            ? { hometown: tape.hometown.trim().slice(0, 60) }
+            : {}),
+          // All three or none, so an imported record can never be read back as a
+          // debut. Same rule as the questionnaire's own save.
+          ...(filling.has("record") && tape.record
+            ? { recordW: tape.record.w, recordL: tape.record.l, recordD: tape.record.d }
+            : {}),
+          updatedAt: Date.now(),
+        })
+        .where(eq(schema.fighters.id, fighterId));
+
+      // A record and a hometown are two rows of the tale of the tape, so the
+      // bout's video is out of date. Asked for the card, like updateFighter: the
+      // fingerprint tells the other bouts apart for nothing.
+      await requestRenderQuietly(db, event.id, "all", { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId });
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}/card`);
+      revalidatePath(`/e/${slug}`);
+
+      return done({ applied: filled.map((row) => row.label) });
+    },
+  );
+}
+
+/**
+ * The show, the promoter, the fighter and the promoter's allowance, in the order
+ * that stops the expensive question being asked before the cheap ones.
+ *
+ * The rate limit is here rather than at each caller because both of these can
+ * end in a request to somebody else's website, and the thing being protected is
+ * that website rather than us: it should not matter which of our doors a lookup
+ * came through.
+ */
+async function importableFighter(
+  slug: string,
+  fighterId: string,
+): Promise<
+  ActionResult<{
+    db: Db;
+    promoter: Promoter;
+    event: typeof schema.events.$inferSelect;
+    fighter: typeof schema.fighters.$inferSelect;
+  }>
+> {
+  const db = await getDb();
+  const owned = await ownedEvent(db, slug);
+  if (!owned.ok) return owned;
+  const { promoter, event } = owned;
+
+  if (!(await isOnCard(db, event.id, fighterId))) return refuse(ACTION_ERRORS.notOnThisCard);
+
+  if (!(await withinPromoterImportLimit(promoter.id))) {
+    return refuse(ACTION_ERRORS.importTooMany);
+  }
+
+  const [fighter] = await db
+    .select()
+    .from(schema.fighters)
+    .where(eq(schema.fighters.id, fighterId))
+    .limit(1);
+  if (!fighter) return refuse(ACTION_ERRORS.notOnThisCard);
+
+  return done({ db, promoter, event, fighter });
+}
+
+/**
+ * The four boxes an import can fill, off the stored row.
+ *
+ * The record is all three columns or none, exactly as lib/db/queries.ts reads
+ * it: a partly stored record is not a record, and reading it as one would let an
+ * import top up a fighter's losses without their wins.
+ */
+function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
+  return {
+    name: fighter.name,
+    record:
+      fighter.recordW !== null && fighter.recordL !== null && fighter.recordD !== null
+        ? { w: fighter.recordW, l: fighter.recordL, d: fighter.recordD }
+        : null,
+    age: fighter.age,
+    hometown: fighter.hometown,
+  };
+}
+
 /** A fighter is on a card if there is an invite for them on it, and not otherwise. */
 async function isOnCard(db: Db, eventId: string, fighterId: string): Promise<boolean> {
   const [invite] = await db
@@ -557,6 +809,59 @@ export async function regenerateInvite(slug: string, fighterId: string): Promise
 
 // ----------------------------------------------------------------- sponsors
 
+/**
+ * An emblem is small. A few hundred pixels of monoline artwork sitting beside a
+ * name is what these are, and anything past this is a photograph somebody has
+ * chosen by mistake.
+ */
+const MAX_MARK_BYTES = 1024 * 1024;
+
+/**
+ * Stores a sponsor's emblem and answers with the key to put on the row.
+ *
+ * **The bytes decide what this is.** /media serves it back from our own origin,
+ * so the declared type is a claim by whoever made the request and an SVG would
+ * be a document with this origin's privileges. Same rule and same reasoning as
+ * the fighter's photograph — see lib/image-type.ts and section 6b.
+ *
+ * Run before the sponsor row is written rather than after, so a bucket that will
+ * not take the object leaves nothing behind at all. The other order leaves a
+ * sponsor with a mark column pointing at nothing.
+ *
+ * The key carries a random suffix because /media answers with a year of
+ * immutable caching, so a replaced emblem has to be a new URL or half the people
+ * reading the card keep the old one.
+ *
+ * What this never does is put the sponsor's *name* in an image. The emblem is
+ * artwork; the name is set in the app's own typography, because a real
+ * business's name must never be misspelled by a picture of it.
+ */
+async function storeSponsorMark(
+  promoterId: string,
+  sponsorId: string,
+  file: FormDataEntryValue | null,
+): Promise<ActionResult<{ key: string | null }>> {
+  if (!(file instanceof File) || file.size === 0) return done({ key: null });
+  if (file.size > MAX_MARK_BYTES) return refuse(ACTION_ERRORS.markTooLarge);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const contentType = sniffImageType(bytes);
+  if (!contentType) return refuse(ACTION_ERRORS.markNotAnImage);
+
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const key = `sponsors/${promoterId}/${sponsorId}-${suffix}.${IMAGE_EXTENSION[contentType]}`;
+
+  try {
+    const media = await getMedia();
+    await media.put(key, bytes, { httpMetadata: { contentType } });
+  } catch (error) {
+    logError({ event: "storeSponsorMark", route: `/promoter/e/${sponsorId}` }, error);
+    return refuse(ACTION_ERRORS.markNotStored);
+  }
+
+  return done({ key });
+}
+
 export async function addSponsor(slug: string, form: FormData): Promise<ActionResult> {
   return attempt(
     { event: "addSponsor", route: `/promoter/e/${slug}/card` },
@@ -571,11 +876,17 @@ export async function addSponsor(slug: string, form: FormData): Promise<ActionRe
       if (!name) return refuse(ACTION_ERRORS.sponsorNeedsName);
 
       const id = newId("sp");
+      const mark = await storeSponsorMark(promoter.id, id, form.get("mark"));
+      if (!mark.ok) return mark;
+
       await db.insert(schema.sponsors).values({
         id,
         promoterId: promoter.id,
         name,
         qualifier: text(form, "qualifier", 60) || null,
+        // assets-src/ is not in the repository, so for a sponsor a promoter adds
+        // themselves this upload is the only artwork there will ever be.
+        markKey: mark.key,
         url: text(form, "url", 200) || null,
         createdAt: Date.now(),
       });

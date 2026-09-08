@@ -13,6 +13,10 @@ describe("parseSherdog", () => {
     expect(profile.nickname).toBe("Notorious");
     expect(profile.gym).toBe("SBG Ireland");
     expect(profile.heightCm).toBe(173);
+    // The locality, which is the town somebody is billed out of. The nationality
+    // sits beside it in the same block and is deliberately not read: a country is
+    // not a hometown, and the tape row this fills says "From".
+    expect(profile.hometown).toBe("Dublin");
   });
 
   it("works out the age from the date of birth, not the printed number", () => {

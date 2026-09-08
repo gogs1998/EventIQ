@@ -153,6 +153,86 @@ export const EMPTY_DASHBOARD = {
 /** The card editor, where the running order is actually typed. */
 export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. Add the first bout below.";
 
+/* -------------------------------------------------------------------------
+ * A bout that is off
+ *
+ * Withdrawals happen on every amateur card — weight, injury, a no-show — and
+ * they are nobody's fault as far as this product is concerned. So none of these
+ * lines say why unless the promoter has, none of them name a fighter, and none
+ * of them read as an apology for a card that has changed, which is a normal
+ * thing for a card to do on the week of a show.
+ *
+ * The other rule here is the one every count-bearing string is held to: a card
+ * with nothing off says nothing, rather than announcing that no bouts are off.
+ * ---------------------------------------------------------------------- */
+
+export const WITHDRAWN = {
+  /** Beside the bout number the withdrawal keeps, on the public programme. */
+  label: "Withdrawn",
+  /** Where the tale of the tape and the video would have been. */
+  note: "This bout is off. The rest of the running order is unchanged.",
+  /** The card editor's control. Short, because it sits in a row of them. */
+  toggle: "Bout off",
+  back: "Put the bout back on",
+  reasonLabel: "Reason, if you want to give one",
+  reasonPlaceholder: "Withdrew at the weigh-in",
+  /**
+   * Under the control. It has to say what stays, because the alternative a
+   * promoter would otherwise reach for is deleting the bout, which takes the
+   * sponsor placement and the bout's figures with it.
+   */
+  editorNote:
+    "The bout keeps its number and its sponsor on the programme and is shown as withdrawn. " +
+    "Nothing is deleted, and it can go back on.",
+} as const;
+
+/* -------------------------------------------------------------------------
+ * The card editor's record importer
+ *
+ * The undercard is the weakest part of the product, and the reason is that
+ * thirty fighters never reply. This is how a promoter raises its floor without
+ * them, so the tone is about what the card gains and never about who has not
+ * answered — a blank profile is a state to be handled, not a fault to point at.
+ *
+ * Nothing here promises the numbers are right, either. Amateur records go stale,
+ * and what goes in front of the room is what the promoter confirmed, which is
+ * the same rule as the source badge on the fighter's own form.
+ * ---------------------------------------------------------------------- */
+
+export const RECORD_IMPORT = {
+  heading: "Fill this in from a record page",
+  blurb:
+    "Paste this fighter's Sherdog page and their record comes across. It fills only the boxes " +
+    "that are still empty, and shows you what it found before anything is saved.",
+  placeholder: "sherdog.com/fighter/Owen-Pryce-123456",
+  look: "Look it up",
+  looking: "Looking…",
+  apply: "Put these on the card",
+  applying: "Saving…",
+  /** After a save. The fields that changed are named after it. */
+  applied: "Added to the card",
+  nothing: "Nothing on that page fills a box this fighter has left empty.",
+  /** Beside a box the card already has an answer for. */
+  kept: "already on the card, so it stays",
+  caution: "Records on these pages go out of date. What the room reads is what you confirm here.",
+  notAProfile:
+    "That does not look like a Sherdog or Tapology fighter page. It should look like " +
+    "sherdog.com/fighter/Name-12345.",
+} as const;
+
+/**
+ * How much of the running order has come off, or nothing.
+ *
+ * Null rather than a sentence on the ordinary card, because most cards lose
+ * nobody and "no bouts off" is a withdrawal on the promoter's screen that has
+ * not happened. Same rule as every other count here: no zero-bout string states
+ * a count.
+ */
+export function boutsOffLabel(cancelled: number): string | null {
+  if (cancelled <= 0) return null;
+  return `${cancelled} off`;
+}
+
 /** The sub-line under a count of sponsor taps. */
 export function sponsorTapNote(sponsors: number): string {
   if (sponsors <= 0) return "No sponsor has been tapped yet";
@@ -254,6 +334,28 @@ export const ACTION_ERRORS = {
   boutNeedsBothCorners: "A bout needs a name in both corners.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
   sponsorNeedsName: "A sponsor needs a name.",
+  /**
+   * The emblem. Separate sentences for the same reason the fighter's photograph
+   * has three: a different file and a smaller file are different things to go
+   * and do. Neither mentions the sponsor's name, because an emblem is artwork
+   * and the name is set in the app's own type whatever happens here.
+   */
+  markNotAnImage: "That emblem is not a JPEG, PNG or WebP image.",
+  markTooLarge: "That emblem is too large to send. A few hundred pixels across is plenty.",
+  markNotStored:
+    "That emblem would not upload. Try again, or add the sponsor without one — the name is set " +
+    "in the programme's own type either way.",
+
+  /**
+   * The card editor's record importer. Both of these are read beside a box the
+   * promoter can type into, so both point back at it: a lookup that will not run
+   * is an inconvenience, not a dead end.
+   */
+  importTooMany:
+    "That is a lot of lookups at once, so they are paused for a moment. The boxes on this row " +
+    "still take anything you type.",
+  importNotRead:
+    "That page could not be read just now. The boxes on this row still take anything you type.",
 
   /** The fighter's side. Their typing stays in the boxes whatever these say. */
   unknownInvite: "This link is no longer active. Ask the promoter for a new one.",

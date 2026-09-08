@@ -283,6 +283,10 @@ export function renderInputsFrom(row, sponsorLockups) {
  * The show, the promoter's mark and the sponsor lockups are named for the same
  * reason: all three are on screen. A venue corrected the day before the show
  * used to leave fifteen videos naming the old one, and nothing said so.
+ *
+ * A bout that has come off the card is not here at all, which is the same answer
+ * the app gives in lib/db/render-jobs.ts: the video is a walkout for a walkout
+ * that is not happening, and `--stale` would otherwise keep asking for it.
  */
 async function boutsOf(eventSlug) {
   const rows = await d1(
@@ -303,7 +307,7 @@ async function boutsOf(eventSlug) {
        JOIN fighters r ON r.id = b.red_id
        JOIN fighters u ON u.id = b.blue_id
        LEFT JOIN render_jobs j ON j.event_id = b.event_id AND j.bout_number = b.number
-      WHERE e.slug = ${lit(eventSlug)}
+      WHERE e.slug = ${lit(eventSlug)} AND b.cancelled = 0
       ORDER BY b.number DESC`,
   );
   if (!rows.length) return [];
@@ -315,7 +319,10 @@ async function boutsOf(eventSlug) {
   const lockups = new Map(
     (
       await d1(
-        `SELECT s.id AS id, s.name AS name, s.qualifier AS qualifier, s.mark AS mark
+        // mark_key as well as mark: a promoter's own upload is the emblem the
+        // composition draws, so it is the emblem the fingerprint has to hash.
+        `SELECT s.id AS id, s.name AS name, s.qualifier AS qualifier,
+                s.mark AS mark, s.mark_key AS markKey
            FROM sponsors s
            JOIN events e ON e.promoter_id = s.promoter_id
           WHERE e.slug = ${lit(eventSlug)}`,

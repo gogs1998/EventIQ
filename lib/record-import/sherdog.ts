@@ -168,6 +168,10 @@ export function parseSherdog(html: string, now = new Date()): SherdogProfile | n
     age: ageFrom(first(html, /itemprop="birthDate">([^<]*)</i), now),
     heightCm: heightCm === undefined ? undefined : Math.round(heightCm),
     gym: first(html, /itemprop="memberOf"[\s\S]*?<span itemprop="name">([^<]*)<\/span>/i),
+    // The locality off the address block, which is the town a fighter is billed
+    // out of. Sherdog's nationality sits beside it and is deliberately not read:
+    // a country is not a hometown, and the tape row says "From".
+    hometown: first(html, /itemprop="addressLocality"[^>]*>([^<]*)</i),
     record: tally ? { w: tally.w, l: tally.l, d: tally.d } : undefined,
     finishes: tally ? { ko: tally.ko, sub: tally.sub } : undefined,
     recordKind: amateur ? "amateur" : professional ? "professional" : undefined,

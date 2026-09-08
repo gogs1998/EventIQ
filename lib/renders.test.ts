@@ -11,6 +11,7 @@ import {
   renderState,
   renderUrl,
   sponsorFingerprint,
+  sponsorMark,
 } from "@/lib/renders";
 
 /**
@@ -79,6 +80,33 @@ describe("sponsorFingerprint", () => {
     const sponsor = { id: "s1", name: "Mouthguards.pro", qualifier: "Custom fit", mark: "/m.svg" };
     expect(sponsorFingerprint(sponsor)).toBe("s1|Mouthguards.pro|Custom fit|/m.svg");
     expect(sponsorFingerprint({ id: "s1", name: "Mouthguards.pro" })).toBe("s1|Mouthguards.pro||");
+  });
+
+  /**
+   * The emblem the composition draws, not the columns it was drawn from. An
+   * uploaded mark replacing a curated one changes every video that sponsor
+   * appears in, and hashing the raw `mark` column would leave those videos
+   * reading as current with the old artwork still on them.
+   */
+  it("moves when a promoter's own emblem replaces the curated one", () => {
+    const curated = { id: "s1", name: "Anvil", mark: "/sponsors/anvil.webp" };
+    expect(sponsorFingerprint({ ...curated, markKey: "sponsors/pr_1/s1-abcd.png" })).not.toBe(
+      sponsorFingerprint(curated),
+    );
+  });
+});
+
+describe("sponsorMark", () => {
+  it("prefers the promoter's own upload and falls back to the curated artwork", () => {
+    expect(sponsorMark({ mark: "/sponsors/anvil.webp", markKey: "sponsors/pr_1/s1-abcd.png" })).toBe(
+      "/media/sponsors/pr_1/s1-abcd.png",
+    );
+    expect(sponsorMark({ mark: "/sponsors/anvil.webp" })).toBe("/sponsors/anvil.webp");
+  });
+
+  it("is absent rather than empty where a sponsor has no emblem at all", () => {
+    expect(sponsorMark({})).toBeUndefined();
+    expect(sponsorMark({ mark: null, markKey: null })).toBeUndefined();
   });
 });
 

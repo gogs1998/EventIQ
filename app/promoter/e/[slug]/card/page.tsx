@@ -6,7 +6,7 @@ import { AddSponsorForm } from "@/app/promoter/e/[slug]/card/AddSponsorForm";
 import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { boutsTopDown, cornersOf } from "@/lib/card";
-import { EMPTY_CARD_EDITOR, boutCountLabel } from "@/lib/copy";
+import { EMPTY_CARD_EDITOR, boutCountLabel, boutsOffLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadCard } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
@@ -36,6 +36,9 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
   // The bouts that can actually be listed and edited, so the count at the top
   // agrees with the rows underneath it.
   const bouts = boutsTopDown(card);
+  // Withdrawn bouts are still listed and still editable — they keep their number
+  // and their sponsor — so they are counted in the total and named separately.
+  const off = boutsOffLabel(bouts.filter((bout) => bout.cancelled).length);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
@@ -54,7 +57,10 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
       <section className="mt-12">
         <div className="border-hairline mb-4 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">Running order</h2>
-          <span className="label">{boutCountLabel(bouts.length)}</span>
+          <span className="label">
+            {boutCountLabel(bouts.length)}
+            {off ? ` · ${off}` : ""}
+          </span>
         </div>
 
         {bouts.length ? (
@@ -97,9 +103,9 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
       <section className="mt-12">
         <h2 className="display text-2xl">Sponsors</h2>
         <p className="text-ash mt-2 max-w-2xl text-xs leading-relaxed">
-          Add them here and they become selectable against any bout above. Emblems are
-          uploaded with the asset pipeline for now; the name is set in the app&rsquo;s own
-          type either way, so it can never come out misspelled.
+          Add them here and they become selectable against any bout above. An emblem can
+          come up with them; the name is set in the app&rsquo;s own type either way, so it
+          can never come out misspelled.
         </p>
         <AddSponsorForm slug={event.slug} />
       </section>
