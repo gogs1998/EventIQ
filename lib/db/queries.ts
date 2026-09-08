@@ -462,10 +462,20 @@ export async function loadInviteByToken(db: Db, token: string, now = Date.now())
  * alternative is a fighter left wondering whether their request went through.
  */
 export async function inviteWasRevoked(db: Db, token: string): Promise<boolean> {
+  // By digest as well as by the plaintext column, the same as the lookup that
+  // opens the form: a row sealed by scripts/migrate-invites.mjs has no plaintext
+  // to match, and matching only that column made this page unreachable for
+  // every fighter whose link had been through the migration (bug 42).
+  const digest = await digestToken(await inviteSecret(), token);
   const [row] = await db
     .select({ id: schema.invites.id })
     .from(schema.invites)
-    .where(and(eq(schema.invites.token, token), isNotNull(schema.invites.revokedAt)))
+    .where(
+      and(
+        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+        isNotNull(schema.invites.revokedAt),
+      ),
+    )
     .limit(1);
   return !!row;
 }

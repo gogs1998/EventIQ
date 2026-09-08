@@ -9,6 +9,7 @@ import {
   loadCard,
   loadCardById,
   loadDashboardRows,
+  inviteWasRevoked,
   loadInviteByToken,
   loadInvites,
   loadPromoterEvents,
@@ -462,6 +463,25 @@ describe("loadInviteByToken", () => {
 
     expect(await loadInviteByToken(db, published.tokens[fighterId])).toBeNull();
     expect(await loadInviteByToken(db, "a-token-nobody-issued")).toBeNull();
+  });
+
+  /**
+   * The one place a revoked link is told apart from a made-up one: the page
+   * that says the fighter's details were removed. It has to find a sealed row
+   * by its digest, because after the migration there is no plaintext to match
+   * and every fighter's link is a sealed one (bug 42).
+   */
+  it("still knows a sealed link was revoked, and not a made-up one", async () => {
+    const { db, published } = await twoPromoters();
+    const fighterId = published.fighterIds[0];
+    await db
+      .update(schema.invites)
+      .set({ revokedAt: Date.now() })
+      .where(eqInvite(published.eventId, fighterId));
+
+    expect(await inviteWasRevoked(db, published.tokens[fighterId])).toBe(true);
+    expect(await inviteWasRevoked(db, published.tokens[published.fighterIds[1]])).toBe(false);
+    expect(await inviteWasRevoked(db, "a-token-nobody-issued")).toBe(false);
   });
 
   it("is live where a row carries no expiry at all, which is what a migration leaves", async () => {

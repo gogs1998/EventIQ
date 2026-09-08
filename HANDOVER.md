@@ -954,6 +954,7 @@ Nine more, out of the work that put the renderer on a schedule, the walkthrough 
 ### From making the numbers trustworthy and the bucket tidy
 
 41. **The counting endpoint counted whatever could POST at it.** No credential is possible there, and the shape checks that were in place answer "is this a plausible interaction", not "is this a person". A link unfurled into a group chat, a model crawler reading a public programme and the end-to-end suite filling in a fighter all wrote rows that a promoter would later hand a sponsor. `countableRequest` in lib/track.ts is the other half of the question, and it deliberately guesses the opposite way from `isLinkPreviewBot` — section 9.
+42. **The page that tells a fighter their details were removed could not be reached by anyone whose link had been sealed.** `inviteWasRevoked` matched the plaintext `token` column only, and after the migration in section 6a every row's plaintext is gone: the lookup that opens the form had been taught to match the digest, and the one that explains a revoked link had not. Found by the database-backed tests rather than by anybody using it, which is the argument for them. **Two lookups for the same credential are one rule in two places**; they now match the same way.
 
 ---
 
