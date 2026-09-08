@@ -194,7 +194,11 @@
           }
         }
       ],
+      // Repeated rather than inherited, because vars are not: without these two
+      // staging's pitch page shows no card and wrangler warns about both.
       "vars": {
+        "SHOWCASE_SLUG": "cage-county-12",
+        "STYLISED_PORTRAITS": "off",
         "EVENTIQ_ENV": "staging"
       }
     }
