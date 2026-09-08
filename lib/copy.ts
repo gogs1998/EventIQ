@@ -249,3 +249,63 @@ export const ACTION_ERRORS = {
   photoNotAPhotograph: "That file is not a JPEG, PNG or WebP photograph.",
   photoTooLarge: "That photo is too large to send. Try one from the camera roll.",
 } as const;
+
+/**
+ * What the dashboard says about each bout's video.
+ *
+ * Rendering happens on a machine somewhere else, on its own schedule, and it
+ * sometimes does not work. All three of those are ordinary and none of them are
+ * the promoter's doing, so none of these lines suggest they are, and none of
+ * them promise when anything will be ready — the machine that makes these is a
+ * laptop or an hourly job, and a promise about it is a promise somebody else has
+ * to keep.
+ *
+ * The one thing every line has to get across is that a video already on the
+ * programme stays on it. A bout being remade, or one whose last attempt stopped
+ * early, is still playing what it was playing, and a promoter who thought
+ * otherwise would pull a card off the wall an hour before doors.
+ */
+export const RENDER_SECTION = {
+  heading: "Videos",
+  body:
+    "One vertical video for each bout, built from the fighters' own photographs. They are " +
+    "made away from the site, on a machine with the video tools on it, so this panel reports " +
+    "what has been made rather than making it. Whatever is on the programme stays there until " +
+    "a new one is finished.",
+} as const;
+
+export const RENDER_STATE_COPY = {
+  current: {
+    label: "Current",
+    note: "Made from this bout as it stands.",
+  },
+  stale: {
+    label: "Worth remaking",
+    note: "Something on this bout has changed since its video was made. The one on the programme still plays.",
+  },
+  queued: {
+    label: "Queued",
+    note: "Waiting its turn.",
+  },
+  running: {
+    label: "Being made",
+    note: "A machine is working through this one now.",
+  },
+  failed: {
+    label: "Did not finish",
+    note: "The last attempt stopped early. Anything already on the programme is still there.",
+  },
+  missing: {
+    label: "Not made yet",
+    note: "No video for this bout so far.",
+  },
+} as const;
+
+/** The button that asks for one. It queues a bout; nothing renders in the browser. */
+export const RENDER_AGAIN = "Render again";
+
+/** Under the section heading: how many of the card's videos are of the card as it is. */
+export function renderCountLabel(current: number, bouts: number): string {
+  if (bouts <= 0) return "No bouts yet";
+  return `${current} of ${bouts} up to date`;
+}

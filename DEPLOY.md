@@ -368,7 +368,9 @@ npx wrangler d1 execute eventiq --remote --command \
 
 Rendering is **not** part of the deploy and cannot be. It needs headless Chrome
 and ffmpeg, neither of which runs on Workers, so it is a job run from a machine
-that has both:
+that has both. Most of the time that machine is now a GitHub runner —
+[.github/workflows/render.yml](.github/workflows/render.yml) — and this section
+is what you need when it is not.
 
 ```bash
 npm run render -- --slug cage-county-12 --list             # what needs doing
@@ -376,9 +378,63 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 ```
 
 `--publish` puts the mp4 in R2 and records the key in `render_jobs`, which is
-where the programme reads it from. `--stale` renders only the bouts whose
-fighters have changed since the last render; a fifteen-bout card is about a
-quarter of an hour of compute.
+where the programme reads it from. `--stale` takes the bouts that are queued,
+out of date, or worth another attempt; a fifteen-bout card is about a quarter of
+an hour of compute, and one bout took **63 seconds end to end** on a warm laptop
+against a local dev server — 52 of them capturing 480 frames, the rest cutouts,
+the claim, the upload and the row.
+
+The mp4 is 1080x1920, 30fps, 16.000 seconds, about 1.8MB, tagged BT.709 for all
+three of primaries, transfer and matrix. Both spellings of those tags are
+passed, because ffmpeg's own `-color_primaries`/`-color_trc` reached the
+bitstream as the matrix and nothing else in the build this was checked against;
+the `-x264-params` are what actually write all three. `ffprobe` says which.
+
+### Two runners cannot render the same bout
+
+Each bout is claimed with one statement that writes a fifteen-minute lease, so
+the hourly workflow and somebody running the script by hand cannot collide, and
+a runner killed by a timeout releases its bouts by lapsing rather than by
+cleaning up. A bout gets two attempts before it stops being picked up on its
+own; the promoter's "Render again" button, or another `enqueueRender`, resets
+that.
+
+Nothing a render does can take a working video off a live card. `current_r2_key`
+is written only by a successful publish, and the programme reads that column and
+never `status`.
+
+### The key changes when the video does
+
+Renders publish to `renders/<slug>/bout-<n>-<hash8>.mp4`, where the hash covers
+everything on screen. `/media` serves a year of immutable caching, so a fixed
+key would have left phones that had already played a bout holding the old video
+indefinitely. The superseded object is deleted after the new one is in.
+
+### Rendering from CI
+
+`.github/workflows/render.yml` runs `--stale --publish --remote` against
+`https://eventiq.win` every hour for every published show dated within the last
+two days or later, and takes a `workflow_dispatch` (a slug, optionally some bout
+numbers) or a `repository_dispatch` of type `render`. It needs three repository
+secrets:
+
+| Secret | Same value as |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | the deploy token, scopes as above |
+| `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
+| `RENDER_KEY` | `wrangler secret put RENDER_KEY` on the Worker |
+
+The workflow finds Chrome on the runner and exports `CHROME_PATH`, and installs
+ffmpeg if the image does not already carry it. Neither is promised by anything
+we control, and a render that gets 480 frames in before finding out is an
+expensive way to be told.
+
+**This is where the render key now lives.** It used to be held by whoever
+rendered, on their own laptop, and open question 5 in the handover was where it
+should live instead. It lives in repository secrets, which means anyone who can
+read those, or push a workflow that echoes them, can read any card on the
+instance including unpublished ones. That is the trade for the videos being made
+without a person; it is worth knowing rather than discovering.
 
 ### Cutouts happen here too
 
@@ -423,11 +479,12 @@ export RENDER_KEY='...'                # the value from `wrangler secret put`
 npm run render -- --slug cage-county-12 --bout 15 --base https://eventiq.win --remote
 ```
 
-The key goes out as an `x-eventiq-render-key` header, set with
-`page.setExtraHTTPHeaders` so every request the capture page makes carries it.
-Against a local `next dev` or `wrangler dev` the script reads it out of
-`.dev.vars` instead, the same file the server reads, so nothing needs exporting
-locally.
+The key goes out as an `x-eventiq-render-key` header on the capture page's own
+request and on nothing else. It used to be set with `page.setExtraHTTPHeaders`,
+which put it on every request the page made — the photographs, the fonts, the
+chunks, and anything hosted somewhere that is not ours. Against a local
+`next dev` or `wrangler dev` the script reads the key out of `.dev.vars`, the
+same file the server reads, so nothing needs exporting locally.
 
 Two failures and what they look like:
 
@@ -712,15 +769,17 @@ What remains on the account:
    rather than a fix. See [video rendering](#video-rendering). Still a job
    run from a machine that has Chrome and ffmpeg; Containers is the likely
    longer answer, not a thing this deploy grows into.
-6. **Decide whether `RENDER_KEY` should live somewhere shared.** Today nobody
-   holds it: it is set on the Worker, cannot be read back, and whoever wants to
-   render mints a fresh one — see
+6. **Set `RENDER_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
+   repository secrets, and keep the render key somewhere a person can read it.**
+   The hourly workflow needs all three, and until they are set it fails every
+   hour. Today nobody holds the render key: it is set on the Worker, cannot be
+   read back, and whoever wants to render mints a fresh one — see
    [the operator mints their own render key](#the-operator-mints-their-own-render-key).
-   That is fine while one person renders on their own machine and is the wrong
-   shape the moment two people or a cron job need to. A password manager entry
-   is the answer, not a file in the repository. It is also one of the things
-   that wants deciding before a second promoter exists — HANDOVER section 19
-   item 11.
+   That was fine while one person rendered on their own machine and is not now
+   that a schedule needs it. A password manager entry as well as the secret, not
+   a file in the repository, and it is worth knowing that anyone who can push a
+   workflow can read a repository secret. It is also one of the things that
+   wants deciding before a second promoter exists — HANDOVER section 19 item 11.
 
 Done since this list was last written: the `eventiq-photos` bucket has been
 deleted (it held one orphaned photograph from an end-to-end run against a

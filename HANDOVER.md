@@ -488,7 +488,7 @@ The nudge message also said "has already sent **his**", on a card with four wome
 
 Headless Chrome and ffmpeg cannot run on Workers. This is not a limitation to work around, it is a fact to design for, and pretending otherwise would produce a feature that fails on the night.
 
-So rendering is an **out-of-band job** run from a machine that has both, and `render_jobs` is the entire interface between it and the app. The app never produces a video; it reads back what the renderer finished.
+So rendering is an **out-of-band job** run from a machine that has both, and `render_jobs` is the entire interface between it and the app. The app never produces a video; it queues one and reads back what a runner finished.
 
 ```bash
 npm run render -- --slug cage-county-12 --list
@@ -498,9 +498,46 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 [scripts/render-tape.mjs](scripts/render-tape.mjs) reads the running order out of D1, captures 480 frames per bout, streams them into ffmpeg, puts the mp4 in R2 and writes the key into `render_jobs`. It talks to D1 and R2 through wrangler rather than through an API of our own, because anyone who can run it already holds the Cloudflare credentials and a write endpoint on the public site would be a way in for no gain.
 
-**It needs `RENDER_KEY` as well as `CLOUDFLARE_API_TOKEN`.** The capture page it screenshots is not public — section 6c, and [DEPLOY.md](DEPLOY.md#video-rendering) for the operational half. Without the key the script says so before it launches Chrome.
+**It needs `RENDER_KEY` as well as `CLOUDFLARE_API_TOKEN`.** The capture page it screenshots is not public — section 6c, and [DEPLOY.md](DEPLOY.md#video-rendering) for the operational half. Without the key the script says so before it launches Chrome, along with ffmpeg being absent and Chrome being somewhere other than where it looked. The key now goes out on the capture page's own request and on nothing else: it used to be set with `setExtraHTTPHeaders`, which put a secret that can read any card on the instance, published or not, onto every photograph, font and chunk the page fetched — including anything hosted somewhere that is not ours.
 
-It fingerprints the inputs to each bout and stores the hash with the job, so `--stale` renders only the bouts whose fighters have changed. Both corners' photographs and cutouts are named in that fingerprint rather than being left to `updated_at`, because a cutout appearing is the most visible change a bout can undergo. A fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
+### The row holds two things, and they have to stay apart
+
+`status`, `error`, `attempts` and `lease_until` are the **job** — what a runner is doing about this bout. `current_r2_key` and `current_hash` are the **video** — what the programme plays. Nothing but a successful publish touches the second pair.
+
+That split closes a real hole. One column used to hold both: `loadRenders` returned a key only where the job said `done`, and the script wrote `running` over the row before it opened Chrome. So a promoter re-rendering a bout on the morning of the show blanked it on the live programme until the render finished, and a render that failed blanked it until somebody noticed. **A running or failed job must never take a working video off a card people are reading at a venue.**
+
+### Fingerprints, and the key the video is published under
+
+Each bout carries a hash of everything that ends up on screen, which is what makes a re-run cheap: a fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
+
+The field list is in [lib/renders.ts](lib/renders.ts), and it is imported by **both** the app and the renderer — Node strips the types on the way into a plain `.mjs` script. That is deliberate. The dashboard's "worth remaking" and the renderer's `--stale` are the same question, and two implementations of it would eventually give two answers. `renderFingerprint` refuses an input object that is missing a field or carrying a spare one, so a column added on one side and forgotten on the other fails on the next render rather than leaving every video reading as current forever.
+
+It names the show's name, date, venue, city and backdrop, the promoter's name and mark, the bout, both fighters by `updated_at` plus photograph and cutout, and every sponsor lockup the composition draws. Two of those are worth saying out loud:
+
+- **The photograph and the cutout are named rather than left to `updated_at`**, because a cutout appearing is the most visible change a bout can undergo and it happens inside the renderer's own run, minutes after the row was last touched.
+- **The show's own sponsor strip is deliberately not in it.** `TaleOfTheTape` never reads `showSponsorIds` — the strip belongs to the programme page — so hashing it would make every bout on the card stale for a change that appears in no video. Before this, none of the show, the promoter's mark or the bout's sponsor was hashed at all, so a venue corrected the day before doors left fifteen videos naming the old one and nothing anywhere reported it.
+
+The published key carries the fingerprint: `renders/<slug>/bout-<n>-<hash8>.mp4`. `/media` answers with a year of immutable caching, so a re-render written over a fixed key left every phone that had already played the bout holding last week's video with no way of finding out — the exact state the staleness machinery exists to get out of. The superseded object is deleted after the new one is in, never before, and never for the five renders committed under `public/`.
+
+### Two runners, one bout
+
+There is an hourly job now as well as whoever runs the script, so a bout is taken with a single `INSERT … ON CONFLICT DO UPDATE … WHERE … RETURNING id` that writes `lease_until = now + 15 minutes`. Whichever statement lands second sees the lease and changes nothing. A runner that dies releases its bouts by running out of time rather than by tidying up after itself, which is the only cleanup a killed CI job can be relied on to do.
+
+`RETURNING` rather than `meta.changes`, because **the local Miniflare D1 reports only a duration where the remote one reports counts** — a claim decided on `changes` is won on production and silently lost on every developer's machine.
+
+Two attempts. The failures worth retrying are the transient ones; a bout that fails twice is failing for a reason a third attempt will not fix, and it then sits on the dashboard with what went wrong rather than being retried every hour forever. Asking for it again resets the count.
+
+`enqueueRender` in [lib/db/render-jobs.ts](lib/db/render-jobs.ts) is the app's way in, and the "Render again" button on the dashboard is its only caller so far. **It is not yet wired into the write paths** — the two actions files it belongs in are being rewritten on another branch — and the four places it should be called from are written down in the function's own comment: publishing a show, a questionnaire submission, a bout edit, and an event or sponsor edit.
+
+### It runs on its own now
+
+[.github/workflows/render.yml](.github/workflows/render.yml) renders on the hour against `https://eventiq.win`, for every published show dated within the last two days or later, and can be pointed at one show by hand or by a `repository_dispatch` of type `render`. It needs `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `RENDER_KEY` as repository secrets, which turns section 19's "decide where `RENDER_KEY` lives" from a question about one person's laptop into a question about who can read repository secrets.
+
+[.github/workflows/golden-frames.yml](.github/workflows/golden-frames.yml) captures six frames of the demo main event against a local dev server and compares them with signatures committed under `scripts/goldens/`. The unit suite structurally cannot catch a picture regression: the composition is a pure function of a frame number and every test of it tests the numbers going in, so a stray transition, a font that stopped loading or a layer that now paints behind another one leaves all of them green and the video wrong.
+
+**That comparison is perceptual rather than exact**, and it is not a compromise made to get it passing. FreeType and DirectWrite hint the same glyph at the same size to different pixels, so byte-identical frames across two operating systems were never on offer; signatures generated on a laptop would fail every CI run and the check would be switched off inside a week. Each frame is reduced to a 32x32 grey thumbnail and compared by mean absolute difference, which is blind to a glyph edge moving by a pixel and not at all blind to a scene that has stopped drawing. Two runs on one machine differ by 0.00 and the threshold is 8 of 255. It will not catch a one-pixel regression. It is a smoke test for the picture and it says so.
+
+**No silent audio track.** Some uploaders are said to reject a video with no audio stream; nobody here has confirmed which, and adding a stream on a rumour is how a file grows a property no one can explain. `-shortest -f lavfi -i anullsrc -c:a aac` is one line in `renderBout` if a real upload ever refuses one, and finding out which platform actually does is worth more than the line.
 
 **Before it renders anything it makes the missing cutouts**, via [scripts/cutouts.mjs](scripts/cutouts.mjs). Background removal happens here and nowhere else in the product; section 4 has the reasoning and the fallback that covers the gap between a photograph arriving and the next render. `--no-cutouts` skips the step, `--refresh-cutouts` remakes them all, and `npm run cutouts` runs the step alone.
 
@@ -526,7 +563,7 @@ It is not a config change. It is a Dockerfile, an image built as part of the dep
 - **The invoking Worker must keep the container alive after it has answered.** The widely reported failure is returning from `fetch` and having Cloudflare terminate the container mid-encode. The Durable Object container API's `monitor()` returns a promise that resolves when the container exits; `ctx.waitUntil(container.monitor())` is what holds the invocation open. For work that will not finish inside a request — a fifteen-bout card will not — the documented pattern is a Queue triggering the container, which reads from R2 and writes back to R2.
 - **This swaps the harness, not the composition.** Section 4 already makes the same point about Remotion. `TaleOfTheTape` stays a pure function of a frame number; Chrome still screenshots `/render/[slug]/[bout]`; ffmpeg still encodes. The thing that moves is where those two binaries run.
 
-Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. Section 19.
+Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. What has changed is only that the machine is a GitHub runner on an hourly schedule rather than somebody's laptop when they remember, which removes the operator from the loop without moving the pipeline anywhere. Section 19.
 
 The five mp4s committed under `public/renders/` predate the bucket. The seed records them as finished jobs pointing at those static paths, so they still play.
 
@@ -824,7 +861,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 14. **An accessibility pass.** Small. The broadcast palette is high-contrast by design, but this is a programme read on phones by a wide public audience and nobody has checked contrast ratios, focus order or screen-reader labelling.
 
-15. **Render on a schedule.** `--stale` makes this a one-line cron on any machine with ffmpeg. Then the video for a bout is never more than a day behind the data. This is the cheap version that still needs the operator's laptop. Item 17 is what removes the laptop; until that exists, this is the thing that stops a photograph sitting unrendered from Thursday to Saturday.
+15. ~~**Render on a schedule.**~~ Done: [.github/workflows/render.yml](.github/workflows/render.yml) runs `--stale --publish --remote` on the hour for every published show that has not already happened, and a bout can be queued from the dashboard. A photograph no longer sits unrendered from Thursday to Saturday. It is still Chrome and ffmpeg on a machine that is not Cloudflare — item 17 is what changes that — but the machine is no longer the operator's laptop. Section 11.
 
 16. **Render the remaining ten bouts** rather than five, so no bout in the demo is a dead end.
 

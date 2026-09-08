@@ -456,15 +456,28 @@ export async function loadRenderJobs(db: Db, eventId: string) {
   return db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId));
 }
 
-/** Bout number to playable URL, for the renders that have actually finished. */
+/**
+ * Bout number to playable URL, for the videos that exist.
+ *
+ * Deliberately says nothing about `status`. A bout being rendered again, or one
+ * whose last attempt did not finish, still has the video it had before, and
+ * taking it off a published programme because a laptop somewhere is busy would
+ * be the worst way to fail. `currentR2Key` is written by a successful publish
+ * and by nothing else, which is what makes that safe.
+ */
 export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
   const rows = await db
-    .select({ boutNumber: schema.renderJobs.boutNumber, r2Key: schema.renderJobs.r2Key })
+    .select({
+      boutNumber: schema.renderJobs.boutNumber,
+      currentR2Key: schema.renderJobs.currentR2Key,
+    })
     .from(schema.renderJobs)
-    .where(and(eq(schema.renderJobs.eventId, eventId), eq(schema.renderJobs.status, "done")));
+    .where(eq(schema.renderJobs.eventId, eventId));
 
   const renders: Renders = {};
-  for (const row of rows) if (row.r2Key) renders[row.boutNumber] = renderUrl(row.r2Key);
+  for (const row of rows) {
+    if (row.currentR2Key) renders[row.boutNumber] = renderUrl(row.currentR2Key);
+  }
   return renders;
 }
 

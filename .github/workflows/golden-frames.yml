@@ -1,0 +1,89 @@
+# Looks at six frames of the demo card's main event and says whether they still
+# look like the ones committed under scripts/goldens.
+#
+# The unit suite cannot do this. TaleOfTheTape is a pure function of a frame
+# number and every test of it is a test of the numbers going in; a stray
+# transition, a font that stopped loading or a layer that now paints behind
+# another one leaves all 243 of them green and the video wrong. The only person
+# who found out was whoever watched it.
+#
+# It needs no secrets. Everything runs against a dev server on a freshly seeded
+# local D1, with the render key written into .dev.vars the same way a developer
+# writes it, so this workflow can be read by anybody and holds nothing.
+name: Golden frames
+
+on:
+  push:
+    paths:
+      - components/sequence/**
+      - lib/anim.ts
+      - lib/portrait.ts
+      - lib/tape.ts
+      - app/render/**
+      - scripts/golden-frames.mjs
+      - scripts/render-tape.mjs
+      - scripts/goldens/**
+      - .github/workflows/golden-frames.yml
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frames:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24 for the type stripping the renderer relies on.
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Find Chrome and ffmpeg
+        run: |
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -z "$chrome" ]; then
+            echo "No Chrome on this runner image." >&2
+            exit 1
+          fi
+          echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"
+          command -v ffmpeg >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          }
+
+      # The example file is the whole of it: these are development values that
+      # exist so the dev server will start, and none of them protects anything.
+      - name: Local secrets and a seeded card
+        run: |
+          cp .dev.vars.example .dev.vars
+          npm run db:reset
+
+      - name: Start the dev server
+        run: |
+          npm run dev -- --port 3105 > dev.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null "http://localhost:3105/" && exit 0
+            sleep 2
+          done
+          echo "The dev server never came up." >&2
+          cat dev.log >&2
+          exit 1
+
+      # Warmed first because the capture page is compiled on its first request
+      # under `next dev`, and a cold compile inside the capture is a wait long
+      # enough to look like a hang.
+      - name: Compare the frames
+        run: |
+          curl -sf -o /dev/null \
+            -H "x-eventiq-render-key: local-development-only-not-a-real-render-key" \
+            "http://localhost:3105/render/cage-county-12/15"
+          npm run golden-frames -- --base http://localhost:3105
+
+      - name: What the server said, if it did not work
+        if: failure()
+        run: tail -n 50 dev.log

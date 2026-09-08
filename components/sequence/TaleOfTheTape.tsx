@@ -439,6 +439,12 @@ function Reveal({
   const metaFade = progress(f, 26, 42);
   const recordFade = progress(f, 34, 48);
   const sweep = progress(f, 26, 62);
+  // The sweep's own brightness, ramped rather than switched. It used to be
+  // `sweep > 0 && sweep < 1 ? 0.5 : 0`, which is a step: the highlight appeared
+  // at half opacity on frame 27 and vanished on frame 62. In the page that is a
+  // flicker; in the mp4 it is one frame of a bright band arriving out of
+  // nowhere, which is exactly the sort of thing a 30fps encode makes worse.
+  const sweepFade = pulse(f, 26, 34, 54, 62) * 0.5;
 
   const record = formatRecord(fighter);
   const wins = fighter.record?.w ?? 0;
@@ -479,7 +485,7 @@ function Reveal({
             inset: 0,
             overflow: "hidden",
             mixBlendMode: "overlay",
-            opacity: sweep > 0 && sweep < 1 ? 0.5 : 0,
+            opacity: sweepFade,
           }}
         >
           <div

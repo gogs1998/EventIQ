@@ -36,6 +36,20 @@
       "when": 1788821794371,
       "tag": "0004_promoter_login_lockout",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788820555368,
+      "tag": "0005_render_jobs_current_render",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788820594099,
+      "tag": "0006_render_jobs_drop_r2_key",
+      "breakpoints": true
     }
   ]
 }

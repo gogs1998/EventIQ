@@ -2,22 +2,26 @@ import { describe, expect, it } from "vitest";
 import {
   ACTION_ERRORS,
   APP_ERROR,
+  boutCountLabel,
+  chaseNote,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
+  fewerLossesEdge,
   NOT_FOUND,
   PAGE_ERROR,
   PROGRAMME_NOT_FOUND,
-  SHOW_NOT_FOUND,
-  boutCountLabel,
-  chaseNote,
-  fewerLossesEdge,
   programmeLinkNote,
+  RENDER_AGAIN,
+  RENDER_SECTION,
+  RENDER_STATE_COPY,
+  SHOW_NOT_FOUND,
   sponsorNote,
   sponsorTapNote,
   tableCardNote,
   tapeForEveryBout,
   winsEdge,
+  renderCountLabel,
 } from "@/lib/copy";
 
 /**
@@ -46,6 +50,13 @@ const EMPTY_STRINGS = [
   EMPTY_DASHBOARD.heading,
   EMPTY_DASHBOARD.body,
   EMPTY_CARD_EDITOR,
+];
+
+const RENDER_STRINGS = [
+  RENDER_SECTION.heading,
+  RENDER_SECTION.body,
+  RENDER_AGAIN,
+  ...Object.values(RENDER_STATE_COPY).flatMap((state) => [state.label, state.note]),
 ];
 
 describe("the zero-bout copy", () => {
@@ -331,5 +342,54 @@ describe("the action refusals", () => {
     expect(ACTION_ERRORS.profileNotSaved).toContain("still on the page");
     expect(ACTION_ERRORS.profileNotSubmitted).toContain("still here");
     expect(ACTION_ERRORS.autosaveOffline).toContain("try again as you type");
+  });
+});
+
+describe("the video panel", () => {
+  it("keeps the established tone", () => {
+    for (const line of RENDER_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  /**
+   * Every state here is either a machine's schedule or a machine's failure, and
+   * a promoter can do nothing about either. The one that would be easiest to get
+   * wrong is the one where a render stopped: "your video failed" is a sentence
+   * about somebody's fault, and it is not theirs.
+   */
+  it("never puts a machine's trouble on the promoter", () => {
+    for (const line of RENDER_STRINGS) {
+      expect(line).not.toMatch(/\byou(r)?\b/i);
+      expect(line).not.toMatch(/error|broken|invalid|wrong/i);
+    }
+  });
+
+  /** Nothing here can promise when a laptop or an hourly job will get to it. */
+  it("does not promise when anything will be ready", () => {
+    for (const line of RENDER_STRINGS) {
+      expect(line).not.toMatch(/\bsoon\b|\bshortly\b|\bjust\b|\bquick(ly)?\b/i);
+    }
+  });
+
+  /**
+   * The thing a promoter most needs to know, and the reason the schema separates
+   * the job from the video: a bout in trouble is still playing what it was
+   * playing.
+   */
+  it("says the programme keeps the video it has", () => {
+    expect(RENDER_STATE_COPY.failed.note).toMatch(/still there/i);
+    expect(RENDER_STATE_COPY.stale.note).toMatch(/still plays/i);
+    expect(RENDER_SECTION.body).toMatch(/stays there/i);
+  });
+
+  it("counts the videos that are of the card as it stands", () => {
+    expect(renderCountLabel(4, 15)).toBe("4 of 15 up to date");
+    expect(renderCountLabel(0, 0)).toBe("No bouts yet");
   });
 });

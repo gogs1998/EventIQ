@@ -27,7 +27,8 @@
     "assets": "node scripts/prepare-assets.mjs",
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
-    "render": "node scripts/render-tape.mjs",
+    "render": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-tape.mjs",
+    "golden-frames": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/golden-frames.mjs",
     "e2e": "node scripts/e2e.mjs",
     "shots": "node scripts/shots.mjs"
   },

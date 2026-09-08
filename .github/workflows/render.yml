@@ -1,0 +1,135 @@
+# Makes the tale-of-the-tape videos, which is the one part of EventIQ that
+# cannot run on Cloudflare: headless Chrome and ffmpeg are both far outside what
+# a Worker can do. Until now the answer was an operator's laptop, so a fighter
+# who sent their photograph on the Thursday had no video unless somebody was
+# around to make one. This is a machine that is always around.
+#
+# It renders against the live site and writes to the live D1 and R2, so it holds
+# real credentials and is deliberately narrow: it renders, and it does nothing
+# else. The renderer takes a lease on each bout, so a scheduled run and somebody
+# running the script on their own machine cannot render the same bout twice, and
+# a run killed by a timeout releases its bouts by lapsing rather than by tidying
+# up.
+name: Render tapes
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: The show, e.g. cage-county-12
+        required: true
+      bouts:
+        description: Bout numbers, comma separated. Leave blank for everything queued or out of date
+        required: false
+  # For the app, or anything else, to ask:
+  #   gh api repos/:owner/:repo/dispatches -f event_type=render \
+  #     -f 'client_payload[slug]=cage-county-12'
+  repository_dispatch:
+    types: [render]
+  schedule:
+    # Every hour, a few minutes past, because every cron on the hour on GitHub
+    # queues behind every other one.
+    - cron: "23 * * * *"
+
+# Never two of these at once. The lease in render_jobs makes that safe rather
+# than merely tidy, but a second runner that can only skip every bout is a
+# quarter of an hour of a runner spent finding that out.
+concurrency:
+  group: render-tapes
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RENDER_KEY: ${{ secrets.RENDER_KEY }}
+      BASE: https://eventiq.win
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24 for the type stripping the renderer relies on: it imports
+          # lib/renders.ts directly so that the app and the renderer cannot
+          # disagree about what a video is made of.
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      # The runner image carries Chrome, and has carried ffmpeg, but neither is
+      # promised by anything we control and a render that gets 480 frames in
+      # before finding out is an expensive way to be told.
+      - name: Find Chrome and ffmpeg
+        run: |
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -z "$chrome" ]; then
+            echo "No Chrome on this runner image." >&2
+            exit 1
+          fi
+          echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"
+          command -v ffmpeg >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          }
+          "$chrome" --version
+          ffmpeg -version | head -n 1
+
+      - name: Check the credentials before spending a runner on them
+        run: |
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RENDER_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "$name is not set. See DEPLOY.md." >&2
+              exit 1
+            fi
+          done
+
+      # One show, named by hand or by a dispatch from the app.
+      - name: Render one show
+        if: github.event_name != 'schedule'
+        env:
+          SLUG: ${{ github.event.inputs.slug || github.event.client_payload.slug }}
+          BOUTS: ${{ github.event.inputs.bouts || github.event.client_payload.bouts }}
+        run: |
+          if [ -z "$SLUG" ]; then
+            echo "Pass a slug." >&2
+            exit 1
+          fi
+          if [ -n "$BOUTS" ]; then
+            # --bout takes one at a time, so that a bout that fails does not
+            # take the rest of the list with it.
+            failed=0
+            for bout in ${BOUTS//,/ }; do
+              npm run render -- --slug "$SLUG" --bout "$bout" --publish --remote --base "$BASE" || failed=1
+            done
+            exit $failed
+          fi
+          npm run render -- --slug "$SLUG" --stale --publish --remote --base "$BASE"
+
+      # Every published show that has not already happened. Which of its bouts
+      # need doing is the renderer's question, not this file's: --stale takes
+      # the ones that are queued, out of date, or worth another attempt, and a
+      # show with none of those costs three D1 queries.
+      - name: Render every show that wants it
+        if: github.event_name == 'schedule'
+        run: |
+          slugs="$(npx wrangler d1 execute eventiq --remote --json --command \
+            "SELECT slug FROM events WHERE published = 1 AND date >= date('now', '-2 days') ORDER BY date" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                for (const row of JSON.parse(s)[0]?.results ?? []) console.log(row.slug);
+              })')"
+          if [ -z "$slugs" ]; then
+            echo "No published show is close enough to want rendering."
+            exit 0
+          fi
+          failed=0
+          for slug in $slugs; do
+            echo "::group::$slug"
+            npm run render -- --slug "$slug" --stale --publish --remote --base "$BASE" || failed=1
+            echo "::endgroup::"
+          done
+          exit $failed
