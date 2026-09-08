@@ -189,7 +189,7 @@ A photo of an actual amateur card (BUDO 79) changed the data model partway throu
 | `fighters` | People | **Not** owned by an event. Section below |
 | `sponsors` | A promoter's book | Resolved for show, bout and fighter placements alike |
 | `event_sponsors`, `fighter_sponsors` | Placements | Ordered, because the order was sold |
-| `invites` | A fighter's way in | Token plus three timestamps |
+| `invites` | A fighter's way in | A digest and a ciphertext of the token, never the token. Section 6a |
 | `render_jobs` | The interface to the renderer | Section 11 |
 | `analytics_events` | One row per interaction | Section 9 |
 | `import_cache` | Fetched record pages | Section 8 |
@@ -242,6 +242,14 @@ Asking for a show that belongs to somebody else returns the same 404 as asking f
 **The fighter** has no account at all. The token in their URL is the credential: 32 bytes from the CSPRNG, never derived from anything about the fighter, because a token built from a name and an event would be guessable by anybody holding the printed card. Every action re-reads the invite from the database rather than trusting a form field, and nothing takes a fighter id from the caller. A fighter holding a link can edit exactly one profile: theirs.
 
 This is a real trade-off and it should be stated plainly: anyone who gets hold of the link can edit that fighter's entry. It is the price of a form that gets filled in by people who will not create an account for a programme entry, and `New link` on the dashboard invalidates the old one.
+
+**The token is not stored, and it cannot be hashed either.** A copy of the database used to be a copy of every fighter's way in — a backup, an export, a `wrangler d1 execute` in the wrong terminal. The usual answer is a hash, and it is not available here: the dashboard has to be able to show a promoter the link on demand, which is the entire chase workflow. So the row keeps two derivations instead, both from `INVITE_KEY` and both in [lib/invite-token.ts](lib/invite-token.ts): an **HMAC digest**, unique and indexed, which is what every lookup matches on, and an **AES-GCM ciphertext**, which only the dashboard reads and only to put the link back on screen. The two keys come out of one secret through HKDF under different `info` strings, so neither is the secret and the lookup key cannot decrypt anything. Development falls back to `SESSION_SECRET`; production without `INVITE_KEY` refuses to serve an invite, because a default would be a deployment sealing every link under a value that is in this repository.
+
+Rotating that secret is the one irreversible thing in the deployment. It stops every link already sent out *and* leaves the dashboard unable to say what the old ones were. [DEPLOY.md](DEPLOY.md#4-set-the-secrets) says so beside the command.
+
+**Links lapse and can be pulled.** `expires_at` is ninety days, pushed back to ninety on every open, so a fighter halfway through the form is never shut out by the clock while an abandoned link still dies on its own. `revoked_at` is the promoter's "Revoke link", which answers a different question from "New link": one stops a link that has gone somewhere it should not have, the other replaces a link that went to the wrong number. An expired or revoked link answers exactly the same 404 as one nobody ever issued, because "that link has been cancelled" tells a stranger they have found a real fighter. The same rule gates `/media`, or a revoked token would go on opening the photographs it can no longer open the form for.
+
+**Sending is a deep link, not a send.** There is no SMS or email provider and adding one would be the wrong trade: a fighter answers a message from the promoter they know and ignores one from a service they have never heard of. So the dashboard hands the promoter's own WhatsApp or messages app the finished nudge with the link in it, and records which one was used — `sent_at` and `sent_channel`. That recording is the only reason the chase list can tell "never went out" from "went out and was ignored", and it is written from the control the promoter pressed rather than inferred, for the same reason as bug 9. A link that was only copied says when and stops there, because where it went afterwards is not something we can see.
 
 ---
 
@@ -465,7 +473,7 @@ None of that changes what is stored. There is still no address, no cookie and no
 
 `/promoter/e/[slug]` is the other half of the same rows: the things a promoter knows that a spectator does not. Everything is derived in [lib/promoter.ts](lib/promoter.ts) from the same `Card` the programme reads, so the dashboard and the card cannot disagree.
 
-- **The chase list.** Ordered by position on the card rather than by how empty a profile is, because a hole in the main event costs more than a hole in bout two, and that is the order a promoter already thinks in. Each row carries the fighter's real invite link, a copy button, a `New link` button that invalidates the old one, and a copy button that puts a WhatsApp-ready message on the clipboard.
+- **The chase list.** Ordered by position on the card rather than by how empty a profile is, because a hole in the main event costs more than a hole in bout two, and that is the order a promoter already thinks in. Each row carries the fighter's real invite link, decrypted for the occasion, and the four things a promoter does with it: send it (a WhatsApp or an SMS deep link with the nudge already written, which records `sent_at` and `sent_channel` on the way past), copy it, replace it with `New link`, or stop it with `Revoke link`. The state beside it reads not sent, sent — with when and how — opened, or done.
 - **Bout readiness.** Ready, one side missing, or nothing in. "One side missing" is called out hardest, because a bout with one finished fighter and one blank looks worse on the night than two blanks, which at least looks consistent.
 - **Sponsor inventory.** How many of the fifteen bout slots are sold.
 - **The counts**, section 9.
@@ -734,6 +742,7 @@ npm run db:migrate           # apply them locally
 npm run db:migrate:remote    # apply them to the live database without a deploy
 npm run db:seed              # the demo card, with fresh invite tokens
 npm run db:reset             # both
+npm run db:migrate-invites   # seal any token still stored in the clear (see DEPLOY.md)
 npm run db:studio -- "select count(*) from fighters"
 
 # The live database. A rewrite rather than an insert, so it wants the flag spelled
