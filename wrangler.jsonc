@@ -31,7 +31,9 @@
     // Whether the opt-in stylised portrait is offered. Off unless this says on:
     // it sends a real fighter's photograph to a model, which is a decision
     // somebody makes rather than a default.
-    "STYLISED_PORTRAITS": "off"
+    "STYLISED_PORTRAITS": "off",
+    // Which Worker this is, for /api/health and the deploy script to say so.
+    "EVENTIQ_ENV": "production"
   },
   "d1_databases": [
     {
@@ -127,9 +129,6 @@
   // removes it and fills a fighter's profile in — so "which environment am I
   // pointed at" is a question that has to be answerable before it starts rather
   // than afterwards. See .github/workflows/e2e-staging.yml.
-  "vars": {
-    "EVENTIQ_ENV": "production"
-  },
   // A second Worker, with its own database and its own bucket, for the suite
   // that writes and for anything else worth trying before eventiq.win sees it.
   //
