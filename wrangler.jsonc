@@ -27,7 +27,11 @@
   // Unset, or naming a show that is not published, means no showcase: the pitch
   // page makes its argument without a live card. See lib/db/queries.ts.
   "vars": {
-    "SHOWCASE_SLUG": "cage-county-12"
+    "SHOWCASE_SLUG": "cage-county-12",
+    // Whether the opt-in stylised portrait is offered. Off unless this says on:
+    // it sends a real fighter's photograph to a model, which is a decision
+    // somebody makes rather than a default.
+    "STYLISED_PORTRAITS": "off"
   },
   "d1_databases": [
     {
@@ -49,17 +53,17 @@
     }
   ],
   // Workers AI, reached only by the opt-in stylised portrait, through
-  // @cf/runwayml/stable-diffusion-v1-5-img2img. The binding costs nothing until
-  // something calls it, and STYLISED_PORTRAITS below is what decides whether
-  // anything ever does: sending a real fighter's photograph to a model is a
-  // decision somebody makes rather than a default. `next dev` has no AI binding
-  // at all, and the action answers "not available here" instead of failing.
-  "ai": {
-    "binding": "AI"
-  },
-  "vars": {
-    "STYLISED_PORTRAITS": "off"
-  },
+  // @cf/runwayml/stable-diffusion-v1-5-img2img. Not declared here, on purpose:
+  // with an `ai` binding in the config, the dev server's Miniflare re-created
+  // its bindings part way through a session and every D1 and R2 call after
+  // that answered "poisoned stub" until a restart — a whole browser walkthrough
+  // died of it. The action reads env.AI and answers "not available here" when
+  // it is absent, so nothing else notices. To offer stylised portraits on a
+  // deployment, add the binding below alongside STYLISED_PORTRAITS=on, and keep
+  // the dev server on a config without it.
+  //
+  //   "ai": { "binding": "AI" },
+  //
   "ratelimits": [
     {
       // Bounds /api/import-record, which takes no token by design. Counted at

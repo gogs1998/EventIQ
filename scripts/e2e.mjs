@@ -36,6 +36,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 await mkdir(OUT, { recursive: true });
 
 const browser = await puppeteer.launch({
+  // A full-page screenshot of the dashboard on a slow machine can outlast the
+  // default; the suite is for finding bugs in the product, not in the laptop.
+  protocolTimeout: 300000,
   executablePath: CHROME,
   args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
 });
@@ -323,6 +326,12 @@ await step("the form asks before it asks for anything else", async () => {
   // seed, so say which of the two this run was rather than failing the second.
   if (await present(fighter, NICKNAME)) {
     if (!body.includes("you agreed to this")) throw new Error("open with no consent on it");
+    // On a fresh invite the tick and its pause give React time to take the
+    // form over. Here there is no tick, so without a pause the typing in the
+    // next step lands on inputs the server drew and React has not yet claimed,
+    // and nothing is saved because nothing was heard.
+    await fighter.waitForNetworkIdle({ timeout: 60000 }).catch(() => {});
+    await sleep(3000);
     return "already agreed on this invite";
   }
 
@@ -347,7 +356,15 @@ await step("typing saves without a save button", async () => {
   await fill(fighter, NICKNAME, "The Verifier");
   await fill(fighter, 'input[placeholder="@owenpryce"]', "theverifier");
   await fill(fighter, 'input[placeholder="Wrexham"]', "Runcorn");
-  await fill(fighter, "textarea", "Two years in the gym and the whole street has bought tickets.");
+  // Stamped, because on a second run against the same database the other three
+  // boxes already hold exactly these values, and a value set to what it already
+  // is does not reach React as a change — so nothing would be saved and the
+  // step would report the form broken when it was the test that was.
+  await fill(
+    fighter,
+    "textarea",
+    `Two years in the gym and the whole street has bought tickets. (run ${Date.now()})`,
+  );
   await sleep(5000);
   if (!(await textOf(fighter)).includes("saved")) throw new Error("never reported a save");
 });
@@ -384,6 +401,9 @@ await step("a photograph goes to the bucket and back", async () => {
 });
 
 await step("submitting puts them on the card", async () => {
+  // A fighter who submitted on a previous run has no button to press: the form
+  // says they are on the card already, which is the state this step wants.
+  if (/you.re on the card/.test(await textOf(fighter))) return "already on the card";
   await clickText(fighter, "Put me on the card");
   await sleep(4000);
   if (!/you.re on the card/.test(await textOf(fighter))) throw new Error("no confirmation");
