@@ -24,6 +24,13 @@ secret in place before anything is uploaded.
 > `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
 > — the runtime enforces a limit that no local test can observe.
 >
+> **There is a second environment now.** `eventiq-staging`, with its own
+> database, bucket and secrets, is where the browser suite writes and where a
+> change goes before eventiq.win sees it. Everything below takes `--env staging`;
+> without the flag every command means production, exactly as it always has.
+> [Standing it up](#standing-it-up) is six commands and needs no permission the
+> deploy does not already have.
+>
 > **There are now two secrets, not one.** `RENDER_KEY` joined
 > `SESSION_SECRET` when the capture page the video renderer screenshots stopped
 > being reachable by anybody who could guess a slug. A fresh deployment without
@@ -112,6 +119,12 @@ a default.
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
 openssl rand -base64 36 | npx wrangler secret put RENDER_KEY
 ```
+
+**Secrets belong to one environment.** The commands above set them on the
+production Worker and on nothing else; staging is a different Worker with a
+different secret store, and its lines are in
+[Staging](#staging). Setting one and expecting the other to have it is how a
+freshly deployed staging Worker refuses every sign-in.
 
 **`SESSION_SECRET`** signs the promoter's login cookie. A Worker without it
 refuses to serve the promoter area rather than accepting sessions signed with
@@ -261,11 +274,33 @@ npm run deploy -- --check            # permissions only, changes nothing
 npm run deploy -- --dry-run          # that, plus the pending migrations and the plan
 npm run deploy -- --skip-build       # redeploy the existing .open-next/
 npm run deploy -- --attach-domain    # also point eventiq.win at the Worker
+npm run deploy -- --env staging      # all of the above, against staging
 ```
 
 `--dry-run` is all reads: it probes the token, lists what the remote database is
 waiting for, and prints the steps a real run would take. Worth a few seconds
 before a deploy you have not done in a while.
+
+**It refuses to deploy production from a side branch.** Everything here is built
+on branches that are merged into `cursor/eventiq-digital-fight-programme`, often
+several at once in separate worktrees, and a deploy is a thing somebody types
+after doing something else. The script reads the branch and stops unless it is
+that one:
+
+```
+This is branch "wave2/staging", not "cursor/eventiq-digital-fight-programme".
+```
+
+`--force` overrides it and `--env staging` sidesteps it, which is the point:
+staging deploys from anywhere. `DEPLOY_BRANCH=...` changes which branch counts,
+for whoever renames it. `--check` and `--dry-run` change nothing and are allowed
+from anywhere.
+
+Wrangler now prints a warning on a production deploy saying no target
+environment was specified. That is expected: production **is** the top level of
+`wrangler.jsonc` and staging is the only named environment, so there is nothing
+to pass. The script prints which Worker, database and bucket it is about to
+touch as its first line, which is the reassurance the warning is asking for.
 
 ## 7. Attach eventiq.win
 
@@ -307,21 +342,26 @@ a real database behind them:
    That route reads a card whether or not it is published, so it is the one
    worth checking by hand after any deploy.
 
-The same walk is automated:
+The same walk is automated — **against staging, not against this**:
 
 ```bash
-npm run e2e -- --base https://eventiq.win --password '...'
+npm run e2e -- --base https://staging.eventiq.win --password '...'
 ```
 
-Be careful with that against a live show: it adds a bout, removes it again, and
-writes to a fighter's profile.
+The suite adds a bout, removes it again, fills in a fighter's profile and
+uploads a photograph. That used to be run against production because production
+was the only environment there was, and the ritual afterwards was a re-seed and
+a delete from the bucket, remembered by whoever ran it. [Staging](#staging)
+exists so that ritual is not needed: it is the same card in a database nobody is
+selling from. `.github/workflows/e2e-staging.yml` runs it there from a button
+and puts the demo card back afterwards.
 
-**Re-seed afterwards, and clear what it left in R2.** The suite finishes with
-Chloe Baines submitted and photographed, and the demo card is only persuasive
-while it is uneven — she is meant to be the fighter who opened the link, had a
-look and did nothing, because that is the one the chase list exists to catch.
-`npm run db:seed:remote` puts the rows back but does not touch the bucket, so
-the uploaded photograph has to go separately:
+If it does get run against production, the ritual still applies and is still the
+same. The suite finishes with Chloe Baines submitted and photographed, and the
+demo card is only persuasive while it is uneven — she is meant to be the fighter
+who opened the link, had a look and did nothing, because that is the one the
+chase list exists to catch. `npm run db:seed:remote` puts the rows back but does
+not touch the bucket, so the uploaded photograph has to go separately:
 
 ```bash
 SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
@@ -361,6 +401,173 @@ npx wrangler d1 execute eventiq --remote --command \
           (SELECT count(*) FROM fighters WHERE id NOT IN
              (SELECT red_id FROM bouts UNION SELECT blue_id FROM bouts)) orphans;"
 ```
+
+---
+
+## Staging
+
+A second Worker — `eventiq-staging` — with its own D1 database
+(`eventiq-staging`), its own R2 bucket (`eventiq-media-staging`) and its own
+secrets. Nothing it does can be seen from `eventiq.win`.
+
+It exists because the end-to-end suite **writes as it goes**, and until now the
+only place to write was the card the whole pitch is built on. That made a
+twenty-five-step check of the product into a thing you had to tidy up after, at
+which point it stops being run. It is also where a migration, a deploy or an
+idea gets tried before a promoter's show is behind it.
+
+The names live in [scripts/environments.mjs](scripts/environments.mjs) and every
+script that touches Cloudflare takes the same flag:
+
+```bash
+node scripts/deploy.mjs --env staging --provision   # create the database and bucket
+node scripts/deploy.mjs --env staging               # build, migrate, deploy
+npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
+npm run db:backup -- --env staging
+npm run render -- --slug cage-county-12 --stale --publish --remote --env staging --base <url>
+```
+
+Without `--env` they all mean production, because that is what they have always
+meant and a flag you have to remember in order to reach production is a flag
+somebody will forget in the other direction.
+
+### Standing it up
+
+The same Cloudflare token as production — it is account-scoped, and staging is
+in the same account.
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ACCOUNT_ID=...
+
+# 1. Database and bucket, migrations applied, and the database id written into
+#    wrangler.jsonc. Commit that change: a deploy from a clean checkout binds
+#    nothing without it.
+node scripts/deploy.mjs --env staging --provision
+
+# 2. Its own secrets. These are per Worker — production's are not visible here
+#    and setting one here sets nothing there.
+openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET --env staging
+openssl rand -base64 36 | tee /dev/tty | npx wrangler secret put RENDER_KEY --env staging
+npx wrangler secret list --env staging
+
+# 3. Deploy it. This prints an eventiq-staging.<subdomain>.workers.dev URL,
+#    which is a working address and is enough for everything below.
+node scripts/deploy.mjs --env staging
+
+# 4. The demo card, with a password that is not the development default.
+SEED_PROMOTER_PASSWORD='...' NEXT_PUBLIC_SITE_URL='<the URL from step 3>' \
+  npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
+```
+
+`tee /dev/tty` on the render key for the same reason as
+[production's](#the-operator-mints-their-own-render-key): `wrangler secret put`
+reads stdin and prints nothing back, and the renderer needs the same value.
+
+**`NEXT_PUBLIC_SITE_URL` is a build-time value.** It defaults to
+`https://staging.eventiq.win`, which is only right once the domain below is
+attached. Until then, pass the workers.dev URL when you deploy, or the WhatsApp
+chase messages and the Open Graph tags on staging will name a hostname that does
+not resolve:
+
+```bash
+NEXT_PUBLIC_SITE_URL='https://eventiq-staging.<subdomain>.workers.dev' \
+  node scripts/deploy.mjs --env staging
+```
+
+### staging.eventiq.win — optional
+
+Not needed for anything. It buys a memorable address and costs a zone
+permission the rest of staging does not need.
+
+```bash
+node scripts/deploy.mjs --env staging --attach-domain
+```
+
+That looks the hostname up in the **`eventiq.win` zone**, so the token needs
+Zone · Workers Routes · Edit and Zone · DNS · Edit on that zone, exactly as
+production's custom domain did. Cloudflare writes the record and issues the
+certificate. Redeploy afterwards with
+`NEXT_PUBLIC_SITE_URL=https://staging.eventiq.win`, or leave the workers.dev URL
+in place and skip this entirely.
+
+**Put a `noindex` in front of it if it is ever given a public hostname.** There
+is no robots rule for a second copy of the site today, and two addresses serving
+the same programme is a thing search engines resolve by picking one.
+
+### Which Worker am I talking to
+
+`/api/health` says, and it is the only place that does:
+
+```bash
+curl -s https://eventiq.win/api/health          # {"ok":true,"env":"production",...}
+curl -s <staging url>/api/health                # {"ok":true,"env":"staging",...}
+```
+
+It reads the `EVENTIQ_ENV` var out of `wrangler.jsonc`, so it is a fact about the
+Worker rather than about the hostname in front of it. That is what the
+end-to-end workflow checks before it opens a browser: a staging hostname pointed
+at the production Worker would pass every check made on the URL alone.
+
+### The browser walk, from a button
+
+`.github/workflows/e2e-staging.yml` is `workflow_dispatch` only and runs
+`scripts/e2e.mjs` against staging. **It must never be pointed at production, and
+there is no input that lets it be** — the address comes from a repository secret,
+the job refuses anything under `eventiq.win`, and it asks `/api/health` which
+environment answered. It re-seeds staging when it finishes, because the suite
+leaves a fighter submitted and photographed.
+
+Two repository secrets on top of the ones the render workflow already needs:
+
+| Secret | Value |
+| --- | --- |
+| `STAGING_URL` | the staging Worker's address, no trailing slash |
+| `STAGING_PROMOTER_PASSWORD` | the `SEED_PROMOTER_PASSWORD` staging was seeded with |
+| `STAGING_RENDER_KEY` | only if you want [Render tapes](#rendering-from-ci) to run against staging |
+
+Anyone who can push a workflow can read a repository secret, which is why none
+of these is the production password.
+
+### Caching the programme
+
+`/e/[slug]` and its fighter pages go out with
+`Cache-Control: public, s-maxage=60, stale-while-revalidate=300` — but only for a
+reader with no session cookie. This is worth writing down because **where that
+header is set is not where you would expect, and two of the three obvious places
+do not work**:
+
+- **On the page.** A server component cannot set a response header at all. There
+  is no API for it.
+- **In `proxy.ts`.** A header written onto `NextResponse.next()` is dropped by
+  the time the response leaves the Worker. That was where this was written
+  first; it was measured against `wrangler dev` with a probe header beside the
+  cache one and neither arrived.
+- **In `next.config.ts` `headers()`.** This works, and it overrides the
+  `private, no-cache, no-store` that Next.js gives a dynamic page. That is the
+  opposite of what the Next.js documentation promises, which says
+  `Cache-Control` in the config is overwritten for pages — true on Vercel, and
+  not true here, because the OpenNext adapter merges the config's headers over
+  the handler's rather than under them. Verified with
+  `wrangler dev` against a real build.
+
+The "not signed in" half is a `missing: [{ type: "cookie", key: … }]` matcher on
+the rule, and it is what keeps a promoter's preview of an unpublished show
+private. It leans on a rule that already exists: `loadVisibleCard` gives a draft
+to nobody but the promoter who owns it, so a request with no session cookie is
+either a published card or a 404 — and OpenNext puts `no-store` back on any 404
+regardless. `/promoter`, `/f`, `/render`, `/api` and the QR card match no rule
+and are unchanged.
+
+The trade, stated: for up to a minute after a show is unpublished, a shared cache
+may still hand out the copy it had.
+
+**Cloudflare does not cache a Worker's own response by default**, so today this
+header is read by browsers and by anything else in front of the site. Making the
+edge hold it as well is a Cache Rule in the dashboard — Caching → Cache Rules,
+`http.request.uri.path matches "^/e/"`, Eligible for cache, respect origin
+headers — and it is one of the things worth doing before a hall full of people
+opens the same card at once.
 
 ---
 
@@ -423,6 +630,15 @@ secrets:
 | `CLOUDFLARE_API_TOKEN` | the deploy token, scopes as above |
 | `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
 | `RENDER_KEY` | `wrangler secret put RENDER_KEY` on the Worker |
+
+It also takes an `environment` input — `production` or `staging`. The hourly run
+is always production, which is what a schedule is for; staging is something a
+person picks from the dispatch form while trying something out, and it needs
+`STAGING_URL` and `STAGING_RENDER_KEY` as well, because the render key belongs
+to one Worker and production's opens nothing on the other. The site it captures
+from and the database and bucket it writes to are chosen together from that one
+input: a renderer reading one environment's capture page and writing the other's
+rows would publish a key that site cannot serve.
 
 The workflow finds Chrome on the runner and exports `CHROME_PATH`, and installs
 ffmpeg if the image does not already carry it. Neither is promised by anything
@@ -512,7 +728,14 @@ difference matters.
 npm run db:backup                       # export, then put it in R2 as backups/<date>.sql
 npm run db:backup -- --out backups      # and keep a copy on this machine
 npm run db:backup -- --dry-run          # export and check it, upload nothing
+npm run db:backup -- --env staging      # the staging database, into staging's bucket
 ```
+
+`--env staging` takes the same flag as everything else and puts the file in
+`eventiq-media-staging`, not beside production's. Nothing schedules that one and
+nothing should: staging holds the demo card and is re-seeded on purpose. It is
+there so a restore can be rehearsed somewhere that does not matter —
+`npm run db:restore-rehearsal -- --env staging --date <date>`.
 
 [scripts/backup.mjs](scripts/backup.mjs) runs `wrangler d1 export eventiq
 --remote`, checks the file is not empty and does look like a schema — an empty
@@ -769,7 +992,12 @@ What remains on the account:
    rather than a fix. See [video rendering](#video-rendering). Still a job
    run from a machine that has Chrome and ffmpeg; Containers is the likely
    longer answer, not a thing this deploy grows into.
-6. **Set `RENDER_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
+6. **Stand staging up.** Nothing in this repository can do it — it wants the
+   Cloudflare token — and until it exists the browser suite has nowhere to run
+   but production. [Standing it up](#standing-it-up) is six commands, plus
+   `STAGING_URL` and `STAGING_PROMOTER_PASSWORD` as repository secrets so the
+   workflow can use it.
+7. **Set `RENDER_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
    repository secrets, and keep the render key somewhere a person can read it.**
    The hourly workflow needs all three, and until they are set it fails every
    hour. Today nobody holds the render key: it is set on the Worker, cannot be
