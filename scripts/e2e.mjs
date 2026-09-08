@@ -2,7 +2,8 @@
  * Walks the whole product against a running server and a real database.
  *
  *   npm run e2e                              # against http://localhost:3000
- *   npm run e2e -- --base http://localhost:8788 --shots /tmp/e2e
+ *   npm run e2e -- --base http://localhost:8788 --shots .stills/e2e
+ *   npm run e2e -- --headed                  # watch it happen
  *
  * The unit tests cover the derivation layer, which is pure and easy to test.
  * This covers the part that is not: sessions, server actions, D1 writes, R2
@@ -13,25 +14,45 @@
  * It writes to whatever database the server is pointed at, so run it against
  * local bindings. It expects the demo card seeded (`npm run db:reset`) and picks
  * up the promoter password from .dev.vars, the same file the server reads.
+ *
+ * **Nothing in here waits on a stopwatch.** Every step used to end in a sleep
+ * long enough to cover the slowest machine anybody had run it on, which is two
+ * failures in one: the run took minutes it did not need, and a machine slower
+ * than that one reported the product broken. Each wait is now the condition the
+ * step is actually waiting for — the sentence appearing, the count moving, the
+ * photograph coming back out of the bucket, React taking a field over. The one
+ * exception is the sign-in redirect, which is a wait on a second navigation and
+ * stays one: a promoter with a single show is sent on from /promoter to it, and
+ * reading the address mid-hop left every later step with no slug (bug 34).
+ *
+ * **It is meant to be run twice without a re-seed.** A run leaves a fighter
+ * consented, submitted and photographed, so every step that would otherwise only
+ * pass against a fresh seed says which of the two states it found rather than
+ * failing on the second run: consent already given, a profile already on the
+ * card, a photograph that has to *change* rather than merely be there.
  */
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { chromeOrThrow } from "./chrome.mjs";
 import { devVars } from "./dev-vars.mjs";
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
 };
+const flag = (name) => process.argv.includes(`--${name}`);
 
 const BASE = arg("base", "http://localhost:3000");
-const OUT = arg("shots", "/tmp/e2e");
+// Not /tmp: two of the three platforms these scripts run on have not got one,
+// and the screenshots are the first thing anybody opens when a step fails.
+const OUT = arg("shots", path.join(tmpdir(), "eventiq-e2e"));
 const PROMOTER = arg("promoter", "cage-county");
 const PASSWORD =
   arg("password") ?? devVars().SEED_PROMOTER_PASSWORD ?? process.env.SEED_PROMOTER_PASSWORD ?? "cagecounty";
-const CHROME = process.env.CHROME_PATH ?? "/usr/local/bin/google-chrome";
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await mkdir(OUT, { recursive: true });
 
@@ -39,7 +60,10 @@ const browser = await puppeteer.launch({
   // A full-page screenshot of the dashboard on a slow machine can outlast the
   // default; the suite is for finding bugs in the product, not in the laptop.
   protocolTimeout: 300000,
-  executablePath: CHROME,
+  executablePath: chromeOrThrow("No Chrome found, and the whole of this is a browser."),
+  // --headed is for the step that fails in a way the screenshot does not
+  // explain. It wants a display, so it stays something you ask for.
+  headless: !flag("headed"),
   args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
 });
 
@@ -101,6 +125,65 @@ const clickText = (page, text) =>
   }, text);
 
 /**
+ * The control is there *and* React has taken it over.
+ *
+ * Every page here is server-rendered first, so a field or a button sits in the
+ * document for a while before anything is listening to it: typing into one saves
+ * nothing and clicking one does nothing at all, and both read as a broken
+ * product. React writes its own props onto each element as it hydrates, and that
+ * is the condition all the pre-click sleeps in here were standing in for.
+ */
+const ready = (page, selector, timeout = 60000) =>
+  page.waitForFunction(
+    (s) => {
+      const el = document.querySelector(s);
+      return !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$"));
+    },
+    { timeout },
+    selector,
+  );
+
+/** The same, for a button found by what it says. */
+const readyText = (page, text, timeout = 60000) =>
+  page.waitForFunction(
+    (t) => {
+      const el = [...document.querySelectorAll("button")].find((b) =>
+        b.textContent.toLowerCase().includes(t),
+      );
+      return !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$"));
+    },
+    { timeout },
+    text.toLowerCase(),
+  );
+
+/** Press a button once it can actually be pressed. */
+const press = async (page, text) => {
+  await readyText(page, text);
+  await clickText(page, text);
+};
+
+/** Waits on the page saying something rather than on a stopwatch. */
+const says = (page, want, timeout = 30000) =>
+  page.waitForFunction(
+    (t) => document.body.innerText.toLowerCase().includes(t),
+    { timeout },
+    want.toLowerCase(),
+  );
+
+const stopsSaying = (page, text, timeout = 60000) =>
+  page.waitForFunction(
+    (t) => !document.body.innerText.toLowerCase().includes(t),
+    { timeout },
+    text.toLowerCase(),
+  );
+
+/** A wait that fails in the step's own words rather than in puppeteer's. */
+const orElse = (waiting, message) =>
+  waiting.catch(() => {
+    throw new Error(message);
+  });
+
+/**
  * Rendered text, lowercased. The design sets most labels in CSS uppercase, so
  * innerText shouts and the source does not; comparing either way round without
  * this is how a passing assertion turns into a false failure.
@@ -120,25 +203,26 @@ await step("promoter area is not public", async () => {
 });
 
 await step("a wrong password is refused", async () => {
-  await sleep(800);
+  await ready(page, 'input[name="slug"]');
   await fill(page, 'input[name="slug"]', PROMOTER);
   await fill(page, 'input[name="password"]', "definitely-not-the-password");
-  await clickText(page, "Sign in");
-  await sleep(3000);
-  if (!(await textOf(page)).includes("not recognised")) throw new Error("no error shown");
+  await press(page, "Sign in");
+  await orElse(says(page, "not recognised"), "no error shown");
   if (!page.url().includes("/login")) throw new Error("signed in with a wrong password");
 });
 
 await step("the right password signs in", async () => {
   await page.goto(`${BASE}/promoter/login`, { waitUntil: "networkidle0" });
-  await sleep(600);
+  await ready(page, 'input[name="slug"]');
   await fill(page, 'input[name="slug"]', PROMOTER);
   await fill(page, 'input[name="password"]', PASSWORD);
   await Promise.all([
     page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 }).catch(() => {}),
-    clickText(page, "Sign in"),
+    press(page, "Sign in"),
   ]);
-  await sleep(2500);
+  await page
+    .waitForFunction(() => !location.pathname.includes("/login"), { timeout: 30000 })
+    .catch(() => {});
   if (page.url().includes("/login")) throw new Error(`still on login`);
   // A promoter with one show is sent on from /promoter to it, and the show page
   // is the slowest on the site to build. Reading the address during that second
@@ -168,23 +252,30 @@ await step("a show with no history says so instead of inventing", async () => {
 
 /** Whoever is top of the chase list, with the score the dashboard shows for them. */
 const target = await step("the chase list carries a working invite link", async () => {
-  const row = await page.evaluate(async () => {
+  await readyText(page, "copy link");
+  // The row's own text is read in the same pass as the press, because pressing
+  // the control renames it to "Copied" for a second and a search for it
+  // afterwards finds nothing.
+  const row = await page.evaluate(() => {
     const button = [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim().toLowerCase() === "copy link",
     );
     if (!button) return null;
-    let link = null;
+    window.__copied = null;
     navigator.clipboard.writeText = async (v) => {
-      link = v;
+      window.__copied = v;
     };
     button.click();
-    await new Promise((r) => setTimeout(r, 400));
-    const text = button.closest("li, div[class*='border']")?.innerText ?? "";
-    return { link, score: Number(text.match(/(\d+)%/)?.[1] ?? -1), text };
+    return { text: button.closest("li, div[class*='border']")?.innerText ?? "" };
   });
-  if (!row?.link) throw new Error("nothing copied");
-  if (!/\/f\/[\w-]{20,}$/.test(row.link)) throw new Error(`not a token link: ${row.link}`);
-  return { invite: row.link.replace(BASE, ""), score: row.score };
+  if (!row) throw new Error("nothing copied");
+  await orElse(
+    page.waitForFunction(() => window.__copied !== null, { timeout: 15000 }),
+    "nothing copied",
+  );
+  const link = await page.evaluate(() => window.__copied);
+  if (!/\/f\/[\w-]{20,}$/.test(link)) throw new Error(`not a token link: ${link}`);
+  return { invite: link.replace(BASE, ""), score: Number(row.text.match(/(\d+)%/)?.[1] ?? -1) };
 });
 const invite = target?.invite;
 
@@ -263,12 +354,20 @@ const boutCount = async (p) => Number((await textOf(p)).match(/(\d+) bouts/)?.[1
 
 await step("adding a bout writes both fighters", async () => {
   const before = await boutCount(page);
+  await ready(page, 'input[name="redName"]');
   await fill(page, 'input[name="redName"]', "Test Redcorner");
   await fill(page, 'input[name="redGym"]', "Testing Gym");
   await fill(page, 'input[name="blueName"]', "Test Bluecorner");
   await fill(page, 'input[name="blueGym"]', "Other Gym");
-  await clickText(page, "Add the bout");
-  await sleep(4000);
+  await press(page, "Add the bout");
+  // The heading states the count, so the count moving is the write landing.
+  await page
+    .waitForFunction(
+      (want) => Number(document.body.innerText.toLowerCase().match(/(\d+) bouts/)?.[1]) === want,
+      { timeout: 60000 },
+      before + 1,
+    )
+    .catch(() => {});
   const after = await boutCount(page);
   if (after !== before + 1) throw new Error(`bouts went ${before} to ${after}`);
   return `${before} to ${after}`;
@@ -283,10 +382,10 @@ await step("it shows up on the public programme", async () => {
 await step("removing it takes it off again", async () => {
   await page.goto(`${BASE}/promoter/e/${slug}/card`, { waitUntil: "networkidle0" });
   page.on("dialog", (d) => d.accept());
-  await clickText(page, "Test Redcorner");
-  await sleep(1000);
+  await press(page, "Test Redcorner");
+  await orElse(readyText(page, "Remove this bout", 30000), "the row would not open");
   await clickText(page, "Remove this bout");
-  await sleep(4000);
+  await stopsSaying(page, "test redcorner").catch(() => {});
   if ((await textOf(page)).includes("test redcorner")) throw new Error("still there");
   return `back to ${await boutCount(page)} bouts`;
 });
@@ -317,42 +416,45 @@ const NICKNAME = 'input[placeholder="The Welsh Dragon"]';
  * showed its fields with the box unticked would pass every other step here.
  */
 await step("the form asks before it asks for anything else", async () => {
-  await sleep(1000);
-  const body = await textOf(fighter);
-  if (!body.includes("before you fill this in")) throw new Error("no notice on the form");
+  await orElse(says(fighter, "before you fill this in"), "no notice on the form");
 
   // A fighter who agreed on a previous run comes back to an open form, which is
   // the point of storing it. The gate itself is only exercisable against a fresh
   // seed, so say which of the two this run was rather than failing the second.
   if (await present(fighter, NICKNAME)) {
-    if (!body.includes("you agreed to this")) throw new Error("open with no consent on it");
-    // On a fresh invite the tick and its pause give React time to take the
-    // form over. Here there is no tick, so without a pause the typing in the
-    // next step lands on inputs the server drew and React has not yet claimed,
-    // and nothing is saved because nothing was heard.
-    await fighter.waitForNetworkIdle({ timeout: 60000 }).catch(() => {});
-    await sleep(3000);
+    if (!(await textOf(fighter)).includes("you agreed to this")) {
+      throw new Error("open with no consent on it");
+    }
+    // On a fresh invite the tick is what hands the form over to React. Here
+    // there is no tick, so without this the typing in the next step lands on
+    // the inputs the server drew and nothing is saved, because nothing heard it.
+    await ready(fighter, NICKNAME);
     return "already agreed on this invite";
   }
 
   // Under eighteen closes it again, and offers no tick at all.
+  await ready(fighter, "#consent-age");
   await fill(fighter, "#consent-age", "16");
-  await sleep(300);
-  if (await present(fighter, "#consent")) throw new Error("a fighter under 18 was offered the tick");
+  await orElse(
+    fighter.waitForFunction(() => !document.querySelector("#consent"), { timeout: 15000 }),
+    "a fighter under 18 was offered the tick",
+  );
   if (!(await textOf(fighter)).includes("parent or guardian")) {
     throw new Error("nothing said what happens for a fighter under 18");
   }
 
   await fill(fighter, "#consent-age", "24");
-  await sleep(300);
+  await orElse(fighter.waitForSelector("#consent", { timeout: 15000 }), "no tick at eighteen or over");
   await check(fighter, "#consent");
-  await sleep(2500);
-  if (!(await present(fighter, NICKNAME))) throw new Error("the form did not open after the tick");
+  await orElse(
+    fighter.waitForSelector(NICKNAME, { timeout: 60000 }),
+    "the form did not open after the tick",
+  );
   return "gated, then open";
 });
 
 await step("typing saves without a save button", async () => {
-  await sleep(1000);
+  await ready(fighter, NICKNAME);
   await fill(fighter, NICKNAME, "The Verifier");
   await fill(fighter, 'input[placeholder="@owenpryce"]', "theverifier");
   await fill(fighter, 'input[placeholder="Wrexham"]', "Runcorn");
@@ -365,12 +467,13 @@ await step("typing saves without a save button", async () => {
     "textarea",
     `Two years in the gym and the whole street has bought tickets. (run ${Date.now()})`,
   );
-  await sleep(5000);
-  if (!(await textOf(fighter)).includes("saved")) throw new Error("never reported a save");
+  // The form's own status line, which is the only thing that knows.
+  await orElse(says(fighter, "saved", 60000), "never reported a save");
 });
 
 await step("the save survives a reload", async () => {
   await fighter.reload({ waitUntil: "networkidle0" });
+  await fighter.waitForSelector(NICKNAME, { timeout: 30000 });
   const value = await fighter.evaluate(
     () => document.querySelector('input[placeholder="The Welsh Dragon"]').value,
   );
@@ -379,22 +482,49 @@ await step("the save survives a reload", async () => {
 
 const photo = `${OUT}/photo.jpg`;
 await step("a photograph goes to the bucket and back", async () => {
-  spawnSync("ffmpeg", [
+  const made = spawnSync("ffmpeg", [
     "-y", "-loglevel", "error",
     "-f", "lavfi", "-i", "color=c=0x203040:s=1200x1600",
     "-frames:v", "1", photo,
   ]);
+  if (made.error || !existsSync(photo)) {
+    throw new Error("ffmpeg is not on PATH, and this step needs one to make a photograph to send");
+  }
   const input = await fighter.$('input[type="file"]');
   if (!input) throw new Error("no file input");
+
+  // What is on the page already, so a second run waits for a *new* photograph
+  // rather than finding the one the last run left there and calling it done.
+  const before = await fighter.evaluate(
+    () => [...document.querySelectorAll("img")].find((i) => i.src.includes("/media/"))?.src ?? null,
+  );
   await input.uploadFile(photo);
-  await sleep(6000);
+  await orElse(
+    fighter.waitForFunction(
+      (was) => {
+        const img = [...document.querySelectorAll("img")].find((i) => i.src.includes("/media/"));
+        return !!img && img.src !== was;
+      },
+      { timeout: 120000 },
+      before,
+    ),
+    "no stored photo on the page",
+  );
 
-  const src = await fighter.evaluate(() => {
-    const img = [...document.querySelectorAll("img")].find((i) => i.src.includes("/media/"));
-    return img?.src ?? null;
-  });
-  if (!src) throw new Error("no stored photo on the page");
-
+  const src = await fighter.evaluate(
+    () => [...document.querySelectorAll("img")].find((i) => i.src.includes("/media/")).src,
+  );
+  // The object is in the bucket the moment the action returns, and /media will
+  // not serve it until the autosave has written the path onto the fighter: the
+  // gate answers for a card rather than for a key, so a photograph nothing on a
+  // card points at is a 404 by design (bug 40). The round trip is what this step
+  // is named after, so it waits for the round trip.
+  await fighter
+    .waitForFunction(async (url) => (await fetch(url)).status === 200, {
+      timeout: 60000,
+      polling: 500,
+    }, src)
+    .catch(() => {});
   const status = await fighter.evaluate(async (url) => (await fetch(url)).status, src);
   if (status !== 200) throw new Error(`stored photo serves ${status}`);
   return new URL(src).pathname;
@@ -404,9 +534,14 @@ await step("submitting puts them on the card", async () => {
   // A fighter who submitted on a previous run has no button to press: the form
   // says they are on the card already, which is the state this step wants.
   if (/you.re on the card/.test(await textOf(fighter))) return "already on the card";
-  await clickText(fighter, "Put me on the card");
-  await sleep(4000);
-  if (!/you.re on the card/.test(await textOf(fighter))) throw new Error("no confirmation");
+  await press(fighter, "Put me on the card");
+  await orElse(
+    fighter.waitForFunction(
+      () => /you.re on the card/.test(document.body.innerText.toLowerCase()),
+      { timeout: 60000 },
+    ),
+    "no confirmation",
+  );
   await shot(fighter, "04-submitted");
 });
 
@@ -456,10 +591,23 @@ await step("interactions are counted as they happen", async () => {
 
   const spectator = await browser.newPage();
   await spectator.setViewport({ width: 430, height: 932 });
+
+  // The beacons themselves, rather than a pause long enough to cover them: one
+  // for the open and one for the expand, and the counts cannot move before both
+  // have been answered. Bounded, because a lost beacon is for the assertions
+  // underneath to report rather than for this to hang on.
+  let seen = 0;
+  const bothCounted = new Promise((resolve) => {
+    spectator.on("response", (r) => {
+      if (r.url().includes("/api/track") && ++seen >= 2) resolve();
+    });
+    setTimeout(resolve, 20000);
+  });
+
   await spectator.goto(`${BASE}/e/${slug}`, { waitUntil: "networkidle0" });
-  await sleep(1500);
+  await readyText(spectator, "tale of the tape");
   await spectator.evaluate(() => document.querySelector("article button")?.click());
-  await sleep(2500);
+  await bothCounted;
   await spectator.close();
 
   await page.reload({ waitUntil: "networkidle0" });
@@ -523,11 +671,11 @@ await step("a made-up token is not a way in", async () => {
 
 await step("signing out locks the dashboard again", async () => {
   await page.goto(`${BASE}/promoter/e/${slug}`, { waitUntil: "networkidle0" });
+  await readyText(page, "Sign out");
   await Promise.all([
     page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 }).catch(() => {}),
     clickText(page, "Sign out"),
   ]);
-  await sleep(1500);
   await page.goto(`${BASE}/promoter`, { waitUntil: "networkidle0" });
   if (!page.url().includes("/login")) throw new Error("still signed in");
 });
