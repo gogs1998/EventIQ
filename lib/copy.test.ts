@@ -4,6 +4,11 @@ import {
   APP_ERROR,
   boutCountLabel,
   chaseNote,
+  CONSENT_COPY_STRINGS,
+  PRIVACY,
+  REMOVAL,
+  STYLISED,
+  UNDER_AGE,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
@@ -391,5 +396,121 @@ describe("the video panel", () => {
   it("counts the videos that are of the card as it stands", () => {
     expect(renderCountLabel(4, 15)).toBe("4 of 15 up to date");
     expect(renderCountLabel(0, 0)).toBe("No bouts yet");
+  });
+});
+
+/**
+ * The consent, removal and privacy copy.
+ *
+ * Held to the same rules as everything else, and to two more that only matter
+ * here. Asking for your details back is not a failing, so nothing may read as
+ * though it were; and generated artwork is never a picture of anybody, so
+ * nothing may call it one. The second is the sponsor-artwork rule — a real
+ * business's name is never set by a model — applied to a face.
+ */
+describe("the consent and privacy copy", () => {
+  it("keeps the established tone", () => {
+    for (const line of CONSENT_COPY_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("never suggests that asking for your details back is a problem", () => {
+    for (const line of CONSENT_COPY_STRINGS) {
+      expect(line).not.toMatch(/are you sure|permanent(ly)?|cannot be undone|warning|careful/i);
+      expect(line).not.toMatch(/\bregret\b|\bunfortunately\b|\bonly if\b/i);
+    }
+  });
+
+  /** A notice that claims a review it has not had is worse than no notice. */
+  it("claims no legal review", () => {
+    for (const line of CONSENT_COPY_STRINGS) {
+      expect(line).not.toMatch(/lawyer|solicitor|reviewed by|legally|guarantee|compliant|GDPR/i);
+    }
+  });
+
+  it("does not put the words controller or processor in front of a fighter", () => {
+    for (const line of CONSENT_COPY_STRINGS) {
+      expect(line).not.toMatch(/\bdata controller\b|\bdata processor\b|\bdata subject\b/i);
+    }
+  });
+});
+
+describe("the removal control", () => {
+  /**
+   * Two presses, and the second one says what it does rather than answering a
+   * question. It also has to say what stays: a fighter told "everything" who
+   * then finds their name on the running order has been told something untrue.
+   */
+  it("says what goes and what stays", () => {
+    expect(REMOVAL.body).toContain("photograph");
+    expect(REMOVAL.stays.toLowerCase()).toContain("name");
+    expect(REMOVAL.stays.toLowerCase()).toContain("gym");
+    expect(REMOVAL.confirm).not.toBe(REMOVAL.start);
+    expect(REMOVAL.cancel.toLowerCase()).toContain("keep");
+  });
+
+  it("tells a fighter what is true afterwards", () => {
+    expect(REMOVAL.done.body).toMatch(/no longer opens/i);
+    expect(REMOVAL.done.body).toMatch(/new one/i);
+  });
+});
+
+describe("the stylised portrait copy", () => {
+  /**
+   * The whole point of the wording. Real photographs are the default, the result
+   * is artwork, and nothing is published before the fighter has looked at it.
+   */
+  it("never presents the result as a picture of anybody", () => {
+    const all = Object.values(STYLISED).join(" ").toLowerCase();
+    expect(all).toContain("artwork");
+    expect(all).toContain("rather than a photograph");
+    expect(all).toContain("optional");
+    expect(STYLISED.preview.toLowerCase()).toContain("nothing is published");
+  });
+
+  it("says the photograph is what happens otherwise", () => {
+    expect(STYLISED.hint.toLowerCase()).toContain("photograph you sent");
+    expect(STYLISED.discarded.toLowerCase()).toContain("photograph");
+  });
+});
+
+describe("the privacy notice", () => {
+  it("covers what a fighter needs to know before they tick anything", () => {
+    const all = [PRIVACY.intro, ...PRIVACY.sections.map((s) => s.body)].join(" ").toLowerCase();
+    for (const want of [
+      "promoter",
+      "photograph",
+      "programme",
+      "video",
+      "sponsors",
+      "180 days",
+      "removed",
+    ]) {
+      expect(all).toContain(want);
+    }
+  });
+
+  it("says who decides and who only stores it", () => {
+    const responsible = PRIVACY.sections[0];
+    expect(responsible.body).toMatch(/promoter/i);
+    expect(responsible.body).toMatch(/EventIQ/);
+  });
+
+  it("points every request at somebody a fighter can actually reach", () => {
+    const asking = PRIVACY.sections[PRIVACY.sections.length - 1];
+    expect(asking.heading.toLowerCase()).toContain("how to ask");
+    expect(asking.body).toMatch(/promoter/i);
+  });
+
+  it("does not promise the fighter anything it has no way of doing", () => {
+    expect(UNDER_AGE.body).toMatch(/parent or guardian/i);
+    expect(UNDER_AGE.body).not.toMatch(/we will|we can/i);
   });
 });

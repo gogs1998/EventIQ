@@ -3,7 +3,7 @@ import { DemoReel } from "@/components/DemoReel";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { cardCompleteness, featuredBout } from "@/lib/card";
-import { chaseNote, programmeLinkNote, sponsorNote, tapeForEveryBout } from "@/lib/copy";
+import { chaseNote, PRIVACY, programmeLinkNote, sponsorNote, tapeForEveryBout } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
 import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
@@ -354,6 +354,12 @@ export default async function PitchPage() {
           <span>
             Every fighter, gym and sponsor on the {event.name} card is invented.
           </span>
+          {/* The notice a fighter is pointed at from their own form is reachable
+              from the front of the site too, rather than only from the link they
+              were sent. */}
+          <Link href="/privacy" className="hover:text-chalk transition-colors">
+            {PRIVACY.link}
+          </Link>
         </div>
       </footer>
     </main>

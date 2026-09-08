@@ -1,3 +1,5 @@
+import { RETENTION_DAYS } from "@/lib/consent";
+
 /**
  * The sentences that have to change when a count is zero.
  *
@@ -248,6 +250,33 @@ export const ACTION_ERRORS = {
   photoNotStored: "That photo would not upload. Try a different one, or come back to it later.",
   photoNotAPhotograph: "That file is not a JPEG, PNG or WebP photograph.",
   photoTooLarge: "That photo is too large to send. Try one from the camera roll.",
+
+  /* Consent, removal and the stylised portrait. */
+
+  /**
+   * The save that arrives before the box is ticked. It says what turns it on
+   * rather than what went wrong, because nothing did.
+   */
+  consentNeeded: "Tick the box at the top and this will save. Nothing goes on the programme until then.",
+  /**
+   * Under the minimum age. Addressed to the person who needs to act next rather
+   * than to the fighter, and it collects nothing further either way.
+   */
+  underAge:
+    "This form is for fighters aged 18 and over. For anyone younger, a parent or guardian can " +
+    "arrange the entry with the promoter directly.",
+  detailsNotRemoved:
+    "That did not go through. Nothing has been changed — try again in a moment, or ask the promoter.",
+
+  /** The feature is off on this deployment, or there is no model to reach. */
+  portraitNotHere:
+    "Stylised portraits are not switched on here. The photograph you sent is what goes on the card.",
+  portraitNeedsPhoto:
+    "A stylised portrait is drawn from a photograph. Send one first and this comes back.",
+  portraitNotMade:
+    "That portrait would not come out. The photograph you sent is still the one on your card.",
+  portraitNotFound:
+    "That portrait is no longer here. Make another one, or keep the photograph you sent.",
 } as const;
 
 /**
@@ -309,3 +338,211 @@ export function renderCountLabel(current: number, bouts: number): string {
   if (bouts <= 0) return "No bouts yet";
   return `${current} of ${bouts} up to date`;
 }
+
+/* -------------------------------------------------------------------------
+ * Consent, removal, retention and the stylised portrait
+ *
+ * The wording a fighter actually agrees to is not here — it is in
+ * lib/consent.ts with the version stamp beside it, because a sentence somebody
+ * consented to has to be quotable at the version they saw. Everything around
+ * it is here: what the form says while it waits for the tick, what the removal
+ * control says before and after it runs, the stylised portrait's own opt-in,
+ * and the privacy notice at /privacy.
+ *
+ * Two rules on top of the usual ones. Nothing here may suggest a fighter has
+ * done something wrong by asking for their details back, and nothing may
+ * present generated artwork as a picture of anybody — the second is the same
+ * principle as sponsor names never being set in generated artwork, applied to
+ * a face instead of a wordmark.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * What the form says to somebody under the minimum age.
+ *
+ * It stops there and asks nobody for anything else, which is the whole point:
+ * the age is the only field answered at that stage and it is not stored either.
+ * Addressed to what happens next rather than to the fighter, because a junior
+ * fighter on a card is ordinary and is not a problem with them.
+ */
+export const UNDER_AGE = {
+  heading: "A parent or guardian needs to do this part",
+  body:
+    "This form is for fighters aged 18 and over. For anyone younger, a parent or guardian " +
+    "should speak to the promoter, who can take the details a different way. Nothing on this " +
+    "form is stored while that is the age on it.",
+} as const;
+
+/** The line above the form once the tick has been given, and the link out of it. */
+export const CONSENT_GIVEN = {
+  label: "Agreed",
+  body: "You agreed to this before you started. It is the same wording, and it has not changed.",
+  changed:
+    "The wording has been updated since you agreed to it. Read it again and tick the box to " +
+    "carry on.",
+} as const;
+
+/**
+ * The removal control at the foot of the questionnaire.
+ *
+ * Two presses rather than one, because it takes a photograph off a card and
+ * empties a profile, and neither comes back. The confirmation says exactly what
+ * goes and exactly what stays: a fighter who is told "everything" and then finds
+ * their name still on the running order has been told something untrue.
+ */
+export const REMOVAL = {
+  heading: "Remove my details",
+  body:
+    "This clears everything you sent — your photograph, your record, your story, your age and " +
+    "your hometown — and takes the photograph down. Your link stops working, and the video for " +
+    "your bout is made again without you in it.",
+  stays:
+    "Your name, your gym and your bout stay on the running order, because that is the card the " +
+    "promoter is putting on. Ask the promoter about those.",
+  start: "Remove my details",
+  confirm: "Yes, remove them",
+  cancel: "Keep them",
+  done: {
+    heading: "Your details have been removed",
+    body:
+      "Everything you sent has been cleared and your photograph has been taken down. This link " +
+      "no longer opens anything. The promoter can send a new one if you want to fill it in again.",
+  },
+} as const;
+
+/**
+ * The stylised portrait, which is off unless a deployment turns it on.
+ *
+ * Every line here has the same job: make it plain that this is artwork, that it
+ * is optional, that the photograph is what happens otherwise, and that nothing
+ * is published until the fighter has looked at the result. It is offered after
+ * the photograph rather than instead of it for that reason.
+ */
+export const STYLISED = {
+  label: "Stylised portrait",
+  hint:
+    "Optional. Your photograph can be redrawn as fight-poster artwork for your card and your " +
+    "video. It is a drawing rather than a picture of you, and the photograph you sent is what " +
+    "goes on the card unless you ask for this and then approve it.",
+  consent:
+    "I would like my photograph sent to be redrawn as artwork, and I understand the result is " +
+    "artwork rather than a photograph of me.",
+  make: "Make one",
+  making: "Drawing it…",
+  again: "Try another",
+  preview: "Nothing is published until you approve it.",
+  approve: "Use this on my card",
+  discard: "Discard it",
+  approved: "Your card and your video now use the artwork. Discard it any time to go back to your photograph.",
+  discarded: "Discarded. Your photograph is what goes on the card.",
+} as const;
+
+/**
+ * The privacy notice at /privacy.
+ *
+ * Same register as the rest of the product: plain sentences, British English, no
+ * defined terms, no clause numbering, and nothing a fighter would need a
+ * dictionary for. It says what is collected, where it goes, who decides, how
+ * long it is kept and how to have it removed, and it points every request at the
+ * promoter, who is the one running the show.
+ *
+ * It claims no legal review, and it must not start claiming one.
+ */
+export const PRIVACY = {
+  title: "Privacy notice",
+  intro:
+    "This explains what EventIQ collects from fighters on a digital fight programme, where it " +
+    "is shown, how long it is kept and how to have it removed. It is written for the person " +
+    "filling in the questionnaire.",
+  sections: [
+    {
+      heading: "Who is responsible for it",
+      body:
+        "The promoter running the show decides what goes on their card and what is asked for. " +
+        "EventIQ builds and hosts the programme for them, stores what a fighter sends, and does " +
+        "nothing else with it. Anything a fighter wants doing about their details goes to the " +
+        "promoter, who can act on it or ask EventIQ to.",
+    },
+    {
+      heading: "What is collected",
+      body:
+        "From the fighter: a photograph, an age, a hometown, a nickname, an amateur record and " +
+        "how those wins finished, height, reach, stance, a walkout song, an Instagram handle, " +
+        "chosen sponsors, and whatever the fighter writes about themselves. From the promoter: " +
+        "a name, a gym and a place on the running order. From a spectator reading a programme: " +
+        "a count of what was opened and tapped, with no name and no account attached to it.",
+    },
+    {
+      heading: "What it is used for",
+      body:
+        "One thing: putting the show on. The details go on the public programme for that show, " +
+        "into the tale of the tape video for that bout, and onto the promoter's own dashboard so " +
+        "they know whose profile is still empty. Nothing is sold on, nothing is used to advertise " +
+        "anything else, and no profile is passed to another promoter.",
+    },
+    {
+      heading: "Sponsors",
+      body:
+        "Sponsors pay to appear on the programme and in the videos. Their logos sit beside a " +
+        "fighter's details on the page and close out the video for a bout. Sponsors are shown " +
+        "counts of how many people opened the programme and tapped their placement. They are not " +
+        "given a fighter's details, and they cannot contact a fighter through EventIQ.",
+    },
+    {
+      heading: "How long it is kept",
+      body:
+        "For the show, and for as long as the fighter is on cards this promoter is running — a " +
+        "returning fighter gets their details back rather than a blank form. A fighter who is on " +
+        `no card, whose last show was more than ${RETENTION_DAYS} days ago, has everything they ` +
+        "sent cleared and their photograph deleted. Counts of what spectators opened are kept " +
+        "without anything in them that names a person.",
+    },
+    {
+      heading: "Stylised portraits",
+      body:
+        "A fighter can ask for their photograph to be redrawn as poster artwork. It is off unless " +
+        "the fighter asks for it, the photograph is sent to Cloudflare's image model to do it, and " +
+        "the result appears nowhere until the fighter has looked at it and approved it. It is " +
+        "artwork rather than a photograph, and it is never presented as a picture of anybody.",
+    },
+    {
+      heading: "What a fighter can ask for",
+      body:
+        "To see what is held. To have something corrected — the questionnaire link does that at " +
+        "any time. To have it all removed, which the Remove my details control at the foot of the " +
+        "questionnaire does immediately. To object to any of it being published. Withdrawing " +
+        "agreement is the same control and has the same effect.",
+    },
+    {
+      heading: "How to ask",
+      body:
+        "Through the promoter running the show. They hold the card, they sent the link, and they " +
+        "are the ones who can answer for what is on their programme. A fighter who cannot reach " +
+        "the promoter can use the removal control on their own questionnaire link, which needs " +
+        "nobody's help.",
+    },
+  ],
+  /** The link at the foot of the questionnaire's notice and in the site footer. */
+  link: "Privacy notice",
+} as const;
+
+/** Every line of the new copy as flat strings, for the tone tests. */
+export const CONSENT_COPY_STRINGS: readonly string[] = [
+  UNDER_AGE.heading,
+  UNDER_AGE.body,
+  CONSENT_GIVEN.label,
+  CONSENT_GIVEN.body,
+  CONSENT_GIVEN.changed,
+  REMOVAL.heading,
+  REMOVAL.body,
+  REMOVAL.stays,
+  REMOVAL.start,
+  REMOVAL.confirm,
+  REMOVAL.cancel,
+  REMOVAL.done.heading,
+  REMOVAL.done.body,
+  ...Object.values(STYLISED),
+  PRIVACY.title,
+  PRIVACY.intro,
+  ...PRIVACY.sections.flatMap((section) => [section.heading, section.body]),
+  PRIVACY.link,
+];
