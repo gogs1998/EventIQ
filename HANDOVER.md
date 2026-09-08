@@ -324,7 +324,7 @@ Proved against production after deploying: anonymous request 404 and nothing lea
 
 Everything above still holds. What has changed is that **one shared secret that reads every card on the instance is the right size of credential for one promoter and a cross-tenant read for two**, which section 20 had already written down as a thing to settle before promoter number two rather than as they arrive. It got sharper when the renderer moved onto a GitHub runner: the key lives in repository secrets now, so the set of people who can read any draft on the instance is the set of people who can push a workflow.
 
-So a key is a row in `render_keys` (migration `0007`): an id, a nullable `promoter_id`, the digest, a label, and `created_at`, `expires_at`, `revoked_at`. [scripts/render-key.mjs](scripts/render-key.mjs) is the only thing that writes it — `npm run render-key -- mint | revoke | list`, local by default and `--remote` for the live database, talking to D1 through wrangler for the same reason the renderer does.
+So a key is a row in `render_keys` (migration `0008`): an id, a nullable `promoter_id`, the digest, a label, and `created_at`, `expires_at`, `revoked_at`. [scripts/render-key.mjs](scripts/render-key.mjs) is the only thing that writes it — `npm run render-key -- mint | revoke | list`, local by default and `--remote` for the live database, talking to D1 through wrangler for the same reason the renderer does.
 
 - **`promoter_id NULL` means every promoter.** That is the runner's key and it has to be, because the hourly workflow renders whatever is queued and cannot know in advance whose show it will be. It is exactly as wide as the old secret; what is narrow about it is who holds it.
 - **A scoped key reaches one promoter's shows and answers 404 on everybody else's**, indistinguishably from a stranger. That is what a promoter renders their own drafts with, and what anybody rendering from a laptop should be given.
@@ -835,8 +835,14 @@ Three things about the shape of it are deliberate:
 address from a repository secret, refuses anything under `eventiq.win`, and
 re-seeds staging afterwards. There is deliberately no input that could point it
 at production. Standing the environment up is six commands and is in
-[DEPLOY.md](DEPLOY.md#standing-it-up); nobody here holds a Cloudflare token, so
-none of it has been run.
+[DEPLOY.md](DEPLOY.md#standing-it-up), and it was stood up on 8 September 2026:
+database, bucket, all fourteen migrations, its own `SESSION_SECRET`,
+`INVITE_KEY` and `RENDER_KEY`, a deploy at
+`https://eventiq-staging.gordonshepherd1.workers.dev` whose `/api/health`
+answers `staging`, and the demo card seeded into it. The first attempt failed,
+because the deploy script's D1 migration calls carried no `--env` and were
+reaching for production's database — the sibling of bug 43, and both are in
+DEPLOY.md's rollout log.
 
 ---
 
@@ -961,6 +967,12 @@ Nine more, out of the work that put the renderer on a schedule, the walkthrough 
 
 41. **The counting endpoint counted whatever could POST at it.** No credential is possible there, and the shape checks that were in place answer "is this a plausible interaction", not "is this a person". A link unfurled into a group chat, a model crawler reading a public programme and the end-to-end suite filling in a fighter all wrote rows that a promoter would later hand a sponsor. `countableRequest` in lib/track.ts is the other half of the question, and it deliberately guesses the opposite way from `isLinkPreviewBot` — section 9.
 42. **The page that tells a fighter their details were removed could not be reached by anyone whose link had been sealed.** `inviteWasRevoked` matched the plaintext `token` column only, and after the migration in section 6a every row's plaintext is gone: the lookup that opens the form had been taught to match the digest, and the one that explains a revoked link had not. Found by the database-backed tests rather than by anybody using it, which is the argument for them. **Two lookups for the same credential are one rule in two places**; they now match the same way.
+
+### From the production rollout
+
+One, and it is a repeat. Read it beside bug 35, because the interesting part is not the mistake — it is that being caught by somebody reading a diff is not the same as being fixed.
+
+43. **The config carried two `vars` blocks for the second time, and this time it went out.** Same shape as bug 35 exactly: a merge left a second top-level `"vars"` beside the one already there, JSON kept the last of the two and said nothing, and wrangler validated the file without a murmur. What differed is that nobody read the diff. The deploy on 8 September 2026 uploaded a Worker whose only variable was `EVENTIQ_ENV`, so `SHOWCASE_SLUG` was simply absent from production — and an absent showcase slug is a *supported* state (section 6e), which is what made it quiet. Nothing 500ed. The pitch page made its whole argument without a live card, `/qr` answered 404 and the sitemap listed `/` alone, all of which is exactly what the code is meant to do when no show is named, and all of which reads as a design decision rather than as a missing line. It was found by curling `/qr` after the deploy, not by anything that would have said so. A redeploy with one `vars` block put it back. **The fix bug 35 got was a person's attention, and attention is not a fix.** [lib/wrangler-config.test.ts](lib/wrangler-config.test.ts) now parses `wrangler.jsonc` the strict way and fails on a repeated key at any level, which is the thing that could not be forgotten on the third merge. Worth generalising: a config format that silently keeps the last of two keys wants a test, not a convention.
 
 ---
 
@@ -1143,7 +1155,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 11. **The tenancy model, mostly decided.** There is still one promoter account, created by the seed, and no signup. Four things were going to become real problems the moment a second promoter existed; three are now settled and written down where the code is, and this is the design note for the fourth.
 
-    - **The render key is a row, scoped to a promoter.** `render_keys`, migration `0007`, section 6c. The single shared secret that read every card on the instance is still accepted and is now the migration path with an expiry date on it.
+    - **The render key is a row, scoped to a promoter.** `render_keys`, migration `0008`, section 6c. The single shared secret that read every card on the instance is still accepted and is now the migration path with an expiry date on it.
     - **The shop window runs on a named show**, `SHOWCASE_SLUG`, section 6e — rather than on whichever published show has the furthest-out date, which would have put the second promoter's card on EventIQ's front page and in its sitemap with nobody having done anything.
     - **Slugs stay global, and the collision is suffixed rather than refused.** Section 6f. `cage-county-13-2`, in the slug rather than in the message, so a promoter cannot learn from a refusal that a rival has a show of that name in the diary. The message survives for the one collision that is the promoter's own, where it discloses nothing.
     - **Fighters stay global.** This is the one that is a decision rather than a change. The `fighters` table is deliberately not owned by an event, because a returning fighter getting "confirm your details" instead of a blank form is the biggest retention hook in the idea (item 12), and a fighter id is a public slug that appears in the address of their profile page and in an Instagram bio. Splitting the table per promoter would break both.
