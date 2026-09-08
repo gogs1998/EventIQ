@@ -1,4 +1,16 @@
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  or,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { newId } from "@/lib/auth";
 import { inviteSecret, type Db } from "@/lib/db";
@@ -12,6 +24,7 @@ import {
 } from "@/lib/invite-token";
 import { logWarning } from "@/lib/log";
 import { renderUrl, sponsorMark, type Renders } from "@/lib/renders";
+import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type {
   AnalyticsKind,
   Billing,
@@ -455,6 +468,51 @@ export async function inviteWasRevoked(db: Db, token: string): Promise<boolean> 
     .where(and(eq(schema.invites.token, token), isNotNull(schema.invites.revokedAt)))
     .limit(1);
   return !!row;
+}
+
+/**
+ * The address a new show will live at, or null where the promoter already has
+ * one there.
+ *
+ * Slugs are unique across the whole instance and have to stay that way — the
+ * programme lives at `/e/<slug>` on a printed QR code with no promoter segment
+ * in it — so a name that makes an address somebody else has taken cannot simply
+ * be written. It used to be refused, and the refusal was a membership oracle:
+ * "there is already a show at that address" told a promoter that a rival has a
+ * show of that name in the diary, which is precisely the fact every other
+ * refusal on this path is written to withhold. So the disambiguation is in the
+ * slug rather than in the message, and `nextFreeSlug` does it.
+ *
+ * Null is kept for the one collision a promoter can already see: their own. A
+ * promoter typing the name of a show they have themselves is about to create it
+ * twice, and handing them a second `cage-county-13-2` would be two shows with
+ * one name and no way to tell which is which. That refusal discloses nothing,
+ * because it is about a row they are already looking at — and `sameAddress` is
+ * what keeps it to the numbered forms, so a promoter with a "Cage County 13
+ * Rematch" in the diary is not refused a "Cage County 13".
+ *
+ * One query. `LIKE` is safe against the base without escaping because a slug is
+ * only ever lower-case letters, digits and hyphens — there is no `%` or `_` in
+ * one to be read as a wildcard.
+ */
+export async function uniqueSlug(
+  db: Db,
+  name: string,
+  promoterId: string,
+): Promise<{ slug: string } | null> {
+  const base = slugify(name);
+
+  const rows = await db
+    .select({ slug: schema.events.slug, promoterId: schema.events.promoterId })
+    .from(schema.events)
+    .where(or(eq(schema.events.slug, base), like(schema.events.slug, `${base}-%`)));
+
+  const alreadyTheirs = rows.some(
+    (row) => row.promoterId === promoterId && sameAddress(base, row.slug),
+  );
+  if (alreadyTheirs) return null;
+
+  return { slug: nextFreeSlug(base, rows.map((row) => row.slug)) };
 }
 
 /**

@@ -9,7 +9,7 @@ import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-res
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
-import { newInviteValues } from "@/lib/db/queries";
+import { newInviteValues, uniqueSlug } from "@/lib/db/queries";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import {
   recordDiff,
@@ -105,13 +105,14 @@ export async function createEvent(
       if (!hasSlug(name)) return refuse(ACTION_ERRORS.showNameNeedsCharacters);
 
       const db = await getDb();
-      const slug = slugify(name);
-      const [clash] = await db
-        .select({ id: schema.events.id })
-        .from(schema.events)
-        .where(eq(schema.events.slug, slug))
-        .limit(1);
-      if (clash) return refuse(ACTION_ERRORS.addressTaken);
+      // Suffixed rather than refused where the address is taken, because the
+      // refusal used to say that a show of that name exists and the promoter it
+      // belongs to may be somebody else. Null is the one collision they can
+      // already see — a show of their own — where a second `-2` of it would be
+      // two shows with one name. HANDOVER section 6f.
+      const address = await uniqueSlug(db, name, promoter.id);
+      if (!address) return refuse(ACTION_ERRORS.addressTaken);
+      const { slug } = address;
 
       const now = Date.now();
       await db.insert(schema.events).values({

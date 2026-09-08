@@ -329,4 +329,61 @@ describe("createEvent", () => {
       error: ACTION_ERRORS.showNameNeedsCharacters,
     });
   });
+
+  it("suffixes the address rather than saying whose show is already at it", async () => {
+    const { db } = await twoPromoters();
+    await signInAs("pr_budo");
+
+    // Cage County's show is at cage-county-12 and Budo cannot see it. Refusing
+    // here would tell them it exists, which is the one fact every other answer
+    // on this path is written to withhold.
+    const went = await redirectedTo(() =>
+      createEvent(null, form({ name: "Cage County 12", date: "2026-12-05" })),
+    );
+
+    expect(went).toBe("/promoter/e/cage-county-12-2");
+    const [event] = await db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.slug, "cage-county-12-2"));
+    expect(event.promoterId).toBe("pr_budo");
+    expect(event.name).toBe("Cage County 12");
+  });
+
+  it("says so where the promoter already has a show at that address", async () => {
+    await twoPromoters();
+    await signInAs("pr_cage");
+
+    expect(await createEvent(null, form({ name: "cage county 12", date: "2026-12-05" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.addressTaken,
+    });
+  });
+
+  it("says so for a suffixed address of their own too, rather than making a third", async () => {
+    await twoPromoters();
+    await signInAs("pr_budo");
+    // Budo's first "Cage County 12" landed at -2 because Cage County holds the
+    // plain one. Typing the same name again is the same show twice, and they
+    // can see the one they already have.
+    await redirectedTo(() =>
+      createEvent(null, form({ name: "Cage County 12", date: "2026-12-05" })),
+    );
+
+    expect(await createEvent(null, form({ name: "Cage County 12", date: "2027-01-09" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.addressTaken,
+    });
+  });
+
+  it("still takes a differently named show that starts the same way", async () => {
+    await twoPromoters();
+    await signInAs("pr_cage");
+
+    const went = await redirectedTo(() =>
+      createEvent(null, form({ name: "Cage County 12 Rematch", date: "2027-01-09" })),
+    );
+
+    expect(went).toBe("/promoter/e/cage-county-12-rematch");
+  });
 });

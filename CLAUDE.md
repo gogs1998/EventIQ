@@ -31,7 +31,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 610 tests in 34 files, ~40s
+npm test           # 684 tests in 35 files, ~85s
 npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck

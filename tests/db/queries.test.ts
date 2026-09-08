@@ -16,6 +16,7 @@ import {
   loadShowcase,
   renderKeysFor,
   trackRefsBelong,
+  uniqueSlug,
 } from "@/lib/db/queries";
 import { INVITE_TTL_MS } from "@/lib/invite-token";
 import { testDatabase } from "./harness";
@@ -276,6 +277,41 @@ describe("loadPromoterEvents", () => {
     const events = await loadPromoterEvents(db, "pr_cage");
 
     expect(events.map((event) => event.slug)).toEqual(["cage-county-13", "cage-county-12"]);
+  });
+});
+
+describe("uniqueSlug", () => {
+  it("gives the address the name makes where nothing holds it", async () => {
+    const { db } = await twoPromoters();
+    expect(await uniqueSlug(db, "Cage County 13", "pr_cage")).toEqual({ slug: "cage-county-13" });
+  });
+
+  it("suffixes around another promoter's show rather than naming it", async () => {
+    const { db } = await twoPromoters();
+    expect(await uniqueSlug(db, "Cage County 12", "pr_budo")).toEqual({
+      slug: "cage-county-12-2",
+    });
+  });
+
+  it("is null where the promoter already has that address, which they can see", async () => {
+    const { db } = await twoPromoters();
+    expect(await uniqueSlug(db, "Cage County 12", "pr_cage")).toBeNull();
+  });
+
+  it("is null for a numbered form of their own address as well", async () => {
+    const { db } = await twoPromoters();
+    await plantShow(db, { promoterId: "pr_budo", slug: "cage-county-12-2", published: false });
+    expect(await uniqueSlug(db, "Cage County 12", "pr_budo")).toBeNull();
+  });
+
+  it("does not treat a longer name of theirs as the same address", async () => {
+    const { db } = await twoPromoters();
+    await plantShow(db, {
+      promoterId: "pr_cage",
+      slug: "cage-county-13-rematch",
+      published: false,
+    });
+    expect(await uniqueSlug(db, "Cage County 13", "pr_cage")).toEqual({ slug: "cage-county-13" });
   });
 });
 
