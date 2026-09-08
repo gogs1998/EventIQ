@@ -35,7 +35,7 @@ Video rendering is the one part that does not run on Cloudflare, because headles
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, SHOWCASE_SLUG and the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, INVITE_KEY, SHOWCASE_SLUG and the seed password
 npm run db:reset                   # migrate and seed the local database
 npm run dev
 ```
@@ -45,13 +45,16 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 564 unit tests in 32 files, about a second
+npm test           # both vitest projects
+npm run test:db    # just the half that runs against a real local D1
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-Those four are what [CI](.github/workflows/ci.yml) runs on every push and every pull request, on the Node version in [`.nvmrc`](.nvmrc), so a green tick means the same thing there as it does here. Use `npm run typecheck` rather than `tsc --noEmit`: it runs `next typegen` first, and without that a clean checkout reports eight errors about `PageProps` that have nothing to do with your change.
+`npm test` runs two projects. **`unit`** is the derivation layer, pure and quick. **`db`** starts one Miniflare from this project's own `wrangler.jsonc`, applies `db/migrations` to a database held in memory, and runs the queries, `lib/visibility.ts` and the promoter's server actions against it — so it catches a where clause that selects one row too many, which no pure test can. `vitest run --project unit` is the quick half on its own.
+
+`npm test`, `npm run lint`, `npm run typecheck` and `npm run build` are what [CI](.github/workflows/ci.yml) runs on every push and every pull request, on the Node version in [`.nvmrc`](.nvmrc), so a green tick means the same thing there as it does here. Use `npm run typecheck` rather than `tsc --noEmit`: it runs `next typegen` first, and without that a clean checkout reports eight errors about `PageProps` that have nothing to do with your change.
 
 To run against the actual Workers runtime rather than Node:
 
@@ -77,6 +80,20 @@ npm run e2e -- --base http://localhost:8788
 ```
 
 Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+
+## Staging
+
+There are two deployed environments. Production is `eventiq` at https://eventiq.win; staging is `eventiq-staging`, with its own D1 database, its own R2 bucket and its own secrets, at https://eventiq-staging.gordonshepherd1.workers.dev. Nothing staging does is visible from eventiq.win.
+
+It exists because the walkthrough above **writes as it goes** — it adds a bout, removes it, fills a fighter in and uploads a photograph — and for a long time the only place to write was the card the whole pitch is built on. A check you have to tidy up after is a check that stops being run. Staging is the same demo card in a database nobody is selling from, and it is also where a migration or a deploy goes before a promoter's show is behind it.
+
+```bash
+node scripts/deploy.mjs --env staging    # build, migrate, deploy staging
+npm run db:backup -- --env staging
+curl -s https://eventiq-staging.gordonshepherd1.workers.dev/api/health
+```
+
+Every script that touches Cloudflare takes the same `--env`, and **without it they all mean production** — a flag you have to remember in order to reach production is a flag somebody eventually forgets in the other direction. `/api/health` says which Worker answered, from a var rather than from the hostname, so a staging address pointed at production cannot pass for staging. [DEPLOY.md](DEPLOY.md#staging) has the rest, including how it was stood up.
 
 ## The tale of the tape
 
@@ -134,7 +151,10 @@ npm run db:migrate:remote    # apply them to the live one
 npm run db:seed             # the demo card, with fresh invite tokens
 npm run db:reset            # both
 npm run db:studio -- "select count(*) from fighters"
+npm run db:migrate-invites  # seal any invite token still stored in the clear
 ```
+
+`db:migrate-invites` is a one-off rather than part of the migration chain: migration `0010` adds the columns an invite token is sealed into, and SQLite has neither HMAC nor AES, so filling them in needs `INVITE_KEY` and a script. `-- --remote --dry-run` counts what is still in the clear without writing. Running it twice is a no-op, no token changes, and nobody has to be sent a new link — [DEPLOY.md](DEPLOY.md#the-invite-backfill) has the order the four steps go in and why the half-migrated state is safe.
 
 Promoter accounts are made by an operator rather than by signing up, and that is one command. `--local` by default, `--remote` for the live database, and neither while a dev server is running:
 
@@ -166,6 +186,20 @@ npm run db:restore-rehearsal -- --date 2026-09-07   # load it into a scratch dat
 
 D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the cron line and the R2 lifecycle rule.
 
+### The nightly chores
+
+Three commands that keep the database and the bucket from growing without limit. All three are **dry run by default** and all three destroy data with `--apply`, so the dry run is the one to read first — it names every row it would touch.
+
+```bash
+npm run analytics:rollup -- --remote --apply    # fold counting older than 48h into a row per show-day
+npm run retention -- --remote --apply           # sweep fighters past the retention policy, and the folded rows
+npm run r2:orphans -- --remote --apply          # objects in the bucket that no row points at
+```
+
+**The order matters between the first two.** The fold is what keeps the numbers, and the sweep only removes counting the fold has already summed — it refuses to touch a show-day that has never been folded, whatever its age, because until then those rows are the only copy. The fold moves no totals: the dashboard reads the folded days plus whatever is still in `analytics_events` and adds them together.
+
+`r2:orphans` is a bill rather than a hole — `/media` refuses an object no card points at, so an orphan is invisible rather than exposed — and it never takes a live render or anything written in the last day. Listing a remote bucket needs an R2 API token with Object Read, because wrangler has no command that lists objects; the deletes go through the ordinary deploy token. The cron lines for all of these are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps), and **nothing has installed them yet** — the capability is not the schedule.
+
 ## Rendering video
 
 ```bash
@@ -176,7 +210,17 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 Reads the running order from D1, captures the frames, puts the mp4 in R2 and records the key in `render_jobs`, which is where the programme looks for it. `--stale` renders only the bouts whose fighters have changed since the last render. One bout is about a minute.
 
-It needs `RENDER_KEY` — the capture page it screenshots serves cards that are not published yet, so it is not public. Locally that comes out of `.dev.vars`; against the deployed site export it to match the Worker secret. See section 6c of the handover.
+It needs `RENDER_KEY` — the capture page it screenshots serves cards that are not published yet, so it is not public. Locally that comes out of `.dev.vars`; against the deployed site export it to match either the Worker secret or a key minted for the machine doing the rendering. See section 6c of the handover.
+
+```bash
+npm run render-key -- mint --label "a laptop" --promoter cage-county --days 90 --remote
+npm run render-key -- list --remote
+npm run render-key -- revoke --id rk_... --remote
+```
+
+A key that opens the capture page is a row in `render_keys`, scoped to a promoter or to none, expiring and revocable — so a lost one is replaced rather than recovered, and it never becomes a single credential that reads every promoter's drafts. It is printed once. The `RENDER_KEY` Worker secret is still accepted and is the migration path off it.
+
+**Most rendering is not run by hand.** [`.github/workflows/render.yml`](.github/workflows/render.yml) runs `--stale --publish --remote` against production every hour, for every published show dated within the last two days or later, so a photograph that arrives on the Thursday has a video before the Saturday without anybody being awake for it. It also takes a `workflow_dispatch` — a slug, optionally some bout numbers, and which environment — and a `repository_dispatch` of type `render`, which is how the promoter's "Render again" button could reach it. It runs on a GitHub runner because headless Chrome and ffmpeg cannot run on Cloudflare; that is the only reason.
 
 `--bout 15 --still 300` dumps a single frame as a PNG, which is the quickest way to iterate on the composition.
 
@@ -225,7 +269,7 @@ npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, 
 
 ## Deploying
 
-[DEPLOY.md](DEPLOY.md) has the full procedure. In short: create the D1 database and the R2 bucket, put `SESSION_SECRET` and `RENDER_KEY` in place, seed a promoter, then `npm run deploy`.
+[DEPLOY.md](DEPLOY.md) has the full procedure. In short: create the D1 database and the R2 bucket, put `SESSION_SECRET`, `RENDER_KEY` and `INVITE_KEY` in place, seed a promoter, then `npm run deploy`. Every command there takes `--env staging` for the second environment; without it they mean production.
 
 ```bash
 node scripts/deploy.mjs --check    # what the current token can and cannot do

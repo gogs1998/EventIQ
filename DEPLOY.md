@@ -11,7 +11,7 @@ secret in place before anything is uploaded.
 > custom domain attached. Every step below has been run against the real
 > account except where it says otherwise, and the whole product has been walked
 > end to end in production with
-> `npm run e2e -- --base https://eventiq.win` (25 steps, all passing).
+> `npm run e2e -- --base https://eventiq.win` (28 steps, all passing).
 >
 > **Before a real promoter's card goes on here, work through
 > [Before the first real show](#before-the-first-real-show).** It is the list of
@@ -24,12 +24,14 @@ secret in place before anything is uploaded.
 > `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
 > — the runtime enforces a limit that no local test can observe.
 >
-> **There is a second environment now.** `eventiq-staging`, with its own
-> database, bucket and secrets, is where the browser suite writes and where a
-> change goes before eventiq.win sees it. Everything below takes `--env staging`;
-> without the flag every command means production, exactly as it always has.
-> [Standing it up](#standing-it-up) is six commands and needs no permission the
-> deploy does not already have.
+> **There is a second environment, and it is up.** `eventiq-staging`, with its
+> own database, bucket and secrets, is where the browser suite writes and where a
+> change goes before eventiq.win sees it. It was provisioned, migrated, deployed
+> and seeded on **8 September 2026** and answers at
+> `https://eventiq-staging.gordonshepherd1.workers.dev`, with `/api/health`
+> reporting `"env":"staging"`. Everything below takes `--env staging`; without the
+> flag every command means production, exactly as it always has. See
+> [Staging](#staging).
 >
 > **There are now three secrets, not one.** `RENDER_KEY` joined
 > `SESSION_SECRET` when the capture page the video renderer screenshots stopped
@@ -37,8 +39,12 @@ secret in place before anything is uploaded.
 > it renders no videos, and **no copy of the deployed value is kept anywhere**,
 > so whoever wants to render mints their own — two commands, no other
 > consequences. See [section 4](#4-set-the-secrets). That secret is on its way
-> out: render keys are rows in the database now, scoped to a promoter, and
-> `RENDER_KEY` is what a deployment runs on until the runner has one of its own.
+> out and is now the last step of the way out: render keys are rows in the
+> database, scoped to a promoter, the runner has one of its own as of
+> 8 September 2026, and what is left is
+> `npx wrangler secret delete RENDER_KEY` once the render workflow has run
+> green once. Until then the old credential that reads every promoter's cards
+> still exists.
 >
 > **And one variable.** `SHOWCASE_SLUG` in `wrangler.jsonc` names the published
 > show EventIQ's own front page runs on. See [section 4a](#4a-set-the-variables).
@@ -66,18 +72,23 @@ Cloudflare dashboard → **My Profile** → **API Tokens** → **Create Token** 
 The two zone permissions are only needed for `--attach-domain`. Without them the
 site still deploys and is reachable at `eventiq.<subdomain>.workers.dev`.
 
-The old token had **Cloudflare Pages · Edit** and that permission is no longer
-used by anything: nothing in this repository calls a Pages endpoint, and the
-deploy has been run end to end on a token without it. Pages is a separate
-product from Workers and this app is not on it — `@cloudflare/next-on-pages` is
-deprecated, and a Next.js app with server actions and a database wants the
-Workers runtime. **Remove it when the token is next rotated.**
+**The token in use since 8 September 2026 has the four account rows and no zone
+row at all.** eventiq.win is already attached, so nothing in the ordinary deploy
+wants a zone permission — but it does mean two things cannot be done from a
+terminal until somebody adds them back: `--attach-domain` for
+[staging's optional hostname](#stagingeventiqwin--optional), and every zone
+setting, which is why ["Always Use HTTPS"](#https-at-the-edge) and the `/e/*`
+cache rule are dashboard jobs rather than scripts. The token it replaced could
+*read* the zone and write nothing on it — `zones/<id>/settings`, `/pagerules`,
+`/rulesets`, `/dns_records` and `/workers/routes` all answered 403 — so this is
+a narrowing rather than a change of posture.
 
-Worth knowing before you narrow anything else: the token in use during this
-build could *read* the `eventiq.win` zone and had no zone-level write permission
-at all. `zones/<id>/settings`, `/pagerules`, `/rulesets`, `/dns_records` and
-`/workers/routes` all answered 403. That is why "Always Use HTTPS" below is a
-manual step rather than something a script does.
+**Cloudflare Pages · Edit is gone, and should stay gone.** The token used
+through most of this build had it and nothing in this repository calls a Pages
+endpoint. Pages is a separate product from Workers and this app is not on it —
+`@cloudflare/next-on-pages` is deprecated, and a Next.js app with server actions
+and a database wants the Workers runtime. The 8 September token was created
+without it and the deploy has been run end to end twice on that token.
 
 Check what a token can actually do before using it:
 
@@ -145,11 +156,14 @@ revocation story and is deliberate — see section 6a of
 **`RENDER_KEY`** is what the mp4 renderer presents to reach
 `/render/[slug]/[bout]`, the page headless Chrome screenshots. That page cannot
 go behind the publish check, because rendering a card before it is published is
-the point of rendering it, so it takes a key of its own instead. **Without this
-secret the render route refuses everybody who is not the signed-in promoter who
-owns the show, and `npm run render` stops working** with the error saying so.
-Keep the same value in the environment of whatever machine runs the renderer —
-see [video rendering](#video-rendering).
+the point of rendering it, so it takes a key of its own instead. **With neither
+this secret nor a live row in `render_keys`, the render route refuses everybody
+who is not the signed-in promoter who owns the show, and `npm run render` stops
+working** with the error saying so. A minted row opens the same page in the same
+header, so this secret is no longer the only way in — see
+[render keys are rows now](#render-keys-are-rows-now-and-the-secret-is-the-migration-path).
+Keep whichever value applies in the environment of whatever machine runs the
+renderer — see [video rendering](#video-rendering).
 
 **`INVITE_KEY`** is what an invite token is sealed under. The token in a
 fighter's link is their whole credential, so the row no longer holds it: it
@@ -217,7 +231,7 @@ which is worth knowing because `wrangler.jsonc` declares none of them.
 
 ### The invite backfill
 
-Migration `0007` adds the digest, the ciphertext, the expiry and the revocation
+Migration `0010` adds the digest, the ciphertext, the expiry and the revocation
 columns, and it cannot fill the first two in: sealing a token needs `INVITE_KEY`
 and SQLite has neither HMAC nor AES. So there is a one-off script, and the order
 of the four steps is what makes it safe to run against a live show.
@@ -242,6 +256,19 @@ changes**, only what is kept of it — nobody has to be sent a new link.
 Rows carried over are given ninety days from the migration rather than ninety
 from when they were created, so upgrading a database cannot expire a link that
 is already in somebody's messages.
+
+**Production is between steps 3 and 4 as of 8 September 2026.** `INVITE_KEY` is
+on the Worker, `0010` is applied and the code that uses it is deployed; the
+backfill has not been run, and a dry run reports **30 invites still in the
+clear**. That is the supported half-migrated state described above rather than
+an outage — every one of those links still works — but every lookup that comes
+in on the old column is writing a `plaintextInvite` warning, and the sealing is
+the whole point of the key. The one command left, and the one that ends it:
+
+```bash
+INVITE_KEY='...' npm run db:migrate-invites -- --remote --dry-run   # confirm the 30
+INVITE_KEY='...' npm run db:migrate-invites -- --remote             # seal them
+```
 
 ### Render keys are rows now, and the secret is the migration path
 
@@ -275,6 +302,16 @@ Finish the migration in this order: mint the runner's key, put it in the
 `RENDER_KEY` repository secret, run the workflow once to prove it renders, then
 `npx wrangler secret delete RENDER_KEY`. Deleting first stops every render until
 the new key is in place.
+
+**Where that stands: two of the four are done.** On 8 September 2026 an unscoped
+key was minted with `npm run render-key -- mint --label "GitHub Actions"
+--remote` and put in the `RENDER_KEY` repository secret. The workflow has not
+run green yet, because the hourly schedule and `workflow_dispatch` only exist on
+the default branch and PR #1 is not merged — see
+[rendering from CI](#rendering-from-ci) — so the third step is waiting on that
+merge and the fourth is waiting on the third. Until then the Worker's own
+`RENDER_KEY` secret is deliberately still there: deleting it now would leave the
+site with no way to render at all if the minted key turned out to be wrong.
 
 ## 4a. Set the variables
 
@@ -426,11 +463,11 @@ about on a show night.
 
 Because `wrangler d1 migrations apply` reports success on a no-op as readily as
 on real work, the script then reads the list back and refuses if anything is
-still unapplied. Worth saying plainly: the individual commands have all been run
-against this account, but **the reordered deploy has not been through a real
-run** — it was written and checked against the migrations list output rather than
-by deploying. `npm run deploy -- --dry-run` is the cheap way to see what it will
-do before it does it.
+still unapplied. **The reordered deploy has now been through real runs** — twice
+against production and twice against staging on 8 September 2026, including the
+provisioning run that applied all fourteen migrations to an empty staging
+database. `npm run deploy -- --dry-run` is still the cheap way to see what it
+will do before it does it.
 
 Variations:
 
@@ -460,6 +497,15 @@ This is branch "wave2/staging", not "main".
 staging deploys from anywhere. `DEPLOY_BRANCH=...` changes which branch counts,
 for whoever renames it. `--check` and `--dry-run` change nothing and are allowed
 from anywhere.
+
+The branch it names is `main` rather than the working branch, and that is a
+consequence of GitHub rather than a preference: **a scheduled or dispatched
+workflow only runs from the default branch.** `render.yml`'s hourly cron and
+`e2e-staging.yml`'s button both sit on a branch nothing has merged yet, so
+`gh workflow run render.yml` answers 404 and the hourly render has never fired.
+Merging [PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main` is what
+starts them, and it is why the deploy and the automation should be reading the
+same branch.
 
 Wrangler now prints a warning on a production deploy saying no target
 environment was specified. That is expected: production **is** the top level of
@@ -510,8 +556,11 @@ a real database behind them:
 The same walk is automated — **against staging, not against this**:
 
 ```bash
-npm run e2e -- --base https://staging.eventiq.win --password '...'
+npm run e2e -- --base https://eventiq-staging.gordonshepherd1.workers.dev --password '...'
 ```
+
+`staging.eventiq.win` is [optional and not attached](#stagingeventiqwin--optional),
+so the workers.dev address is the one that exists.
 
 The suite adds a bout, removes it again, fills in a fighter's profile and
 uploads a photograph. That used to be run against production because production
@@ -567,6 +616,45 @@ npx wrangler d1 execute eventiq --remote --command \
              (SELECT red_id FROM bouts UNION SELECT blue_id FROM bouts)) orphans;"
 ```
 
+### Rollout log — 8 September 2026
+
+The order things were actually done in, against the production account, because
+"which of these had happened by the time that broke" is the question a log
+answers and a checklist does not.
+
+1. **A new API token**, account-scoped, Workers Scripts / D1 / R2 / Account
+   Settings and no zone row, set as the `CLOUDFLARE_API_TOKEN` repository secret
+   beside `CLOUDFLARE_ACCOUNT_ID`. The token it replaced is still live in the
+   dashboard and still has to be deleted by hand.
+2. **A backup before anything else touched the database.** `npm run db:backup`
+   wrote `eventiq-media/backups/2026-09-08.sql`, with a copy kept on a machine
+   outside this repository.
+3. **Migrations `0002` to `0013` applied to production**, after which
+   `wrangler d1 migrations list eventiq --remote` reports none pending.
+4. **`INVITE_KEY` set on the production Worker.** The backfill is *not* run —
+   [the invite backfill](#the-invite-backfill) has the count and the command.
+5. **Deployed, twice.** The live version carries `SHOWCASE_SLUG=cage-county-12`,
+   `STYLISED_PORTRAITS=off` and `EVENTIQ_ENV=production`. `/api/health`, `/`,
+   `/e/cage-county-12`, `/qr`, `/privacy`, `/promoter/login`, `/sitemap.xml` and
+   `/robots.txt` all answer 200, and the programme carries
+   `cache-control: public, s-maxage=60, stale-while-revalidate=300` along with
+   the CSP and HSTS headers.
+6. **The runner's render key minted** as an unscoped row and stored as the
+   `RENDER_KEY` repository secret. The Worker's legacy `RENDER_KEY` secret is
+   still there on purpose, until the workflow has rendered once.
+7. **Staging provisioned and stood up** — database, bucket, fourteen migrations,
+   three secrets, a deploy and a seed. [Standing it up](#standing-it-up).
+
+Two things went wrong on the way and both are fixed in the repository rather
+than in the account. The deploy script's D1 migration calls were missing
+`--env`, so the first staging provisioning run tried to migrate production's
+database and failed; and `wrangler.jsonc` had picked up a second top-level
+`vars` block for the second time, which meant only `EVENTIQ_ENV` deployed and
+the showcase slug was absent from the live Worker until a redeploy. JSON keeps
+the last of two identical keys and says nothing about it, so
+[lib/wrangler-config.test.ts](lib/wrangler-config.test.ts) now fails on a
+repeated key at any level — HANDOVER bugs 35 and 43.
+
 ---
 
 ## Staging
@@ -577,7 +665,7 @@ secrets. Nothing it does can be seen from `eventiq.win`.
 
 It exists because the end-to-end suite **writes as it goes**, and until now the
 only place to write was the card the whole pitch is built on. That made a
-twenty-five-step check of the product into a thing you had to tidy up after, at
+twenty-eight-step check of the product into a thing you had to tidy up after, at
 which point it stops being run. It is also where a migration, a deploy or an
 idea gets tried before a promoter's show is behind it.
 
@@ -598,6 +686,15 @@ somebody will forget in the other direction.
 
 ### Standing it up
 
+**Done on 8 September 2026**, and this is the record of what was run rather than
+a plan. `eventiq-staging` the database, `eventiq-media-staging` the bucket, all
+fourteen migrations, three secrets, a deploy at
+`https://eventiq-staging.gordonshepherd1.workers.dev` whose `/api/health`
+answers `"env":"staging"`, and the demo card seeded into it. `STAGING_URL` and
+`STAGING_PROMOTER_PASSWORD` are set as repository secrets, so
+`e2e-staging.yml` has what it needs. The steps below are what to run on the next
+account, and what to read when something about this one looks wrong.
+
 The same Cloudflare token as production — it is account-scoped, and staging is
 in the same account.
 
@@ -610,10 +707,11 @@ export CLOUDFLARE_ACCOUNT_ID=...
 #    nothing without it.
 node scripts/deploy.mjs --env staging --provision
 
-# 2. Its own secrets. These are per Worker — production's are not visible here
-#    and setting one here sets nothing there.
+# 2. Its own secrets — all three of them. These are per Worker: production's are
+#    not visible here and setting one here sets nothing there.
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET --env staging
 openssl rand -base64 36 | tee /dev/tty | npx wrangler secret put RENDER_KEY --env staging
+openssl rand -base64 48 | tee /dev/tty | npx wrangler secret put INVITE_KEY --env staging
 npx wrangler secret list --env staging
 
 # 3. Deploy it. This prints an eventiq-staging.<subdomain>.workers.dev URL,
@@ -621,13 +719,22 @@ npx wrangler secret list --env staging
 node scripts/deploy.mjs --env staging
 
 # 4. The demo card, with a password that is not the development default.
-SEED_PROMOTER_PASSWORD='...' NEXT_PUBLIC_SITE_URL='<the URL from step 3>' \
+SEED_PROMOTER_PASSWORD='...' INVITE_KEY='<the value from step 2>' \
+  NEXT_PUBLIC_SITE_URL='<the URL from step 3>' \
   npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
 ```
 
 `tee /dev/tty` on the render key for the same reason as
 [production's](#the-operator-mints-their-own-render-key): `wrangler secret put`
 reads stdin and prints nothing back, and the renderer needs the same value.
+
+**`INVITE_KEY` is on that list twice and both are load-bearing**, which is the
+thing this section used to leave out. The Worker needs it or it refuses to serve
+an invite at all, and the *seed* needs it in its own environment, because
+seeding writes thirty invite tokens and every one of them is sealed on the way
+in. Staging's copy is a different value from production's and there is no reason
+for it to be the same one — nothing sent from a staging card is a link anybody
+is chasing.
 
 **`NEXT_PUBLIC_SITE_URL` is a build-time value.** It defaults to
 `https://staging.eventiq.win`, which is only right once the domain below is
@@ -683,7 +790,9 @@ the job refuses anything under `eventiq.win`, and it asks `/api/health` which
 environment answered. It re-seeds staging when it finishes, because the suite
 leaves a fighter submitted and photographed.
 
-Two repository secrets on top of the ones the render workflow already needs:
+Two repository secrets on top of the ones the render workflow already needs,
+both set on 8 September 2026, and a third that is only wanted if the renderer is
+ever pointed at staging:
 
 | Secret | Value |
 | --- | --- |
@@ -795,6 +904,15 @@ secrets:
 | `CLOUDFLARE_API_TOKEN` | the deploy token, scopes as above |
 | `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
 | `RENDER_KEY` | an unscoped key from `npm run render-key -- mint --remote` |
+
+All three are set, as of 8 September 2026. **The workflow still does not run**,
+and that is not a secret that is missing: GitHub only runs a scheduled or
+dispatched workflow from the **default branch**, this one lives on
+`cursor/eventiq-digital-fight-programme`, and so `gh workflow run render.yml`
+answers 404 and the hourly cron has never fired. Merging
+[PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main` is the whole of
+the fix, and the first green run is what licenses
+`npx wrangler secret delete RENDER_KEY` on the Worker.
 
 It also takes an `environment` input — `production` or `staging`. The hourly run
 is always production, which is what a schedule is for; staging is something a
@@ -1152,66 +1270,112 @@ dashboard, a password manager or somebody's calendar, which no script here can
 do and which nobody will think of at six o'clock on the night. Work through it
 once, before a promoter's card and a room full of spectators depend on it.
 
-- [ ] **Rotate the Cloudflare API token, and drop Cloudflare Pages · Edit while
-      you are in there.** The current token was handled in chat during the build,
-      so treat it as known. Pages is a different product and nothing in this
-      repository calls it; the deploy has been run end to end on a token without
-      it. Scopes are in [section 1](#1-create-an-api-token), and
-      `node scripts/deploy.mjs --check` will tell you the new one is complete
-      before you find out mid-upload.
+- [x] **Rotate the Cloudflare API token, and drop Cloudflare Pages · Edit while
+      you are in there.** Done 8 September 2026. The new token carries the four
+      account rows — Workers Scripts, D1, R2, Account Settings — no zone row and
+      no Pages, and it is the `CLOUDFLARE_API_TOKEN` repository secret beside
+      `CLOUDFLARE_ACCOUNT_ID`. `node scripts/deploy.mjs --check` passes on it and
+      two production deploys have run through it.
+      **Still open, and it is the owner's:** the token it replaced is the one
+      that was handled in chat during the build, it is still live in the
+      dashboard, and it has to be deleted there — My Profile → API Tokens →
+      Delete. A rotation that leaves the old key valid is not a rotation.
 - [ ] **Turn on "Always Use HTTPS"** — SSL/TLS → Edge Certificates, for
-      `eventiq.win`. One toggle. Static files under `public/` and `_next/` are
-      answered by the assets binding before the Worker runs, so the redirect in
-      `proxy.ts` cannot reach them and `http://eventiq.win/fighters/*.webp`
-      answers 200 over plain http today. The deploy token gets 403 on every zone
-      setting, so this cannot be scripted from here.
-      [The detail](#https-at-the-edge).
-- [ ] **Put `SESSION_SECRET` in a password manager.** It cannot be read back out
-      of the Worker and there is no copy of it anywhere. Rotating it signs the
-      promoter out, which is the whole of the revocation story and is deliberate.
-      Render keys no longer belong on this list in the same way: they are rows,
-      they are minted per machine, and one that is lost is revoked and replaced
-      rather than recovered.
-      Signing out one account instead is a password change or
-      `npm run promoter -- set-password`, which bumps that promoter's
-      `session_version` and leaves everyone else alone.
-- [ ] **Mint the runner a key of its own, then delete the `RENDER_KEY` secret.**
-      `npm run render-key -- mint --label "GitHub Actions" --remote`, into the
-      repository secret, one workflow run to prove it renders, then
-      `npx wrangler secret delete RENDER_KEY`. Until that last command runs, the
-      old single credential that reads every promoter's cards still exists.
+      `eventiq.win`. **Owner, in the zone dashboard.** One toggle. Static files
+      under `public/` and `_next/` are answered by the assets binding before the
+      Worker runs, so the redirect in `proxy.ts` cannot reach them and
+      `http://eventiq.win/fighters/*.webp` answers 200 over plain http today. The
+      deploy token has no zone permission at all now, so this is not scriptable
+      from here even in principle. [The detail](#https-at-the-edge).
+- [ ] **Add the `/e/*` cache rule**, in the same dashboard visit and for the same
+      reason: Caching → Cache Rules, `http.request.uri.path matches "^/e/"`,
+      Eligible for cache, respect origin headers. The Worker already sends
+      `public, s-maxage=60, stale-while-revalidate=300` on a published programme
+      and Cloudflare does not cache a Worker's own response without being told
+      to, so today that header is read by browsers and by nothing at the edge.
+      This is the one worth having before a hall full of people opens the same
+      card at once. [Caching the programme](#caching-the-programme).
+- [ ] **Run the invite backfill.** **Owner.**
+      `INVITE_KEY='...' npm run db:migrate-invites -- --remote`, after the
+      `--dry-run` that currently counts **30 invites still in the clear**.
+      `INVITE_KEY` is on the Worker and the schema and the code are deployed, so
+      this is the last of the four steps and the only one outstanding.
+      [The invite backfill](#the-invite-backfill).
+- [ ] **Merge [PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main`,
+      then confirm the hourly render actually runs.** **Owner.** GitHub runs a
+      scheduled or dispatched workflow from the default branch only, so until the
+      merge `gh workflow run render.yml` answers 404, the hourly cron has never
+      fired, and `e2e-staging.yml`'s button does not exist either. Confirm with a
+      dispatch and a look at `render_jobs` rather than by assuming the cron.
+- [ ] **Then delete the legacy `RENDER_KEY` Worker secret** —
+      `npx wrangler secret delete RENDER_KEY`. **Owner.** The runner's own
+      unscoped key was minted on 8 September 2026 and is in the repository
+      secret, so the migration is three-quarters done; what is left is retiring
+      the one credential that reads every promoter's cards with no row behind it.
+      Not before the workflow has rendered once, because deleting first would
+      leave nothing able to render if the minted key were wrong.
       [Render keys](#render-keys-are-rows-now-and-the-secret-is-the-migration-path).
-- [ ] **Put `INVITE_KEY` in the password manager too, and treat it as the one
-      that cannot be replaced.** Rotating it stops every link already sent out
-      and leaves the dashboard unable to show what the old ones were, so a lost
-      one means every fighter on every live card being sent a new link by hand.
+- [ ] **Put the secrets in a password manager.** **Owner**, and none of these can
+      be read back out of a Worker:
+      - `SESSION_SECRET` (production). Rotating it signs the promoter out, which
+        is the whole of the revocation story and is deliberate. Signing out one
+        account instead is `npm run promoter -- set-password`, which bumps that
+        promoter's `session_version` and leaves everyone else alone.
+      - `INVITE_KEY` (production), **the one that cannot be replaced.** Rotating
+        it stops every link already sent out and leaves the dashboard unable to
+        show what the old ones were, so a lost one means every fighter on every
+        live card being sent a new link by hand.
+      - Staging's `SESSION_SECRET`, `INVITE_KEY` and `RENDER_KEY`, plus the
+        `SEED_PROMOTER_PASSWORD` staging was seeded with — which is also the
+        `STAGING_PROMOTER_PASSWORD` repository secret.
+      - The runner's minted render key, which is in the `RENDER_KEY` repository
+        secret and is printed exactly once. Anyone who can push a workflow can
+        read a repository secret; that is the trade for the videos being made
+        without a person.
 - [ ] **Point an external uptime check at `/api/health`.** Anything that will
       send a message to a phone — a free tier is fine. Nothing here phones home,
       so a 500 on show night stays a 500 until somebody happens to log in, and
       that has already happened once: the PBKDF2 failure was live and invisible
       until a person tried to sign in. It has to be *external*; a check running
-      on the same thing it is checking answers no useful question. (The route
-      itself is being added separately — confirm it answers before relying on
-      it.)
+      on the same thing it is checking answers no useful question. The route
+      itself answers 200 in production as of 8 September 2026, so there is
+      something to point at now.
 - [ ] **Confirm the nightly backup actually ran**, rather than that it is
-      scheduled. `npm run db:restore-rehearsal -- --date <yesterday>` is the
-      version of that question worth asking, because it also proves the file
-      restores. [Backups](#backups). Set the
-      [lifecycle rule](#the-r2-lifecycle-rule) at the same time, or the bucket
-      keeps every export forever.
+      scheduled. A backup was taken by hand before the 8 September rollout —
+      `eventiq-media/backups/2026-09-08.sql`, with a copy kept off the account —
+      but **nothing schedules one**, so that is a habit rather than a mechanism.
+      `npm run db:restore-rehearsal -- --date <yesterday>` is the version of the
+      question worth asking, because it also proves the file restores.
+      [Backups](#backups). Set the [lifecycle rule](#the-r2-lifecycle-rule) at
+      the same time, or the bucket keeps every export forever.
 - [ ] **Reprint the table card from the live URL.** The QR encodes the origin it
       was served from, so one printed off a laptop is useless at a venue.
+- [ ] **Get the consent wording legally reviewed**, and settle the lawful basis
+      and the controller/processor position. **Owner, and it needs a lawyer
+      rather than a commit.** It is on this list because a real fighter's
+      photograph and age go on a page a promoter sells sponsorship against, and
+      because it blocks the first real show rather than following it.
+      [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) item 2.
+- [ ] **Decide the commercial model.** **Owner.** Nothing in the product prices
+      anything, there is no billing, and per-bout sponsorship — the strongest
+      argument in the pitch — is revenue the promoter collects rather than
+      EventIQ. What a promoter pays and for what is undecided, and it wants
+      deciding before a promoter asks rather than during the conversation.
 
-The product side of "before a real show" — consent wording, a privacy notice, a
-lawful basis and a retention policy — is not on this list because it is not
-operational, and it is a blocker rather than a nicety. [HANDOVER.md section
-19](HANDOVER.md#19-what-to-build-next) items 1 and 2.
+Consent wording, the lawful basis and the retention policy used to be kept off
+this list on the grounds that they are product rather than operations. They are
+on it now, because "we cannot put a real fighter on here yet" is an operational
+fact whatever kind of work fixes it, and because it is the item most likely to be
+found at the last minute. The rest of that half is
+[HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) items 1 and 2.
 
 ## What is left to do
 
-Nothing is blocking the site. The token now answers 200 on all four account
-endpoints the deploy needs, the database is provisioned, migrated and seeded,
-and `https://eventiq.win` serves the card out of D1.
+Nothing is blocking the site. As of **8 September 2026** the production Worker
+runs on a fresh account-scoped token, every migration through `0013` is applied,
+`INVITE_KEY` is set, staging exists, and `https://eventiq.win` serves the card
+out of D1 with the cache, CSP and HSTS headers it is meant to have. The
+[rollout log](#rollout-log--8-september-2026) is the sequence.
 
 This list is operational. The product roadmap — starting with getting a real
 show onto the platform, with consent as the gate — lives in
@@ -1219,47 +1383,60 @@ show onto the platform, with consent as the gate — lives in
 render pipeline on Cloudflare Containers is a roadmap item there and in
 section 11, not something a deploy does.
 
-What remains on the account:
+What is still open, and who does it:
 
-1. **Turn on "Always Use HTTPS" for the zone.** Static files are still served
-   over plain http and no application code can fix that. See
-   [HTTPS at the edge](#https-at-the-edge). This is the only outstanding item
-   that affects what a visitor gets.
-2. **Rotate the API token.** It was handled in chat during this build, so treat
-   it as known. The promoter password and `SESSION_SECRET` have both been
-   rotated since; the token has not.
-3. **Narrow the token.** Drop **Cloudflare Pages · Edit**, which nothing uses.
-4. **Reprint the table card from the live URL.** The QR encodes the origin it
+1. **Delete the old API token in the dashboard.** *Owner.* The replacement is in
+   use and in the repository secrets; the one that was handled in chat during the
+   build is still valid until somebody removes it. My Profile → API Tokens.
+2. **Run the invite backfill.** *Owner.*
+   `INVITE_KEY='...' npm run db:migrate-invites -- --remote`. A dry run reports
+   30 invites still in the clear. Every one of those links works and will go on
+   working — the table is in the supported half-migrated state — but the sealing
+   is the point of the key. [The invite backfill](#the-invite-backfill).
+3. **Merge [PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main`, and
+   confirm the hourly render runs.** *Owner.* GitHub runs scheduled and
+   dispatched workflows from the default branch only, so `render.yml`'s cron has
+   never fired and `gh workflow run render.yml` answers 404. The three secrets it
+   needs are all set; the branch is the only thing missing.
+4. **Delete the legacy `RENDER_KEY` Worker secret, after 3.** *Owner.*
+   `npx wrangler secret delete RENDER_KEY`. The runner holds a minted unscoped
+   key already, so this retires the last credential that reads every promoter's
+   cards without a row behind it. Not before a green render, because deleting
+   first stops every render until the new key is proven.
+5. **Turn on "Always Use HTTPS", and add the `/e/*` cache rule.** *Owner, in the
+   zone dashboard.* Static files are still served over plain http and no
+   application code can fix that; the cache rule is what makes the edge honour a
+   header the Worker already sends. **The deploy token has no zone permission at
+   all**, by design, so neither is scriptable from here.
+   [HTTPS at the edge](#https-at-the-edge),
+   [caching the programme](#caching-the-programme).
+6. **Password manager entries** for `SESSION_SECRET`, `INVITE_KEY`, staging's
+   three secrets and the runner's minted key. *Owner.* None can be read back out
+   of a Worker and `INVITE_KEY` cannot be replaced without reissuing every link.
+   The full list is in
+   [before the first real show](#before-the-first-real-show).
+7. **Legal review of the consent wording**, plus the lawful basis and the
+   controller/processor position. *Owner, and a lawyer.* Blocks a real fighter's
+   details going on the platform. HANDOVER section 19 item 2.
+8. **The commercial model.** *Owner.* Undecided, and worth deciding before a
+   promoter asks rather than during the conversation.
+9. **Reprint the table card from the live URL.** The QR encodes the origin it
    was served from, so one printed from a laptop is useless at a venue.
-5. **Render the tapes into R2.** The programme falls back to playing the
-   sequence live in the browser where no mp4 exists, so this is a quality step
-   rather than a fix. See [video rendering](#video-rendering). Still a job
-   run from a machine that has Chrome and ffmpeg; Containers is the likely
-   longer answer, not a thing this deploy grows into.
-6. **Stand staging up.** Nothing in this repository can do it — it wants the
-   Cloudflare token — and until it exists the browser suite has nowhere to run
-   but production. [Standing it up](#standing-it-up) is six commands, plus
-   `STAGING_URL` and `STAGING_PROMOTER_PASSWORD` as repository secrets so the
-   workflow can use it.
-7. **Set `RENDER_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
-   repository secrets, and keep the render key somewhere a person can read it.**
-   The hourly workflow needs all three, and until they are set it fails every
-   hour. What goes in `RENDER_KEY` is now a key minted for the runner —
-   `npm run render-key -- mint --label "GitHub Actions" --remote` — rather than
-   the Worker's secret, and once it is in place `wrangler secret delete
-   RENDER_KEY` retires the one credential that could read every promoter's cards
-   without a row behind it. A password manager entry as well as the repository
-   secret, not a file in the repository, and it is worth knowing that anyone who
-   can push a workflow can read a repository secret. The tenancy half of this is
-   decided — HANDOVER section 19 item 11 — and what is left is the chore.
+10. **Render the tapes into R2.** The programme falls back to playing the
+    sequence live in the browser where no mp4 exists, so this is a quality step
+    rather than a fix, and item 3 is what makes it happen on its own. See
+    [video rendering](#video-rendering).
 
-Done since this list was last written: the `eventiq-photos` bucket has been
-deleted (it held one orphaned photograph from an end-to-end run against a
-deployment that briefly bound it; `eventiq-media` is the only bucket now), the
-promoter password and `SESSION_SECRET` have been rotated, the PBKDF2 iteration
-count has been brought down to something the runtime will run, and `RENDER_KEY`
-has been generated and set so the capture page stopped serving unpublished shows
-to anybody who could guess a slug.
+Done on 8 September 2026, and no longer on this list: the API token rotated and
+narrowed to four account permissions with no zone row and no Pages; a backup
+taken before anything else; migrations `0002` to `0013` applied to production;
+`INVITE_KEY` set on the Worker; two production deploys carrying the showcase
+slug, the portrait flag and the environment var; the runner's render key minted
+and set as a repository secret; and staging provisioned, migrated, secreted,
+deployed and seeded with `STAGING_URL` and `STAGING_PROMOTER_PASSWORD` set.
+Before that: the `eventiq-photos` bucket deleted, the promoter password and
+`SESSION_SECRET` rotated, and the PBKDF2 iteration count brought down to
+something the runtime will run.
 
 ## Rolling back
 
