@@ -7,6 +7,10 @@
  *   node scripts/deploy.mjs                   # migrate, build and deploy
  *   node scripts/deploy.mjs --attach-domain   # point eventiq.win at the Worker
  *
+ * Every one of those takes `--env staging`, which is a second Worker with its
+ * own database, its own bucket and its own secrets. Without it they mean
+ * production, because that is what they have always meant.
+ *
  * This used to push a folder of files to Pages. It cannot any more: the app has
  * a database behind it, so there is a Worker to deploy, a D1 database to create
  * and migrate, and an R2 bucket to hold photographs. Those need permissions the
@@ -16,15 +20,11 @@
  * Credentials come from the environment and are never written to disk.
  * See DEPLOY.md.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { environmentFrom, wranglerEnvArgs } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const NAME = "eventiq";
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
-const DOMAIN = process.env.SITE_DOMAIN ?? "eventiq.win";
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? `https://${DOMAIN}`;
 const API = "https://api.cloudflare.com/client/v4";
 
 const args = process.argv.slice(2);
@@ -33,6 +33,60 @@ const has = (flag) => args.includes(`--${flag}`);
 function fail(message) {
   console.error(`\n${message}\n`);
   process.exit(1);
+}
+
+const TARGET = environmentFrom(args, fail);
+const { worker: NAME, database: DATABASE, bucket: BUCKET, domain: DOMAIN } = TARGET;
+const WRANGLER_ENV = wranglerEnvArgs(TARGET.name);
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? `https://${DOMAIN}`;
+
+/**
+ * The branch production is deployed from.
+ *
+ * Everything here is developed on side branches that are merged into it, and
+ * several of them exist at once. A deploy is a thing somebody types, usually
+ * after doing something else, and typing it in the wrong worktree puts half a
+ * feature on eventiq.win with the migrations to match — and migrations here are
+ * additive with no down path, so that is not a `wrangler rollback` away.
+ */
+const DEPLOY_BRANCH = process.env.DEPLOY_BRANCH ?? "cursor/eventiq-digital-fight-programme";
+
+/** Null where this is not a git checkout, which is a state to report, not to guess at. */
+function currentBranch() {
+  try {
+    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Staging is deployed from anywhere — that is what it is for. Production is
+ * deployed from the working branch, or with --force from somebody who means it.
+ */
+function requireDeployableBranch() {
+  if (TARGET.name !== "production" || has("force")) return;
+
+  const branch = currentBranch();
+  if (branch === DEPLOY_BRANCH) return;
+
+  fail(
+    [
+      branch === null
+        ? "This is not a git checkout, so there is no way to tell what would go up."
+        : `This is branch "${branch}", not "${DEPLOY_BRANCH}".`,
+      "",
+      "Deploying production from a side branch puts whatever is in this worktree",
+      "on eventiq.win, migrations included, and migrations here are additive with",
+      "no down path.",
+      "",
+      "  node scripts/deploy.mjs --env staging     # the same thing, somewhere safe",
+      "  node scripts/deploy.mjs --force           # if this is deliberate",
+    ].join("\n"),
+  );
 }
 
 function sh(command, commandArgs, { capture = false, env = {} } = {}) {
@@ -148,6 +202,34 @@ function reportMissing(results) {
 
 // ------------------------------------------------------------ provisioning
 
+const PLACEHOLDER = "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE";
+
+/**
+ * Where the id for one named database sits in wrangler.jsonc.
+ *
+ * Found by walking from the database's own name to the next `database_id` after
+ * it, rather than by taking the first one in the file: there are two of these
+ * now, and writing the wrong one would bind an environment to the other
+ * environment's data. Null where the block is not there at all, which is a
+ * config somebody has edited and not a case to guess at.
+ */
+function databaseIdSpan(config, database) {
+  const name = config.indexOf(`"database_name": "${database}"`);
+  if (name === -1) return null;
+
+  const key = config.indexOf('"database_id": "', name);
+  if (key === -1) return null;
+
+  const from = key + '"database_id": "'.length;
+  const to = config.indexOf('"', from);
+  return to === -1 ? null : { from, to };
+}
+
+function databaseIdFor(config, database) {
+  const span = databaseIdSpan(config, database);
+  return span ? config.slice(span.from, span.to) : null;
+}
+
 /**
  * Creates the database and bucket if they are not there, then writes the
  * database id into wrangler.jsonc.
@@ -178,7 +260,14 @@ async function provision() {
   if (config.includes(id)) {
     console.log("wrangler.jsonc already points at it");
   } else {
-    await writeFile("wrangler.jsonc", config.replace(/"database_id": "[^"]*"/, `"database_id": "${id}"`));
+    const span = databaseIdSpan(config, DATABASE);
+    if (!span) {
+      fail(`Could not find the ${DATABASE} database block in wrangler.jsonc to write the id into.`);
+    }
+    await writeFile(
+      "wrangler.jsonc",
+      config.slice(0, span.from) + id + config.slice(span.to),
+    );
     console.log(`Wrote the database id into wrangler.jsonc. Commit that change.`);
   }
 
@@ -199,14 +288,21 @@ async function provision() {
   console.log("\nApplying migrations to the remote database");
   await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote"]);
 
+  const secretFlags = WRANGLER_ENV.join(" ");
   console.log(
     [
       "",
-      "Provisioned. Two things left before the first deploy:",
+      `Provisioned ${TARGET.name}. Two things left before the first deploy:`,
       "",
-      "  npx wrangler secret put SESSION_SECRET     # openssl rand -base64 32",
+      `  npx wrangler secret put SESSION_SECRET ${secretFlags}`.trimEnd() +
+        "     # openssl rand -base64 32",
+      `  npx wrangler secret put RENDER_KEY ${secretFlags}`.trimEnd() +
+        "         # openssl rand -base64 36",
+      "",
+      "Secrets are per environment: setting one on production sets nothing here.",
+      "",
+      "Then, optionally, the demo card:",
       "  npm run db:seed:remote -- --i-understand-this-rewrites-production",
-      "                                             # optional: the demo card",
       "",
       "The seed prints the promoter's password and the invite links once. They",
       "are not recoverable afterwards.",
@@ -297,14 +393,16 @@ async function migrate() {
  */
 async function attachDomain() {
   const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const zones = await api(`/zones?name=${DOMAIN}`);
+  // The zone, not the hostname: staging.eventiq.win lives in the eventiq.win
+  // zone and asking for a zone by that name finds nothing.
+  const zones = await api(`/zones?name=${TARGET.zone}`);
   const zone = zones.body.result?.[0];
   if (!zone) {
     fail(
       [
-        `No zone for ${DOMAIN} in this account, or the token cannot read zones.`,
+        `No zone for ${TARGET.zone} in this account, or the token cannot read zones.`,
         "",
-        `Add ${DOMAIN} to Cloudflare and change the nameservers at the registrar`,
+        `Add ${TARGET.zone} to Cloudflare and change the nameservers at the registrar`,
         "first, and give the token Zone · DNS · Edit on it.",
       ].join("\n"),
     );
@@ -330,8 +428,14 @@ async function attachDomain() {
 // -------------------------------------------------------------------- main
 
 async function main() {
+  // The cheapest refusal first. A deploy started in the wrong worktree should
+  // not spend four API calls before finding that out, and --check and --dry-run
+  // change nothing, so they are welcome from anywhere.
+  if (!has("check") && !has("dry-run")) requireDeployableBranch();
+
   requireCredentials();
 
+  console.log(`Environment: ${TARGET.name} — Worker ${NAME}, database ${DATABASE}, bucket ${BUCKET}`);
   console.log("Token permissions:");
   const results = await checkPermissions();
   if (has("check")) {
@@ -347,8 +451,11 @@ async function main() {
   }
 
   const config = await readFile("wrangler.jsonc", "utf8");
-  if (config.includes("PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE")) {
-    fail("wrangler.jsonc has no database id yet. Run with --provision first.");
+  if (databaseIdFor(config, DATABASE) === PLACEHOLDER) {
+    fail(
+      `wrangler.jsonc has no id for the ${DATABASE} database yet. Run with --provision first` +
+        (TARGET.name === "production" ? "." : `:\n\n  node scripts/deploy.mjs --env ${TARGET.name} --provision`),
+    );
   }
 
   if (has("dry-run")) {
@@ -373,7 +480,9 @@ async function main() {
         `  upload the Worker as ${NAME}`,
         ...(has("attach-domain") ? [`  point ${DOMAIN} at it`] : []),
         "",
-        "Nothing has changed. Drop --dry-run to do it.",
+        TARGET.name === "production" && currentBranch() !== DEPLOY_BRANCH && !has("force")
+          ? `And would then refuse: this is "${currentBranch()}" rather than "${DEPLOY_BRANCH}".`
+          : "Nothing has changed. Drop --dry-run to do it.",
       ].join("\n"),
     );
     return;
@@ -389,7 +498,7 @@ async function main() {
   // Before the upload, and after the build. See migrate().
   await migrate();
 
-  await sh("npx", ["opennextjs-cloudflare", "deploy"]);
+  await sh("npx", ["opennextjs-cloudflare", "deploy", ...WRANGLER_ENV]);
 
   if (has("attach-domain")) await attachDomain();
 }

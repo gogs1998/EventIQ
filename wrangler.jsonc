@@ -93,5 +93,83 @@
       "head_sampling_rate": 1,
       "invocation_logs": true
     }
+  },
+  // Which Worker answered, in the one place an unauthenticated caller can read
+  // it: /api/health. The end-to-end suite writes as it goes — it adds a bout,
+  // removes it and fills a fighter's profile in — so "which environment am I
+  // pointed at" is a question that has to be answerable before it starts rather
+  // than afterwards. See .github/workflows/e2e-staging.yml.
+  "vars": {
+    "EVENTIQ_ENV": "production"
+  },
+  // A second Worker, with its own database and its own bucket, for the suite
+  // that writes and for anything else worth trying before eventiq.win sees it.
+  //
+  // Everything a binding is has to be repeated here: wrangler inherits the
+  // build settings — main, the compatibility date and flags, the assets
+  // directory, observability — and deliberately does not inherit bindings or
+  // vars, so an environment cannot end up silently pointed at production's
+  // database by leaving a line out. The ratelimit namespace ids are local to a
+  // Worker and need no provisioning, so they are the same numbers.
+  //
+  // There is no route or custom domain here. `wrangler deploy --env staging`
+  // gives it eventiq-staging.<subdomain>.workers.dev, which is enough for the
+  // suite and for a link to somebody. Attaching staging.eventiq.win is an
+  // optional step and is in DEPLOY.md rather than in this file, because it
+  // wants a zone permission the deploy otherwise does not need.
+  "env": {
+    "staging": {
+      "name": "eventiq-staging",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "eventiq-staging"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "eventiq-staging",
+          // Written by `node scripts/deploy.mjs --env staging --provision`.
+          "database_id": "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE",
+          "migrations_dir": "db/migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "eventiq-media-staging"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "IMPORT_LOOKUPS",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        },
+        {
+          "name": "LOGIN_ATTEMPTS",
+          "namespace_id": "1002",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        },
+        {
+          "name": "TRACK_WRITES",
+          "namespace_id": "1003",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          }
+        }
+      ],
+      "vars": {
+        "EVENTIQ_ENV": "staging"
+      }
+    }
   }
 }

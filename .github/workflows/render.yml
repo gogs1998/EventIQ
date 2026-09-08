@@ -4,12 +4,17 @@
 # who sent their photograph on the Thursday had no video unless somebody was
 # around to make one. This is a machine that is always around.
 #
-# It renders against the live site and writes to the live D1 and R2, so it holds
-# real credentials and is deliberately narrow: it renders, and it does nothing
-# else. The renderer takes a lease on each bout, so a scheduled run and somebody
-# running the script on their own machine cannot render the same bout twice, and
-# a run killed by a timeout releases its bouts by lapsing rather than by tidying
-# up.
+# It renders against a live site and writes to that environment's D1 and R2, so
+# it holds real credentials and is deliberately narrow: it renders, and it does
+# nothing else. The renderer takes a lease on each bout, so a scheduled run and
+# somebody running the script on their own machine cannot render the same bout
+# twice, and a run killed by a timeout releases its bouts by lapsing rather than
+# by tidying up.
+#
+# The hourly run is always production, which is what a schedule is for. Staging
+# is something a person asks for by hand, and it needs its own STAGING_URL and
+# STAGING_RENDER_KEY secrets — the render key is per Worker, so production's
+# opens nothing there.
 name: Render tapes
 
 on:
@@ -21,6 +26,11 @@ on:
       bouts:
         description: Bout numbers, comma separated. Leave blank for everything queued or out of date
         required: false
+      environment:
+        description: Which Worker, database and bucket to render against
+        type: choice
+        options: [production, staging]
+        default: production
   # For the app, or anything else, to ask:
   #   gh api repos/:owner/:repo/dispatches -f event_type=render \
   #     -f 'client_payload[slug]=cage-county-12'
@@ -45,8 +55,16 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RENDER_KEY: ${{ secrets.RENDER_KEY }}
-      BASE: https://eventiq.win
+      # Production unless somebody asks for the other one. The schedule never
+      # does: an hourly run exists to keep the live cards' videos current, and a
+      # staging render is something a person starts while trying something out.
+      ENVIRONMENT: ${{ github.event.inputs.environment || github.event.client_payload.environment || 'production' }}
+      # A render writes to whichever database and bucket --env names, and reads
+      # the capture page from whichever site BASE names. They have to be the same
+      # environment or the published key names an object the other site cannot
+      # serve, so both are chosen here rather than passed in.
+      RENDER_KEY: ${{ (github.event.inputs.environment || github.event.client_payload.environment) == 'staging' && secrets.STAGING_RENDER_KEY || secrets.RENDER_KEY }}
+      BASE: ${{ (github.event.inputs.environment || github.event.client_payload.environment) == 'staging' && secrets.STAGING_URL || 'https://eventiq.win' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -81,12 +99,13 @@ jobs:
 
       - name: Check the credentials before spending a runner on them
         run: |
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RENDER_KEY; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RENDER_KEY BASE; do
             if [ -z "${!name}" ]; then
-              echo "$name is not set. See DEPLOY.md." >&2
+              echo "$name is not set for the $ENVIRONMENT environment. See DEPLOY.md." >&2
               exit 1
             fi
           done
+          echo "Rendering $ENVIRONMENT against $BASE"
 
       # One show, named by hand or by a dispatch from the app.
       - name: Render one show
@@ -104,11 +123,12 @@ jobs:
             # take the rest of the list with it.
             failed=0
             for bout in ${BOUTS//,/ }; do
-              npm run render -- --slug "$SLUG" --bout "$bout" --publish --remote --base "$BASE" || failed=1
+              npm run render -- --slug "$SLUG" --bout "$bout" --publish --remote \
+                --base "$BASE" --env "$ENVIRONMENT" || failed=1
             done
             exit $failed
           fi
-          npm run render -- --slug "$SLUG" --stale --publish --remote --base "$BASE"
+          npm run render -- --slug "$SLUG" --stale --publish --remote --base "$BASE" --env "$ENVIRONMENT"
 
       # Every published show that has not already happened. Which of its bouts
       # need doing is the renderer's question, not this file's: --stale takes

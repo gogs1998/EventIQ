@@ -4,6 +4,7 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --still 300
+ *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish --env staging
  *
  * Before rendering anything it makes the cutouts that do not exist yet, because
  * a fighter's photograph arrives through a Worker and background removal cannot
@@ -44,6 +45,7 @@ import { pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
 import { ensureCutouts, needsCutout } from "./cutouts.mjs";
 import { devVars } from "./dev-vars.mjs";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 // Node strips the types on the way in, so there is one definition of what a
 // render depends on rather than one here and a drifting copy in the app.
@@ -58,8 +60,13 @@ import {
 const WIDTH = 1080;
 const HEIGHT = 1920;
 const FPS = 30;
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
+// Which database is claimed from and which bucket the mp4 lands in. A renderer
+// pointed at one environment's site and writing to the other's rows would
+// publish a key nothing can serve, so both come from the same flag.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (message) => {
+  console.error(`\n${message}\n`);
+  process.exit(1);
+});
 
 /**
  * The credential for the capture page.

@@ -3,6 +3,7 @@
  *
  *   npm run db:seed              # local Miniflare D1 under .wrangler
  *   npm run db:seed:remote -- --i-understand-this-rewrites-production
+ *   npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
  *
  * The remote form wants that flag, a SEED_PROMOTER_PASSWORD, and a live database
  * holding nobody but the seeded promoter. All three are there because this is a
@@ -27,9 +28,16 @@ import { event, fighters, sponsors } from "@/data/event";
 import { hashPassword } from "@/lib/auth";
 import { buildSeed, SEED_PROMOTER_SLUG } from "@/lib/seed";
 import { devVars } from "./dev-vars.mjs";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
 const remote = process.argv.includes("--remote");
+
+/**
+ * Which database this rewrites. Production unless `--env staging` says
+ * otherwise, so the command that has always meant the demo card still does.
+ */
+const DATABASE = environmentFrom(process.argv, refuse).database;
 
 /**
  * The flag that has to be typed out in full before this touches a live database.
@@ -108,7 +116,7 @@ function checkRemoteIsStillTheDemo(): void {
         "wrangler",
         "d1",
         "execute",
-        "eventiq",
+        DATABASE,
         "--remote",
         "--json",
         "--command",
@@ -191,7 +199,16 @@ writeFileSync(file, sql);
 // statements buries the invite links this script exists to show. Swallowed on
 // success, surfaced by execFileSync throwing on failure.
 execFileSync(
-  ...localBin(["wrangler", "d1", "execute", "eventiq", remote ? "--remote" : "--local", "--file", file, "--yes"]),
+  ...localBin([
+    "wrangler",
+    "d1",
+    "execute",
+    DATABASE,
+    remote ? "--remote" : "--local",
+    "--file",
+    file,
+    "--yes",
+  ]),
   { stdio: ["inherit", "ignore", "inherit"] },
 );
 

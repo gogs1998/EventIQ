@@ -1,3 +1,4 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { sql } from "drizzle-orm";
 import { getDb, getMedia } from "@/lib/db";
 import { logError } from "@/lib/log";
@@ -16,6 +17,12 @@ import { logError } from "@/lib/log";
  * database, what the bindings are called, or that a table is missing — the
  * message goes to the log with the rest of the context, and the caller gets a
  * boolean.
+ *
+ * The one thing it also says is which environment answered, because the suite
+ * that walks this product writes as it goes and the only bad way to run it is
+ * against the wrong Worker. That is not a fact about the data; it is the label
+ * on the tin, and having it readable before a run is worth more than the nothing
+ * it gives away.
  */
 
 // Answers about the state of the bindings right now, so it must never be cached
@@ -52,7 +59,12 @@ export async function GET(): Promise<Response> {
   const [d1, r2] = await Promise.all([d1Answers(), r2Answers()]);
   const ok = d1 && r2;
 
-  return new Response(JSON.stringify({ ok, d1, r2 }), {
+  // "development" where nothing has bound a var, which is a dev server and is
+  // the honest answer rather than a guess at which of the two it resembles.
+  const { env } = await getCloudflareContext({ async: true });
+  const environment = env.EVENTIQ_ENV ?? "development";
+
+  return new Response(JSON.stringify({ ok, env: environment, d1, r2 }), {
     status: ok ? 200 : 503,
     headers: {
       "content-type": "application/json",
