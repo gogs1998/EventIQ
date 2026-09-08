@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "9a8c6091-c3ad-43bd-b5a4-d02c15fc8d8b",
-  "prevId": "2b9d20df-590b-499b-ae86-522b85d6fdc6",
+  "prevId": "bd922632-ab21-43ac-9099-db563d4d01f2",
   "tables": {
     "analytics_events": {
       "name": "analytics_events",
@@ -190,6 +190,21 @@
         },
         "sponsor_id": {
           "name": "sponsor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "cancelled_note": {
+          "name": "cancelled_note",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -447,6 +462,21 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "events_promoter": {
+          "name": "events_promoter",
+          "columns": [
+            "promoter_id"
+          ],
+          "isUnique": false
+        },
+        "events_published_date": {
+          "name": "events_published_date",
+          "columns": [
+            "published",
+            "date"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -614,13 +644,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "stylised": {
-          "name": "stylised",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "instagram": {
           "name": "instagram",
           "type": "text",
@@ -704,6 +727,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "stylised": {
+          "name": "stylised",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -764,12 +794,27 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
         "import_cache_fetched_at": {
           "name": "import_cache_fetched_at",
           "columns": [
+            "fetched_at"
+          ],
+          "isUnique": false
+        },
+        "import_cache_scope": {
+          "name": "import_cache_scope",
+          "columns": [
+            "scope",
             "fetched_at"
           ],
           "isUnique": false
@@ -794,7 +839,7 @@
           "name": "token",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "event_id": {
@@ -832,6 +877,48 @@
           "notNull": false,
           "autoincrement": false
         },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_digest": {
+          "name": "token_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "token_cipher": {
+          "name": "token_cipher",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sent_channel": {
+          "name": "sent_channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "consented_at": {
           "name": "consented_at",
           "type": "integer",
@@ -845,35 +932,21 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
         }
       },
       "indexes": {
-        "invites_token_unique": {
-          "name": "invites_token_unique",
-          "columns": [
-            "token"
-          ],
-          "isUnique": true
-        },
         "invites_event_fighter": {
           "name": "invites_event_fighter",
           "columns": [
             "event_id",
             "fighter_id"
+          ],
+          "isUnique": true
+        },
+        "invites_token_digest": {
+          "name": "invites_token_digest",
+          "columns": [
+            "token_digest"
           ],
           "isUnique": true
         }
@@ -976,6 +1049,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "session_version": {
+          "name": "session_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
       "indexes": {
@@ -1161,13 +1242,183 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "mark_key": {
+          "name": "mark_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "sponsors_promoter": {
+          "name": "sponsors_promoter",
+          "columns": [
+            "promoter_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "sponsors_promoter_id_promoters_id_fk": {
           "name": "sponsors_promoter_id_promoters_id_fk",
           "tableFrom": "sponsors",
+          "tableTo": "promoters",
+          "columnsFrom": [
+            "promoter_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "password_resets": {
+      "name": "password_resets",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "promoter_id": {
+          "name": "promoter_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_digest": {
+          "name": "token_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "password_resets_token_digest": {
+          "name": "password_resets_token_digest",
+          "columns": [
+            "token_digest"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "password_resets_promoter_id_promoters_id_fk": {
+          "name": "password_resets_promoter_id_promoters_id_fk",
+          "tableFrom": "password_resets",
+          "tableTo": "promoters",
+          "columnsFrom": [
+            "promoter_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "render_keys": {
+      "name": "render_keys",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "promoter_id": {
+          "name": "promoter_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "render_keys_digest": {
+          "name": "render_keys_digest",
+          "columns": [
+            "digest"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "render_keys_promoter_id_promoters_id_fk": {
+          "name": "render_keys_promoter_id_promoters_id_fk",
+          "tableFrom": "render_keys",
           "tableTo": "promoters",
           "columnsFrom": [
             "promoter_id"
