@@ -43,39 +43,97 @@ export const promoters = sqliteTable("promoters", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const events = sqliteTable("events", {
-  id: text("id").primaryKey(),
-  promoterId: text("promoter_id")
-    .notNull()
-    .references(() => promoters.id, { onDelete: "cascade" }),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  tagline: text("tagline"),
-  /** Calendar day of the show, ISO `YYYY-MM-DD`. */
-  date: text("date").notNull(),
-  doorsTime: text("doors_time").notNull(),
-  firstBellTime: text("first_bell_time").notNull(),
-  venue: text("venue").notNull(),
-  city: text("city").notNull(),
-  sanctioning: text("sanctioning"),
-  backdrop: text("backdrop"),
-  /** Unpublished events are visible to their promoter and nobody else. */
-  published: integer("published", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+/**
+ * The keys the mp4 renderer presents instead of a session.
+ *
+ * There used to be one, `RENDER_KEY`, set with `wrangler secret put`, and it
+ * read every card on the instance published or not. With one promoter that is
+ * the right size of credential; with two it is a cross-tenant read, and the
+ * machine holding it is a GitHub runner rather than the operator's laptop.
+ *
+ * So a key is a row. `promoterId` is the whole tenancy decision: null is the
+ * runner, which renders whatever is queued and therefore has to reach every
+ * promoter, and a slug-scoped key reaches one promoter's shows and answers 404
+ * on everybody else's — which is what a promoter renders their own drafts with.
+ *
+ * Only the digest is stored, so a copy of the database is not a set of working
+ * keys, and the key itself is printed once by scripts/render-key.mjs and never
+ * again. Expiry and revocation are timestamps rather than a deletion, because
+ * the question "what could read this card, and when did it stop" is worth being
+ * able to answer after the fact.
+ */
+export const renderKeys = sqliteTable(
+  "render_keys",
+  {
+    id: text("id").primaryKey(),
+    /** Null means every promoter: that is the runner's key, and nothing else. */
+    promoterId: text("promoter_id").references(() => promoters.id, { onDelete: "cascade" }),
+    /** SHA-256 of the key, base64url. Never the key. */
+    digest: text("digest").notNull(),
+    /** Whose machine holds it, in words, so revoking the right one is possible. */
+    label: text("label"),
+    createdAt: integer("created_at").notNull(),
+    /** Null never expires. A dated key is the one to hand to somebody else. */
+    expiresAt: integer("expires_at"),
+    revokedAt: integer("revoked_at"),
+  },
+  // Two rows must never carry the same digest: that would be two labels for one
+  // credential, and only one of them would ever be revoked.
+  (table) => [uniqueIndex("render_keys_digest").on(table.digest)],
+);
 
-export const sponsors = sqliteTable("sponsors", {
-  id: text("id").primaryKey(),
-  promoterId: text("promoter_id")
-    .notNull()
-    .references(() => promoters.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  qualifier: text("qualifier"),
-  mark: text("mark"),
-  url: text("url"),
-  createdAt: integer("created_at").notNull(),
-});
+export const events = sqliteTable(
+  "events",
+  {
+    id: text("id").primaryKey(),
+    promoterId: text("promoter_id")
+      .notNull()
+      .references(() => promoters.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    tagline: text("tagline"),
+    /** Calendar day of the show, ISO `YYYY-MM-DD`. */
+    date: text("date").notNull(),
+    doorsTime: text("doors_time").notNull(),
+    firstBellTime: text("first_bell_time").notNull(),
+    venue: text("venue").notNull(),
+    city: text("city").notNull(),
+    sanctioning: text("sanctioning"),
+    backdrop: text("backdrop"),
+    /** Unpublished events are visible to their promoter and nobody else. */
+    published: integer("published", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    // Every promoter-scoped read starts here — their shows list, the ownership
+    // check on every action, the previous-show panel — and with a second
+    // promoter on the instance those stop being a scan of the only account.
+    index("events_promoter").on(table.promoterId),
+    // What the hourly renderer asks for: published shows dated from a couple of
+    // days ago onwards. Published leads because it is the equality half.
+    index("events_published_date").on(table.published, table.date),
+  ],
+);
+
+export const sponsors = sqliteTable(
+  "sponsors",
+  {
+    id: text("id").primaryKey(),
+    promoterId: text("promoter_id")
+      .notNull()
+      .references(() => promoters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    qualifier: text("qualifier"),
+    mark: text("mark"),
+    url: text("url"),
+    createdAt: integer("created_at").notNull(),
+  },
+  // loadCard reads a promoter's whole book once per programme page, so this is
+  // one indexed read per card rather than a scan of every sponsor on the
+  // instance — which is one table a second promoter makes immediately bigger.
+  (table) => [index("sponsors_promoter").on(table.promoterId)],
+);
 
 export const fighters = sqliteTable(
   "fighters",
