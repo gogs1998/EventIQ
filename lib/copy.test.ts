@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_COPY,
   ACTION_ERRORS,
   APP_ERROR,
   boutCountLabel,
@@ -11,6 +12,7 @@ import {
   NOT_FOUND,
   PAGE_ERROR,
   PROGRAMME_NOT_FOUND,
+  RESET_COPY,
   programmeLinkNote,
   RENDER_AGAIN,
   RENDER_SECTION,
@@ -23,6 +25,7 @@ import {
   winsEdge,
   renderCountLabel,
 } from "@/lib/copy";
+import { PASSWORD_MIN_LENGTH } from "@/lib/auth";
 
 /**
  * A show can be published before its running order goes in, so every one of
@@ -391,5 +394,114 @@ describe("the video panel", () => {
   it("counts the videos that are of the card as it stands", () => {
     expect(renderCountLabel(4, 15)).toBe("4 of 15 up to date");
     expect(renderCountLabel(0, 0)).toBe("No bouts yet");
+  });
+});
+
+/**
+ * The account copy: changing a password, and setting one from a link an operator
+ * minted. Held to every rule the error copy is held to, with one carve-out that
+ * is written down rather than left as a gap.
+ *
+ * The carve-out is duration. Nothing else in the product may say how long
+ * anything takes, because those were promises about a machine or about the
+ * promoter's afternoon and none of them were ours to make. How long a reset link
+ * lasts is different in kind: it is a fact about a credential the reader is
+ * holding, and there is no other way for them to find it out.
+ */
+
+/** The only two lines allowed to name a duration, and the reason is above. */
+const DURATION_ALLOWED = [RESET_COPY.life, RESET_COPY.deadBody];
+
+const ACCOUNT_STRINGS = [...Object.values(ACCOUNT_COPY), ...Object.values(RESET_COPY)];
+
+describe("the account copy", () => {
+  it("never uses a gendered pronoun", () => {
+    for (const line of ACCOUNT_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+    }
+  });
+
+  /**
+   * Forgetting a password is not a lapse and a wrong one is a typo before it is
+   * anything else. This is the copy where "never shame the promoter" is easiest
+   * to drop, because the shortest way to say what happened is to say what they
+   * did.
+   */
+  it("never tells the promoter whose fault it is", () => {
+    for (const line of ACCOUNT_STRINGS) {
+      expect(line).not.toMatch(/fault|blame|sorry/i);
+      expect(line).not.toMatch(/you (broke|failed|forgot|should)/i);
+      expect(line).not.toMatch(/invalid|illegal|incorrect|bad|must not/i);
+      expect(line).not.toMatch(/weak|too simple|not strong/i);
+    }
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of ACCOUNT_STRINGS) {
+      expect(line).not.toMatch(/paper|print(ed|s)? programme/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line.length).toBeGreaterThan(4);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("states a duration only where it is a fact the reader needs", () => {
+    for (const line of ACCOUNT_STRINGS) {
+      if (DURATION_ALLOWED.includes(line)) continue;
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+    }
+    for (const line of DURATION_ALLOWED) expect(line).toContain("half an hour");
+  });
+
+  /** The same rule as the rest: what went wrong never names the inside of this. */
+  it("never names what actually broke", () => {
+    for (const line of ACCOUNT_STRINGS) {
+      expect(line).not.toMatch(/D1|R2|SQL|sqlite|drizzle|token|cookie|binding|500|stack|hash/i);
+    }
+  });
+});
+
+describe("what the password rules say", () => {
+  /**
+   * A policy that says twelve and enforces ten is a refusal the promoter cannot
+   * act on, and the two live in different files. This is the join.
+   */
+  it("agrees with the length the action enforces", () => {
+    expect(PASSWORD_MIN_LENGTH).toBe(12);
+    expect(ACCOUNT_COPY.hint).toContain("Twelve characters");
+    expect(ACCOUNT_COPY.tooShort).toContain("twelve characters");
+  });
+
+  it("says length is all that is asked, rather than implying hidden rules", () => {
+    expect(ACCOUNT_COPY.hint).toMatch(/nothing else is asked/i);
+  });
+});
+
+describe("what changing a password says it does", () => {
+  /**
+   * The revocation is the reason the column exists, and a promoter who does not
+   * know it happened will not understand why their phone is asking them to sign
+   * in again. Both pages have to say so.
+   */
+  it("tells the promoter the other devices are signed out", () => {
+    expect(ACCOUNT_COPY.body).toMatch(/signs out everywhere else/i);
+    expect(ACCOUNT_COPY.changed).toMatch(/signed out/i);
+    expect(RESET_COPY.body).toMatch(/signs out everywhere/i);
+  });
+
+  /** And that the browser they are standing in front of is not one of them. */
+  it("says this browser stays signed in", () => {
+    expect(ACCOUNT_COPY.body).toContain("This browser stays signed in");
+  });
+
+  /**
+   * A link that expired and one somebody has already spent answer alike, because
+   * the holder does the same thing about either: ask for another.
+   */
+  it("says what to do about a link that will not open", () => {
+    expect(RESET_COPY.deadBody).toMatch(/make another|another/i);
+    expect(RESET_COPY.deadBody).not.toMatch(/expired at|already used by/i);
   });
 });

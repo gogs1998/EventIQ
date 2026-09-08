@@ -309,3 +309,74 @@ export function renderCountLabel(current: number, bouts: number): string {
   if (bouts <= 0) return "No bouts yet";
   return `${current} of ${bouts} up to date`;
 }
+
+/* -------------------------------------------------------------------------
+ * The promoter's own account
+ *
+ * Changing a password and setting one from a reset link. Promoter accounts are
+ * created by an operator rather than by signing up, so there is no "forgotten
+ * your password?" link to write copy for: what there is instead is a promoter
+ * on the phone to whoever runs this, and a link minted for them by hand.
+ *
+ * Two things shape the register. The first is the standing rule that nothing
+ * here shames anybody — forgetting a password is not a lapse, and a wrong
+ * current password is a typo before it is anything else. The second is that
+ * these are the only sentences in the product that state a duration, and that is
+ * a deliberate exception rather than a slip: how long a reset link lasts is a
+ * fact the holder has no other way of finding out, unlike "takes about four
+ * minutes", which was a promise nobody could keep. The tone test carves out
+ * exactly those two lines and holds everything else to the usual rule.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * The change-password page. `hint` states the floor in words; a test holds it to
+ * PASSWORD_MIN_LENGTH, because a policy that says twelve and enforces ten is a
+ * refusal the promoter cannot act on.
+ */
+export const ACCOUNT_COPY = {
+  heading: "Your password",
+  body:
+    "Changing it here signs out everywhere else this account is signed in, on every " +
+    "device. This browser stays signed in.",
+  currentLabel: "Current password",
+  newLabel: "New password",
+  confirmLabel: "New password again",
+  hint:
+    "Twelve characters or more. Nothing else is asked of it — length is what makes a " +
+    "password hard to guess, and a phrase is easier to remember than a jumble.",
+  submit: "Change password",
+  pending: "Changing…",
+  changed: "Password changed. Everywhere else this account was signed in has been signed out.",
+
+  needBoth: "Enter the current password and a new one.",
+  tooShort: "A new password needs to be twelve characters or more.",
+  mismatch: "The two new passwords are not the same. Type the new one again.",
+  currentNotRecognised: "That current password was not recognised. Try it again.",
+  notChanged: "The password was not changed. Try again in a moment.",
+} as const;
+
+/**
+ * The page behind a reset link. It is read by somebody who has been handed a URL
+ * and may have no idea what state their account is in, so it says what the link
+ * does before it asks for anything.
+ */
+export const RESET_COPY = {
+  heading: "Set a new password",
+  body:
+    "Setting a password here signs out everywhere this account is signed in. Sign in " +
+    "again with the new one afterwards.",
+  /** One of the two lines allowed to state a duration. See the note above. */
+  life: "A reset link lasts half an hour and can be used once.",
+  submit: "Set the password",
+  pending: "Setting…",
+  done: "Password set. Sign in with it.",
+
+  deadHeading: "This link is no longer active",
+  /** The other. */
+  deadBody:
+    "A reset link lasts half an hour and can be used once, so this one has either been " +
+    "spent or run out. Whoever sent it can make another.",
+
+  tooMany: "That has been tried a few times just now. Leave it a moment and try again.",
+  notSet: "The password was not set. Try again in a moment.",
+} as const;

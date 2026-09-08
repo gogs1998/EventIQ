@@ -235,7 +235,13 @@ function Head({
         >
           Table card
         </Link>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Link
+            href="/promoter/account"
+            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+          >
+            Your account
+          </Link>
           <SignOutButton />
         </div>
       </div>

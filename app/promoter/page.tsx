@@ -32,7 +32,15 @@ export default async function PromoterHome() {
           <span className="label">Promoter</span>
           <h1 className="display mt-2 text-4xl">{promoter.name}</h1>
         </div>
-        <SignOutButton />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/promoter/account"
+            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+          >
+            Your account
+          </Link>
+          <SignOutButton />
+        </div>
       </header>
 
       <section className="mt-8">
