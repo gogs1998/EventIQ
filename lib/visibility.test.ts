@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { digestsMatch, secretDigest, secretMatches } from "@/lib/auth";
 import type { LoadedCard } from "@/lib/db/queries";
 import {
+  inviteMayReach,
   inviteTokenFromReferrer,
   loadOwnedCard,
   visibleCardFor,
@@ -486,6 +487,39 @@ describe("mediaVisibleTo", () => {
       visible: true,
       public: true,
     });
+  });
+
+  /**
+   * The questionnaire draws the sponsors a fighter can pick and a preview of
+   * their own card, both with the emblems on them. Before this, the only
+   * credential the sponsors/ rule had on a draft show was the promoter's own
+   * session, so a fighter following their link — and a promoter checking the
+   * preview through one — got a gap where the artwork just uploaded should be.
+   */
+  it("shows a fighter the emblems on their own card before it is published", () => {
+    expect(
+      mediaVisibleTo({ events: draft, ownerId: "cage-county", heldByInvite: true }, stranger),
+    ).toEqual({ visible: true, public: false });
+  });
+});
+
+/**
+ * A credential that reaches further than the page it was sent for is how both
+ * of the holes in section 6d were made, so which shapes of key an invite is a
+ * credential for is written down rather than decided at the call site. A prefix
+ * added later has to come here and say.
+ */
+describe("inviteMayReach", () => {
+  it("covers a picture of the fighter whose link it is", () => {
+    expect(inviteMayReach("portrait")).toBe(true);
+  });
+
+  it("covers a sponsor's emblem, because the questionnaire draws it", () => {
+    expect(inviteMayReach("sponsor")).toBe(true);
+  });
+
+  it("does not stretch to a bout's video, which no questionnaire asks for", () => {
+    expect(inviteMayReach("render")).toBe(false);
   });
 });
 

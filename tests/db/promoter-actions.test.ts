@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
 import {
   addBout,
-  addSponsor,
   createEvent,
   removeBout,
   setBoutOff,
@@ -12,6 +11,7 @@ import {
   updateEvent,
   updateFighter,
 } from "@/app/promoter/actions";
+import { addSponsor } from "@/app/promoter/sponsor-actions";
 import {
   markInviteSent,
   regenerateInvite,

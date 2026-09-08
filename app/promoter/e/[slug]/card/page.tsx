@@ -5,6 +5,7 @@ import { AddBoutForm } from "@/app/promoter/e/[slug]/card/AddBoutForm";
 import { AddSponsorForm } from "@/app/promoter/e/[slug]/card/AddSponsorForm";
 import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
+import { SponsorRow } from "@/app/promoter/e/[slug]/card/SponsorRow";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { EMPTY_CARD_EDITOR, boutCountLabel, boutsOffLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
@@ -107,6 +108,20 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
           come up with them; the name is set in the app&rsquo;s own type either way, so it
           can never come out misspelled.
         </p>
+
+        {/* The ones already on the account, so an emblem can be changed or taken
+            off after the sponsor was added rather than only as it is created —
+            the alternative was deleting the sponsor, which takes every bout
+            placement sold against it. */}
+        {sponsors.length ? (
+          <div className="mt-4 grid gap-3">
+            {sponsors.map((sponsor) => (
+              <SponsorRow key={sponsor.id} slug={event.slug} sponsor={sponsor} />
+            ))}
+          </div>
+        ) : null}
+
+        <h3 className="label mt-8">Add a sponsor</h3>
         <AddSponsorForm slug={event.slug} />
       </section>
     </main>

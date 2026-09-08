@@ -7,6 +7,7 @@ import {
   eventsOfPromoter,
   eventsShowingPortrait,
   inviteHoldsPortrait,
+  inviteHoldsSponsorMark,
   loadCard,
   loadCardById,
   renderKeysFor,
@@ -342,7 +343,11 @@ export function parseMediaKey(key: string): MediaKey | null {
 export type MediaSubject = {
   /** Every show the object appears on. Empty means it hangs off nothing. */
   events: readonly { published: boolean; promoterId: string }[];
-  /** The caller came from the questionnaire of the fighter this portrait is of. */
+  /**
+   * The caller came from a questionnaire whose invite is a credential for this
+   * object: the fighter's own portrait, or a sponsor's emblem on the card that
+   * link opens. See `inviteMayReach`.
+   */
   heldByInvite?: boolean;
   /**
    * The promoter the object belongs to directly, rather than through a show.
@@ -404,6 +409,31 @@ export function inviteTokenFromReferrer(referrer: string | null | undefined): st
 }
 
 /**
+ * Which shapes of key an invite in the referrer can be a credential for.
+ *
+ * A portrait, because it is a picture of the fighter whose link it is. And a
+ * sponsor's emblem, because the questionnaire draws the sponsors that fighter
+ * can pick and the preview of their own card, so on a show nobody has published
+ * yet the emblem was the one thing on that page they could not fetch.
+ *
+ * A render is not one, and that is the point of writing this down rather than
+ * asking it at the call site: a fighter's form has no reason to fetch a bout's
+ * mp4, and a credential that reaches further than the page it was sent for is
+ * how both of the holes in section 6d were made. A prefix added later has to
+ * come here and say.
+ */
+export function inviteMayReach(kind: MediaKey["kind"]): boolean {
+  return kind === "portrait" || kind === "sponsor";
+}
+
+/** The question itself, per shape. Anything inviteMayReach refuses is a no here too. */
+async function inviteHolds(db: Db, token: string, target: MediaKey): Promise<boolean> {
+  if (target.kind === "portrait") return inviteHoldsPortrait(db, token, target.path);
+  if (target.kind === "sponsor") return inviteHoldsSponsorMark(db, token, target.promoterId);
+  return false;
+}
+
+/**
  * Whether this key may be served to this caller, with the credentials read in
  * cost order: the published case is one query and no cookie, and nothing else is
  * asked for until it has failed.
@@ -443,9 +473,9 @@ export async function mediaVisibility(
   const viewerId = keyMatched ? null : (await currentPromoter())?.id;
 
   const owned = mediaVisibleTo({ events, ownerId }, { keyMatched, viewerId });
-  if (owned.visible || target.kind !== "portrait") return owned;
+  if (owned.visible || !inviteMayReach(target.kind)) return owned;
 
   const token = inviteTokenFromReferrer(requestHeaders.get("referer"));
-  const heldByInvite = !!token && (await inviteHoldsPortrait(db, token, target.path));
+  const heldByInvite = !!token && (await inviteHolds(db, token, target));
   return mediaVisibleTo({ events, heldByInvite }, { keyMatched, viewerId });
 }

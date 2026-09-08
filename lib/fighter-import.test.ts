@@ -143,4 +143,51 @@ describe("recordDiff", () => {
     expect(fills(recordDiff({ name: "   ", hometown: " " }, tape))).toContain("name");
     expect(fills(recordDiff({ name: "   ", hometown: " " }, tape))).toContain("hometown");
   });
+
+  /**
+   * Sherdog counts the knockouts and submissions it lists, and the parser has
+   * always carried them, but the promoter's importer wrote four fields and
+   * dropped these two. So a fighter whose record was filled in from a page kept
+   * an empty Finishes row on the tape and no finish-rate hook, off a page that
+   * had the numbers on it.
+   */
+  describe("the finishes", () => {
+    const finished = { ...tape, finishes: { ko: 2, sub: 1 } };
+
+    it("comes across when the card has neither column", () => {
+      expect(fills(recordDiff({ name: "Owen Pryce" }, finished))).toContain("finishes");
+    });
+
+    it("names both columns rather than totalling them", () => {
+      const row = recordDiff({}, finished).find((entry) => entry.key === "finishes");
+      expect(row?.label).toBe("Finishes");
+      expect(row?.to).toBe("2 by knockout, 1 by submission");
+    });
+
+    /** No knockouts is an answer. Dropping it would show half a pair. */
+    it("says a zero rather than leaving half the pair out", () => {
+      const none = { ...tape, finishes: { ko: 0, sub: 3 } };
+      expect(recordDiff({}, none).find((entry) => entry.key === "finishes")?.to).toBe(
+        "0 by knockout, 3 by submission",
+      );
+    });
+
+    it("leaves what is on the card where it is, and still shows the two disagreeing", () => {
+      const row = recordDiff({ finishes: { ko: 1, sub: 0 } }, finished).find(
+        (entry) => entry.key === "finishes",
+      );
+      expect(row?.fills).toBe(false);
+      expect(row?.from).toBe("1 by knockout, 0 by submission");
+    });
+
+    it("sits with the record it came off, before the age", () => {
+      expect(recordDiff({}, finished).map((row) => row.key)).toEqual([
+        "name",
+        "record",
+        "finishes",
+        "age",
+        "hometown",
+      ]);
+    });
+  });
 });

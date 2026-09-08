@@ -731,6 +731,44 @@ export async function inviteHoldsPortrait(
   return !!row && inviteLive(row, now);
 }
 
+/**
+ * Whether this invite token belongs to a fighter on a show this promoter runs.
+ *
+ * The questionnaire draws the sponsors a fighter can pick and the preview of
+ * their own card, both with the emblems on them. On a show nobody has published
+ * yet the only credential the `sponsors/` rule had was the promoter's own
+ * session — so a fighter following their link, and a promoter checking that
+ * preview through one, got a gap where the artwork just uploaded should be. The
+ * invite is the same credential that opens the page the emblem is on, and it is
+ * held to the same liveness as everywhere else: a link that has been revoked
+ * stops opening the pictures on the questionnaire too.
+ *
+ * Matched on the promoter, which is what the key names. Sponsors belong to a
+ * promoter and all of them are already on the picker in front of every fighter
+ * that promoter has invited, so narrowing this to the ones placed on one bout
+ * would refuse an emblem the same page is drawing anyway.
+ */
+export async function inviteHoldsSponsorMark(
+  db: Db,
+  token: string,
+  promoterId: string,
+  now = Date.now(),
+): Promise<boolean> {
+  const digest = await digestToken(await inviteSecret(), token);
+  const [row] = await db
+    .select({ expiresAt: schema.invites.expiresAt, revokedAt: schema.invites.revokedAt })
+    .from(schema.invites)
+    .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
+    .where(
+      and(
+        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+        eq(schema.events.promoterId, promoterId),
+      ),
+    )
+    .limit(1);
+  return !!row && inviteLive(row, now);
+}
+
 export async function loadPromoterEvents(db: Db, promoterId: string) {
   return db
     .select()

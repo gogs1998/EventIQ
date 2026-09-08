@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { addSponsor } from "@/app/promoter/actions";
+import { addSponsor } from "@/app/promoter/sponsor-actions";
 import { Field, inputClass } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
 

@@ -458,6 +458,17 @@ export const RENDER_STATE_COPY = {
     label: "Not made yet",
     note: "No video for this bout so far.",
   },
+  /**
+   * Not one of the six states above, because a bout that is off never reaches
+   * the queue at all: `boutFingerprints` leaves it out, so nothing asks for it
+   * and nothing reports on it. It is listed here because it keeps its place on
+   * the running order, and "Not made yet" would read as a video somebody has
+   * still to get round to rather than one nobody is waiting for.
+   */
+  withdrawn: {
+    label: WITHDRAWN.label,
+    note: "Nothing new is made for a bout that is off. Put the bout back on and it goes into the queue with the rest.",
+  },
 } as const;
 
 /** The button that asks for one. It queues a bout; nothing renders in the browser. */

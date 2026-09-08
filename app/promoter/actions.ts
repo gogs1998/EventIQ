@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
-import { getDb, getMedia, type Db } from "@/lib/db";
+import { getDb, type Db } from "@/lib/db";
 import { newInviteValues, uniqueSlug } from "@/lib/db/queries";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import {
@@ -17,8 +17,6 @@ import {
   type ImportTarget,
   type RecordFill,
 } from "@/lib/fighter-import";
-import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
-import { logError } from "@/lib/log";
 import { withinPromoterImportLimit } from "@/lib/rate-limit";
 import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
@@ -714,6 +712,14 @@ export async function applyFighterRecord(
           ...(filling.has("record") && tape.record
             ? { recordW: tape.record.w, recordL: tape.record.l, recordD: tape.record.d }
             : {}),
+          // Both or neither, for the same reason: queries.ts reads the pair as
+          // all-or-nothing, and a stored knockout count with no submission count
+          // beside it is not a set of finishes. `finishCount` holds the total to
+          // the wins, so a page that disagrees with its own record cannot put
+          // more finishes on the tape than there are wins to have had them in.
+          ...(filling.has("finishes") && tape.finishes
+            ? { finishKo: tape.finishes.ko, finishSub: tape.finishes.sub }
+            : {}),
           updatedAt: Date.now(),
         })
         .where(eq(schema.fighters.id, fighterId));
@@ -774,11 +780,12 @@ async function importableFighter(
 }
 
 /**
- * The four boxes an import can fill, off the stored row.
+ * The five boxes an import can fill, off the stored row.
  *
  * The record is all three columns or none, exactly as lib/db/queries.ts reads
  * it: a partly stored record is not a record, and reading it as one would let an
- * import top up a fighter's losses without their wins.
+ * import top up a fighter's losses without their wins. The finishes are the same
+ * rule over two columns.
  */
 function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
   return {
@@ -786,6 +793,10 @@ function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
     record:
       fighter.recordW !== null && fighter.recordL !== null && fighter.recordD !== null
         ? { w: fighter.recordW, l: fighter.recordL, d: fighter.recordD }
+        : null,
+    finishes:
+      fighter.finishKo !== null && fighter.finishSub !== null
+        ? { ko: fighter.finishKo, sub: fighter.finishSub }
         : null,
     age: fighter.age,
     hometown: fighter.hometown,
@@ -809,104 +820,7 @@ async function isOnCard(db: Db, eventId: string, fighterId: string): Promise<boo
 // have to keep to.
 
 // ----------------------------------------------------------------- sponsors
-
-/**
- * An emblem is small. A few hundred pixels of monoline artwork sitting beside a
- * name is what these are, and anything past this is a photograph somebody has
- * chosen by mistake.
- */
-const MAX_MARK_BYTES = 1024 * 1024;
-
-/**
- * Stores a sponsor's emblem and answers with the key to put on the row.
- *
- * **The bytes decide what this is.** /media serves it back from our own origin,
- * so the declared type is a claim by whoever made the request and an SVG would
- * be a document with this origin's privileges. Same rule and same reasoning as
- * the fighter's photograph — see lib/image-type.ts and section 6b.
- *
- * Run before the sponsor row is written rather than after, so a bucket that will
- * not take the object leaves nothing behind at all. The other order leaves a
- * sponsor with a mark column pointing at nothing.
- *
- * The key carries a random suffix because /media answers with a year of
- * immutable caching, so a replaced emblem has to be a new URL or half the people
- * reading the card keep the old one.
- *
- * What this never does is put the sponsor's *name* in an image. The emblem is
- * artwork; the name is set in the app's own typography, because a real
- * business's name must never be misspelled by a picture of it.
- */
-async function storeSponsorMark(
-  promoterId: string,
-  sponsorId: string,
-  file: FormDataEntryValue | null,
-): Promise<ActionResult<{ key: string | null }>> {
-  if (!(file instanceof File) || file.size === 0) return done({ key: null });
-  if (file.size > MAX_MARK_BYTES) return refuse(ACTION_ERRORS.markTooLarge);
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const contentType = sniffImageType(bytes);
-  if (!contentType) return refuse(ACTION_ERRORS.markNotAnImage);
-
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const key = `sponsors/${promoterId}/${sponsorId}-${suffix}.${IMAGE_EXTENSION[contentType]}`;
-
-  try {
-    const media = await getMedia();
-    await media.put(key, bytes, { httpMetadata: { contentType } });
-  } catch (error) {
-    logError({ event: "storeSponsorMark", route: `/promoter/e/${sponsorId}` }, error);
-    return refuse(ACTION_ERRORS.markNotStored);
-  }
-
-  return done({ key });
-}
-
-export async function addSponsor(slug: string, form: FormData): Promise<ActionResult> {
-  return attempt(
-    { event: "addSponsor", route: `/promoter/e/${slug}/card` },
-    ACTION_ERRORS.notSaved,
-    async () => {
-      const db = await getDb();
-      const owned = await ownedEvent(db, slug);
-      if (!owned.ok) return owned;
-      const { promoter, card } = owned;
-
-      const name = text(form, "name", 60);
-      if (!name) return refuse(ACTION_ERRORS.sponsorNeedsName);
-
-      const id = newId("sp");
-      const mark = await storeSponsorMark(promoter.id, id, form.get("mark"));
-      if (!mark.ok) return mark;
-
-      await db.insert(schema.sponsors).values({
-        id,
-        promoterId: promoter.id,
-        name,
-        qualifier: text(form, "qualifier", 60) || null,
-        // assets-src/ is not in the repository, so for a sponsor a promoter adds
-        // themselves this upload is the only artwork there will ever be.
-        markKey: mark.key,
-        url: text(form, "url", 200) || null,
-        createdAt: Date.now(),
-      });
-
-      if (form.get("showSponsor") === "on") {
-        const existing = await db
-          .select({ position: schema.eventSponsors.position })
-          .from(schema.eventSponsors)
-          .where(eq(schema.eventSponsors.eventId, card.eventId));
-        await db.insert(schema.eventSponsors).values({
-          eventId: card.eventId,
-          sponsorId: id,
-          position: existing.length,
-        });
-      }
-
-      revalidatePath(`/promoter/e/${slug}`);
-      revalidatePath(`/e/${slug}`);
-      return DONE;
-    },
-  );
-}
+//
+// addSponsor, replaceSponsorMark and removeSponsorMark live in
+// app/promoter/sponsor-actions.ts, beside the bucket and fingerprint rules an
+// emblem has to keep to.
