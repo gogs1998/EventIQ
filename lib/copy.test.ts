@@ -9,6 +9,7 @@ import {
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
   fewerLossesEdge,
+  NO_SHOWCASE,
   NOT_FOUND,
   PAGE_ERROR,
   PROGRAMME_NOT_FOUND,
@@ -53,6 +54,9 @@ const EMPTY_STRINGS = [
   EMPTY_DASHBOARD.heading,
   EMPTY_DASHBOARD.body,
   EMPTY_CARD_EDITOR,
+  NO_SHOWCASE.heading,
+  NO_SHOWCASE.body,
+  NO_SHOWCASE.action,
 ];
 
 const RENDER_STRINGS = [
@@ -213,6 +217,37 @@ describe("the empty states", () => {
 
   it("does not tell a spectator whose fault the empty card is", () => {
     expect(EMPTY_PROGRAMME.body).not.toMatch(/promoter|they have not|has not been/i);
+  });
+});
+
+/**
+ * The shop window with nothing in it. This stopped being a fresh-database
+ * curiosity when the demo became one named show: an instance with SHOWCASE_SLUG
+ * unset, or pointed at a show that is still a draft, has a pitch to make and no
+ * card to open, and the pitch is still true without one.
+ */
+describe("the pitch with no showcase", () => {
+  it("says what is missing and what would fill it", () => {
+    expect(NO_SHOWCASE.body).toContain("SHOWCASE_SLUG");
+    expect(NO_SHOWCASE.body).toContain("published show");
+    expect(NO_SHOWCASE.action).toContain("sign in");
+  });
+
+  /**
+   * It is read by whoever is standing the instance up, and there is no promoter
+   * yet to have got anything wrong. It reports a state.
+   */
+  it("does not read as a fault", () => {
+    for (const line of [NO_SHOWCASE.heading, NO_SHOWCASE.body, NO_SHOWCASE.action]) {
+      expect(line).not.toMatch(/\bfault\b|\berror\b|\bmissing show\b|\bnobody has\b/i);
+      expect(line).not.toMatch(/\b(he|she|him|her|his)\b/i);
+    }
+  });
+
+  /** It replaces the card, not the argument, so it must not restate the pitch. */
+  it("keeps to what it is for", () => {
+    expect(NO_SHOWCASE.body.length).toBeLessThan(300);
+    expect(NO_SHOWCASE.heading).not.toMatch(/EventIQ/);
   });
 });
 

@@ -3,10 +3,16 @@ import { DemoReel } from "@/components/DemoReel";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { cardCompleteness, featuredBout } from "@/lib/card";
-import { chaseNote, programmeLinkNote, sponsorNote, tapeForEveryBout } from "@/lib/copy";
-import { getDb } from "@/lib/db";
-import { loadInvites, loadRenders, loadShowcase } from "@/lib/db/queries";
-import { chaseList, daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
+import {
+  chaseNote,
+  NO_SHOWCASE,
+  programmeLinkNote,
+  sponsorNote,
+  tapeForEveryBout,
+} from "@/lib/copy";
+import { getDb, readVar } from "@/lib/db";
+import { loadRenders, loadShowcase } from "@/lib/db/queries";
+import { daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
 import { formatEventDateShort } from "@/lib/tape";
 
 const steps = [
@@ -65,26 +71,40 @@ const audiences = [
 export const dynamic = "force-dynamic";
 
 /**
- * The pitch page runs on whatever show is currently published, not on a fixture.
+ * The pitch page runs on the show named in SHOWCASE_SLUG, not on a fixture and
+ * no longer on whatever happens to be published with the furthest-out date.
  *
  * Every number in the prose below is counted from that card. It is the same data
  * the programme and the dashboard read, so the sales copy cannot quietly drift
  * away from what a promoter sees when they click through — which is exactly the
- * kind of thing that gets noticed in a meeting.
+ * kind of thing that gets noticed in a meeting. What it must not do is drift
+ * onto *somebody else's* card: with a second promoter on the instance, "the
+ * latest published show" is a sentence that hands EventIQ's own front page to
+ * whoever publishes a show dated furthest out.
+ *
+ * With no showcase the argument is unchanged and the card comes out of it. Every
+ * section that counts a card, plays its video or links into it is behind a
+ * check, so an instance that has not named a show still makes the pitch rather
+ * than showing a page of holes.
  */
 export default async function PitchPage() {
   const db = await getDb();
-  const card = await loadShowcase(db);
-  if (!card) return <NothingPublished />;
+  const card = await loadShowcase(db, await readVar("SHOWCASE_SLUG"));
 
-  const { event } = card;
-  const invites = await loadInvites(db, card.eventId);
-  const renders = await loadRenders(db, card.eventId);
-  const main = featuredBout(card);
-  const { score, done, total } = cardCompleteness(card, DONE_AT);
-  const outstanding = chaseList(card, invites).length;
-  const inventory = sponsorInventory(card);
-  const days = daysUntilShow(event.date);
+  const event = card?.event;
+  const renders = card ? await loadRenders(db, card.eventId) : {};
+  const main = card ? featuredBout(card) : undefined;
+  // done and total are the same measurement the chase list filters on — both are
+  // completeness against DONE_AT over the fighters on the card — so who is
+  // outstanding is the remainder of it. It used to be counted by loading every
+  // invite row for the show and running the chase list over them, which is a
+  // whole table read for a number the card already holds, and no invite took
+  // part in the answer.
+  const { score, done, total } = card
+    ? cardCompleteness(card, DONE_AT)
+    : { score: 0, done: 0, total: 0 };
+  const outstanding = total - done;
+  const inventory = card ? sponsorInventory(card) : null;
 
   return (
     <main className="w-full">
@@ -95,32 +115,52 @@ export default async function PitchPage() {
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
           One code on the table puts the whole card on every phone in the building: every
-          fighter&rsquo;s record, photo and story, {tapeForEveryBout(event.bouts.length)},
-          and a broadcast video for the ones that matter. The room knows exactly who is
-          walking out.
+          fighter&rsquo;s record, photo and story,{" "}
+          {tapeForEveryBout(event?.bouts.length ?? 0)}, and a broadcast video for the ones
+          that matter. The room knows exactly who is walking out.
         </p>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link
-            href={`/e/${event.slug}`}
-            className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
-          >
-            Open the programme
-          </Link>
-          <Link
-            href="/f/demo"
-            className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
-          >
-            See what a fighter gets
-          </Link>
-        </div>
+        {event ? (
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link
+              href={`/e/${event.slug}`}
+              className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
+            >
+              Open the programme
+            </Link>
+            <Link
+              href="/f/demo"
+              className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+            >
+              See what a fighter gets
+            </Link>
+          </div>
+        ) : null}
       </section>
+
+      {/* ------------------------------------------------------ no showcase */}
+      {/* Where the links into the demo card would be. Everything below this is
+          the product rather than the card, so it stays exactly as it is. */}
+      {card ? null : (
+        <section className="border-hairline border-t">
+          <div className="mx-auto max-w-3xl px-5 py-14">
+            <h2 className="display text-3xl leading-none">{NO_SHOWCASE.heading}</h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">{NO_SHOWCASE.body}</p>
+            <Link
+              href="/promoter"
+              className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+            >
+              {NO_SHOWCASE.action}
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* --------------------------------------------------------- the video */}
       {/* A show that has been published before its running order was entered has
           no main event to play, so the section comes out rather than framing an
           empty player with the argument for one beside it. */}
-      {main ? (
+      {card && main ? (
         <section className="border-hairline border-t">
           <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
             <div>
@@ -216,29 +256,35 @@ export default async function PitchPage() {
       </section>
 
       {/* --------------------------------------------------------- promoter */}
-      <section className="border-hairline border-t">
-        <div className="mx-auto max-w-3xl px-5 py-14">
-          <span className="label">Your side of it</span>
-          <h2 className="display mt-4 text-4xl leading-none">
-            {days} days out, you know exactly who has not sent theirs
-          </h2>
-          <p className="text-ash mt-5 text-sm leading-relaxed">
-            The same card from where you sit. {chaseNote(outstanding, total)}
-          </p>
-          <p className="text-ash mt-4 text-sm leading-relaxed">
-            Your sponsor sheet sits alongside it:{" "}
-            {sponsorNote(inventory.sold.length, event.bouts.length)}. Those are slots you
-            are already selling, now in one place, with a report to send the sponsor
-            afterwards.
-          </p>
-          <Link
-            href="/promoter"
-            className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
-          >
-            Open the promoter view
-          </Link>
-        </div>
-      </section>
+      {/* Every sentence in it counts the showcase card, so with no card it comes
+          out rather than being written in the abstract — the way in for a
+          promoter with no demo to look at is in the panel above. */}
+      {event && inventory ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto max-w-3xl px-5 py-14">
+            <span className="label">Your side of it</span>
+            <h2 className="display mt-4 text-4xl leading-none">
+              {daysUntilShow(event.date)} days out, you know exactly who has not sent
+              theirs
+            </h2>
+            <p className="text-ash mt-5 text-sm leading-relaxed">
+              The same card from where you sit. {chaseNote(outstanding, total)}
+            </p>
+            <p className="text-ash mt-4 text-sm leading-relaxed">
+              Your sponsor sheet sits alongside it:{" "}
+              {sponsorNote(inventory.sold.length, event.bouts.length)}. Those are slots you
+              are already selling, now in one place, with a report to send the sponsor
+              afterwards.
+            </p>
+            <Link
+              href="/promoter"
+              className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
+            >
+              Open the promoter view
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       {/* ---------------------------------------------------------- sponsors */}
       <section className="border-hairline border-t">
@@ -280,7 +326,7 @@ export default async function PitchPage() {
           nothing on it there is nothing to be honest about and it comes out —
           the same treatment the video section gets above, and for the same
           reason. */}
-      {event.bouts.length ? (
+      {event?.bouts.length ? (
         <section className="border-hairline border-t">
           <div className="mx-auto max-w-3xl px-5 py-14">
             <span className="label">About the demo card</span>
@@ -304,80 +350,64 @@ export default async function PitchPage() {
       ) : null}
 
       {/* --------------------------------------------------------------- try */}
-      <section className="border-hairline border-t">
-        <div className="mx-auto max-w-5xl px-5 py-14">
-          <h2 className="display text-3xl">Have a look</h2>
-          <div className="mt-8 grid gap-3">
-            {[
-              {
-                href: `/e/${event.slug}`,
-                title: "The programme",
-                body: `${event.name}, ${formatEventDateShort(event.date)}. ${programmeLinkNote(event.bouts.length)}`,
-              },
-              {
-                href: "/f/demo",
-                title: "The fighter's form",
-                body: "What lands in a fighter's hand. Watch their card build as they type.",
-              },
-              {
-                href: "/promoter",
-                title: "The promoter's view",
-                body: "Who to chase, which bouts are ready, which sponsor slots are unsold.",
-              },
-              {
-                href: `/e/${event.slug}/qr`,
-                title: "The table card",
-                body: "The printable QR that goes on the tables and the doors.",
-              },
-            ].map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="border-hairline hover:border-chalk/40 group flex items-center justify-between gap-4 border px-5 py-4 transition-colors"
-              >
-                <div>
-                  <div className="display text-chalk text-xl">{link.title}</div>
-                  <div className="text-ash mt-1 text-sm">{link.body}</div>
-                </div>
-                <span className="text-ash-dim group-hover:text-chalk shrink-0 text-2xl transition-colors">
-                  →
-                </span>
-              </Link>
-            ))}
+      {/* Three of the four are addresses on the showcase card and the fourth
+          opens the form as a fighter on it, so the whole section needs one. */}
+      {event ? (
+        <section className="border-hairline border-t">
+          <div className="mx-auto max-w-5xl px-5 py-14">
+            <h2 className="display text-3xl">Have a look</h2>
+            <div className="mt-8 grid gap-3">
+              {[
+                {
+                  href: `/e/${event.slug}`,
+                  title: "The programme",
+                  body: `${event.name}, ${formatEventDateShort(event.date)}. ${programmeLinkNote(event.bouts.length)}`,
+                },
+                {
+                  href: "/f/demo",
+                  title: "The fighter's form",
+                  body: "What lands in a fighter's hand. Watch their card build as they type.",
+                },
+                {
+                  href: "/promoter",
+                  title: "The promoter's view",
+                  body: "Who to chase, which bouts are ready, which sponsor slots are unsold.",
+                },
+                {
+                  href: `/e/${event.slug}/qr`,
+                  title: "The table card",
+                  body: "The printable QR that goes on the tables and the doors.",
+                },
+              ].map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="border-hairline hover:border-chalk/40 group flex items-center justify-between gap-4 border px-5 py-4 transition-colors"
+                >
+                  <div>
+                    <div className="display text-chalk text-xl">{link.title}</div>
+                    <div className="text-ash mt-1 text-sm">{link.body}</div>
+                  </div>
+                  <span className="text-ash-dim group-hover:text-chalk shrink-0 text-2xl transition-colors">
+                    →
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <footer className="border-hairline text-ash-dim border-t px-5 py-10 text-xs">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
           <span className="label">EventIQ</span>
-          <span>
-            Every fighter, gym and sponsor on the {event.name} card is invented.
-          </span>
+          {event ? (
+            <span>
+              Every fighter, gym and sponsor on the {event.name} card is invented.
+            </span>
+          ) : null}
         </div>
       </footer>
-    </main>
-  );
-}
-
-/**
- * What a fresh database looks like. Says so plainly rather than rendering a
- * pitch with holes where the numbers should be.
- */
-function NothingPublished() {
-  return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-24">
-      <h1 className="display text-5xl leading-[0.9]">Digital programmes for fight shows</h1>
-      <p className="text-ash mt-6 text-base leading-relaxed">
-        There is no published show on this instance yet. Sign in and publish one, or seed
-        the demo card with <code className="text-chalk">npm run db:reset</code>.
-      </p>
-      <Link
-        href="/promoter"
-        className="border-hairline hover:border-chalk/50 display mt-8 inline-block border px-6 py-3.5 text-lg transition-colors"
-      >
-        Promoter sign in
-      </Link>
     </main>
   );
 }

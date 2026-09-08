@@ -17,6 +17,18 @@
       "service": "eventiq"
     }
   ],
+  // The one published show EventIQ's own shop window runs on: the pitch page,
+  // the sitemap, /f/demo and the /qr redirect. It used to be whichever published
+  // show had the furthest-out date, which is a rule that hands the front page to
+  // the second promoter to publish. A var rather than a secret because it names
+  // something public, and because changing which show is on display should be a
+  // deploy with a diff rather than a `wrangler secret put` nobody can read back.
+  //
+  // Unset, or naming a show that is not published, means no showcase: the pitch
+  // page makes its argument without a live card. See lib/db/queries.ts.
+  "vars": {
+    "SHOWCASE_SLUG": "cage-county-12"
+  },
   "d1_databases": [
     {
       "binding": "DB",

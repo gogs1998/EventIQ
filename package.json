@@ -29,6 +29,7 @@
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
     "render": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-tape.mjs",
+    "render-key": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-key.mjs",
     "golden-frames": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/golden-frames.mjs",
     "e2e": "node scripts/e2e.mjs",
     "shots": "node scripts/shots.mjs"

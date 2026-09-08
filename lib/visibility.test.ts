@@ -1,15 +1,43 @@
-import { describe, expect, it } from "vitest";
-import { secretMatches } from "@/lib/auth";
+import { describe, expect, it, vi } from "vitest";
+import { digestsMatch, secretDigest, secretMatches } from "@/lib/auth";
+import type { LoadedCard } from "@/lib/db/queries";
 import {
   inviteTokenFromReferrer,
+  loadVisibleCard,
   mediaVisibleTo,
   parseMediaKey,
   renderableTo,
+  renderKeyGrants,
   visibleTo,
+  type RenderKey,
 } from "@/lib/visibility";
+
+/**
+ * The two things a card is loaded through both read a promoter session, and
+ * neither is reachable from a test without one. The rows and the session are
+ * therefore stubbed and everything else runs: what is under test is the rule the
+ * two of them are put through, which is the whole of what these files decide.
+ */
+const stub = vi.hoisted(() => ({
+  card: null as LoadedCard | null,
+  viewerId: null as string | null,
+}));
+
+vi.mock("@/lib/db/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/db/queries")>()),
+  loadCard: async () => stub.card,
+}));
+
+vi.mock("@/lib/session", () => ({
+  currentPromoter: async () => (stub.viewerId ? { id: stub.viewerId } : null),
+}));
 
 const live = { published: true, promoterId: "cage-county" };
 const draft = { published: false, promoterId: "cage-county" };
+
+/** Enough of a card for the rules here; nothing in them reads the rest of it. */
+const cardOf = (published: boolean, promoterId: string) =>
+  ({ published, promoterId, eventId: `ev-${promoterId}` }) as unknown as LoadedCard;
 
 /**
  * The rule used to live inline in one page, which is how three other routes came
@@ -87,6 +115,164 @@ describe("renderableTo", () => {
   it("refuses another promoter's session", () => {
     expect(renderableTo(card, { keyMatched: false, viewerId: "another-promoter" })).toBe(false);
     expect(renderableTo({ promoterId: "" }, { keyMatched: false, viewerId: "" })).toBe(false);
+  });
+});
+
+/**
+ * A fighter id is a public slug and the `fighters` table is deliberately global:
+ * the same person comes back for the next show, which is the retention hook the
+ * schema is shaped around. A fighter row is only ever readable *through a card*,
+ * so what has to hold is that a card is never readable across promoters —
+ * HANDOVER section 19 item 11.
+ *
+ * `visibleTo` says that in the abstract above. This is the loader every public
+ * route actually calls, which is where a rule stops being written down and
+ * starts being applied.
+ */
+describe("loadVisibleCard, with two promoters on the instance", () => {
+  const db = {} as never;
+
+  it("never hands one promoter another's draft", async () => {
+    stub.card = cardOf(false, "budo");
+    stub.viewerId = "cage-county";
+    expect(await loadVisibleCard(db, "budo-79")).toBeNull();
+  });
+
+  it("answers the same way to a stranger, so signing in tells you nothing", async () => {
+    stub.card = cardOf(false, "budo");
+    stub.viewerId = null;
+    expect(await loadVisibleCard(db, "budo-79")).toBeNull();
+  });
+
+  it("gives a promoter their own draft", async () => {
+    stub.card = cardOf(false, "budo");
+    stub.viewerId = "budo";
+    expect(await loadVisibleCard(db, "budo-79")).not.toBeNull();
+  });
+
+  /** Published is published: the other promoter is a member of the public. */
+  it("gives anybody a published card, whoever owns it", async () => {
+    stub.card = cardOf(true, "budo");
+    stub.viewerId = "cage-county";
+    expect(await loadVisibleCard(db, "budo-79")).not.toBeNull();
+  });
+
+  it("answers null for a slug with nothing behind it", async () => {
+    stub.card = null;
+    stub.viewerId = "cage-county";
+    expect(await loadVisibleCard(db, "no-such-show")).toBeNull();
+  });
+});
+
+/**
+ * The render key used to be one secret that read every card on the instance,
+ * published or not. That is the right size of credential for one operator
+ * running one promoter's shows and a cross-tenant read the moment there are two,
+ * which section 20 had already written down as a thing to decide before promoter
+ * number two rather than as they arrive.
+ *
+ * It is a row now, and this is the whole of what one opens. Every branch of it
+ * is a way somebody could still be let in.
+ */
+describe("renderKeyGrants", () => {
+  const NOW = 1_700_000_000_000;
+  const key = (extra: Partial<RenderKey> = {}): RenderKey => ({
+    promoterId: "cage-county",
+    digest: "irrelevant-here",
+    expiresAt: null,
+    revokedAt: null,
+    ...extra,
+  });
+
+  it("opens the cards of the promoter it is scoped to", () => {
+    expect(renderKeyGrants(key(), ["cage-county"], NOW)).toBe(true);
+  });
+
+  it("refuses another promoter's cards, which is the whole point of it", () => {
+    expect(renderKeyGrants(key(), ["budo"], NOW)).toBe(false);
+    expect(renderKeyGrants(key(), ["budo", "third-promoter"], NOW)).toBe(false);
+  });
+
+  /**
+   * The runner renders whatever is queued and cannot know whose show it will
+   * be, so its key is unscoped. That is the one credential that stays as wide as
+   * the old secret, and it is narrow in who holds it instead.
+   */
+  it("opens every promoter's cards where it is scoped to none", () => {
+    expect(renderKeyGrants(key({ promoterId: null }), ["cage-county"], NOW)).toBe(true);
+    expect(renderKeyGrants(key({ promoterId: null }), ["budo"], NOW)).toBe(true);
+  });
+
+  it("refuses a revoked key, scoped or not", () => {
+    expect(renderKeyGrants(key({ revokedAt: NOW - 1 }), ["cage-county"], NOW)).toBe(false);
+    expect(
+      renderKeyGrants(key({ promoterId: null, revokedAt: NOW - 1 }), ["cage-county"], NOW),
+    ).toBe(false);
+  });
+
+  /** Revoked beats unexpired: a key taken back is taken back today. */
+  it("refuses a revoked key that has not expired", () => {
+    expect(
+      renderKeyGrants(key({ expiresAt: NOW + 86_400_000, revokedAt: NOW }), ["cage-county"], NOW),
+    ).toBe(false);
+  });
+
+  it("refuses an expired key", () => {
+    expect(renderKeyGrants(key({ expiresAt: NOW - 1 }), ["cage-county"], NOW)).toBe(false);
+  });
+
+  /** The moment it expires it is expired, rather than lasting one more request. */
+  it("treats the instant of expiry as expired", () => {
+    expect(renderKeyGrants(key({ expiresAt: NOW }), ["cage-county"], NOW)).toBe(false);
+    expect(renderKeyGrants(key({ expiresAt: NOW + 1 }), ["cage-county"], NOW)).toBe(true);
+  });
+
+  it("lets a key with no expiry stand", () => {
+    expect(renderKeyGrants(key({ expiresAt: null }), ["cage-county"], NOW)).toBe(true);
+  });
+
+  /**
+   * An object in the bucket that hangs off no show at all. `mediaVisibleTo`
+   * refuses it whatever the key says; this is the half of that in here, and it
+   * says a scoped key cannot be made to grant by naming nobody.
+   */
+  it("grants nothing to a scoped key when there is no promoter to match", () => {
+    expect(renderKeyGrants(key(), [], NOW)).toBe(false);
+  });
+});
+
+/**
+ * The digest half. `renderKeyGrants` decides what a matched row opens; this is
+ * what makes a row match, and the two are separate because a key that opens the
+ * wrong promoter's card and a key that is accepted when it is not the key are
+ * different failures.
+ */
+describe("the stored digest", () => {
+  const key = "aReallyRandomThirtyTwoByteRenderKey";
+
+  it("stores something that is not the key", async () => {
+    const digest = await secretDigest(key);
+    expect(digest).not.toContain(key);
+    expect(digest).not.toMatch(/[+/=]/);
+  });
+
+  it("matches the key it was made from", async () => {
+    expect(digestsMatch(await secretDigest(key), await secretDigest(key))).toBe(true);
+  });
+
+  it("refuses a key that is nearly right", async () => {
+    expect(digestsMatch(await secretDigest(key), await secretDigest(`${key} `))).toBe(false);
+    expect(digestsMatch(await secretDigest(key), await secretDigest(key.slice(0, -1)))).toBe(false);
+  });
+
+  it("refuses a row with nothing in the column, rather than matching everything", async () => {
+    expect(digestsMatch(null, await secretDigest(key))).toBe(false);
+    expect(digestsMatch("", await secretDigest(key))).toBe(false);
+    expect(digestsMatch(await secretDigest(key), undefined)).toBe(false);
+  });
+
+  it("refuses a digest that will not decode, rather than throwing on it", async () => {
+    expect(digestsMatch("not a digest at all !!", await secretDigest(key))).toBe(false);
   });
 });
 

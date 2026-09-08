@@ -306,6 +306,24 @@ Four decisions in it worth keeping:
 
 Proved against production after deploying: anonymous request 404 and nothing leaked, wrong key 404, empty key 404, correct key 200, owning promoter's session 200 — and then bout 15 rendered end to end at 1080x1920, 480 frames, 16.000 seconds, 1.6MB. Closing a hole by breaking the video pipeline would have been a bad trade, so the pipeline was run rather than assumed.
 
+### The key is a row now, and it is scoped to a promoter
+
+Everything above still holds. What has changed is that **one shared secret that reads every card on the instance is the right size of credential for one promoter and a cross-tenant read for two**, which section 20 had already written down as a thing to settle before promoter number two rather than as they arrive. It got sharper when the renderer moved onto a GitHub runner: the key lives in repository secrets now, so the set of people who can read any draft on the instance is the set of people who can push a workflow.
+
+So a key is a row in `render_keys` (migration `0007`): an id, a nullable `promoter_id`, the digest, a label, and `created_at`, `expires_at`, `revoked_at`. [scripts/render-key.mjs](scripts/render-key.mjs) is the only thing that writes it — `npm run render-key -- mint | revoke | list`, local by default and `--remote` for the live database, talking to D1 through wrangler for the same reason the renderer does.
+
+- **`promoter_id NULL` means every promoter.** That is the runner's key and it has to be, because the hourly workflow renders whatever is queued and cannot know in advance whose show it will be. It is exactly as wide as the old secret; what is narrow about it is who holds it.
+- **A scoped key reaches one promoter's shows and answers 404 on everybody else's**, indistinguishably from a stranger. That is what a promoter renders their own drafts with, and what anybody rendering from a laptop should be given.
+- **Only the digest is stored** — SHA-256, base64url — so a copy of the database is not a set of working keys and nothing can print an existing key back. Losing one costs a mint and a revoke. PBKDF2 would be the wrong tool and `secretDigest` says why: the key is 32 bytes of CSPRNG output, so there is no dictionary it is in, and this is asked on every object `/media` serves.
+- **Expiry and revocation are timestamps rather than a delete**, so "what could read this card, and when did it stop" stays answerable afterwards. The instant of expiry counts as expired.
+- **The comparison is over digests and does not break out of the loop.** `digestsMatch` in [lib/auth.ts](lib/auth.ts) is the same constant-time compare `secretMatches` uses, and the presented key is put against every candidate row rather than against the first one that happens to match.
+- **`RENDER_KEY` is still accepted, and that is the migration path.** A Worker, a workflow and whoever renders by hand do not all have to change in the same breath. The branch in `renderKeyMatches` says so and says what removes it: mint a key for the runner, put it in the repository secret, then `wrangler secret delete RENDER_KEY`. [DEPLOY.md](DEPLOY.md#video-rendering) has the order.
+- **How the runner presents it has not changed.** The header, on the capture page's own document request and nothing else. `scripts/render-tape.mjs` reads `RENDER_KEY` from the shell first and `.dev.vars` second exactly as before; what goes in that variable is a minted key rather than the Worker's secret.
+
+`/media` asks the same function, so a key that opens a draft card and a key that opens that draft's mp4 cannot come apart — they were two calls to one comparison before and they are two calls to one function now.
+
+Proved locally against a second promoter inserted by hand, each promoter with an unpublished show: no key 404, cage-county's key 200 on its own draft and 404 on the other promoter's, budo's key the other way round, the unscoped runner key 200 on both, an expired key 404, a revoked key 404, a wrong key 404, and the `RENDER_KEY` secret still 200.
+
 ---
 
 ## 6d. The gate on `/media`, and the three limiters
@@ -336,6 +354,32 @@ Proved locally against a draft card: stranger 404 on both a photograph and an mp
 A missing binding refuses in production and allows in development, where a limiter that is not there would otherwise take the login form with it. Locally the binding does exist and does count: a burst of 90 posts at `/api/track` put 59 rows in the table and lost the rest.
 
 The per-caller limiter is **not** the bound that matters most on the login form, because there is one promoter and one password, so a patient guess from a thousand addresses is a thousand callers each well inside their allowance. [lib/lockout.ts](lib/lockout.ts) is the other half: ten failures within fifteen minutes and the account takes no password at all until the window closes. The window does **not** extend while the door is shut, deliberately — a lockout an attacker can keep renewing is a way of keeping a promoter out of their own dashboard on show night, and there is nobody to ring for a reset. Failures are counted on the promoter row (`failed_logins`, `first_failed_login_at`, migration `0003`) and cleared by a sign-in that works. A locked account gives the same message and takes the same time as a wrong password, because a lockout that announces itself tells an attacker that the guessing is working.
+
+---
+
+## 6e. The shop window runs on a named show
+
+EventIQ's own front page, its sitemap, `/f/demo` and the bare `/qr` redirect all run on one real card out of the database, which is the right decision and is what keeps the sales copy from drifting away from what a promoter sees when they click through.
+
+**Which card was the problem.** `loadShowcase` took the published show with the furthest-out date. With one promoter that is a fair guess at the card being sold. With two it is a leak that needs nobody to do anything wrong: the second promoter publishes a show dated later than the demo, and EventIQ's front page, its sitemap, its printable table card and the questionnaire preview all swing onto their event, their venue, their fighters and their sponsors — including submitting every fighter profile page on their card to search engines. Nothing on the page would say it had happened.
+
+So the demo is named rather than inferred. `SHOWCASE_SLUG` is a var in [wrangler.jsonc](wrangler.jsonc) — a var and not a secret, because it names something public and changing which show is on display should be a deploy with a diff rather than a `wrangler secret put` nobody can read back. `loadShowcase` loads that slug and only that slug, **published only**: this is a shop window with no viewer to ask about, so a draft named here must not become a public page by being named.
+
+Unset, unknown or unpublished all mean no showcase. The pitch page then makes its whole argument — how it runs, the recording, the gallery, who it is for, the sponsor case — and replaces only the links into the card with `NO_SHOWCASE` from [lib/copy.ts](lib/copy.ts), where the tone tests can reach it. The sitemap lists `/` alone, `/qr` answers 404 and `/f/demo` says there is nothing to preview. A fresh instance is in that state anyway, so it is ordinary rather than exceptional.
+
+One side effect worth having: the pitch page stopped loading every invite row for the show. It wanted one number — who is still outstanding — and `cardCompleteness` already measures the same completeness against the same threshold over the same fighters, so the remainder is the answer and no invite ever took part in it.
+
+---
+
+## 6f. Slugs are global, and the oracle that comes with it
+
+`events.slug` is unique across the whole instance, so `createEvent` answers "There is already a show at that address" for a name that collides with **another promoter's** show. That is a membership oracle: a promoter can find out whether a rival has a show called Cage County 13 in the diary by trying to create one, and every other refusal on that path is deliberately written so a show that is not yours and a show that does not exist read alike.
+
+**They have to stay global, and the reason is the address.** A programme lives at `/e/<slug>`, on a QR code printed on the tables, and that path has no promoter segment in it. Making slugs unique per promoter means either `/e/<promoter>/<slug>`, which changes every printed code, every link already sent, the Open Graph cards, the sitemap and the demo recording, or a hidden disambiguator that makes the address unpredictable from the name — and the name is how a promoter finds their own show. The uniqueness is not a modelling accident; it is the public URL.
+
+**The mitigation is suffixing, and it belongs in the slug rather than in the message.** `slugify` should take the collision and return `cage-county-13-2` — the same thing every publishing system does with a title that is already taken — so the promoter gets a show and an address rather than a refusal with a fact in it. `ACTION_ERRORS.addressTaken` then goes, because there is nothing left to refuse: a slug is derived, and a derived value that collides is disambiguated, not rejected.
+
+Recommended, not implemented, and deliberately so: `slugify` is in [lib/slug.ts](lib/slug.ts) but the collision check and the refusal are both in `createEvent` in [app/promoter/actions.ts](app/promoter/actions.ts), which is being rewritten on another branch. Doing half of it — a suffixing helper nothing calls — would leave two ideas of what a slug is. The shape of the change is: `uniqueSlug(db, name)` in `lib/db/queries.ts`, which slugifies, asks once for the rows that start with that slug and returns the first free suffix; `createEvent` calls it and drops the clash query and `addressTaken` with it. Until then the oracle is real, and what it discloses is the existence of a show name — not its date, venue, card or anything else, all of which stay behind the publish check.
 
 ---
 
@@ -768,8 +812,15 @@ npm run icons                                        # favicon, apple icon, mani
 npm run cutouts -- --slug cage-county-12 --remote
 npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
 
+# The keys the renderer presents. Local by default; --remote for the live
+# database. A key is printed once and stored as a digest. Section 6c.
+npm run render-key -- list
+npm run render-key -- mint --promoter cage-county --label "Ross's laptop" --days 90
+npm run render-key -- mint --label "the hourly runner"    # unscoped: every promoter
+npm run render-key -- revoke --id rk_...
+
 # Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
-# deployed site. Section 6c.
+# deployed site. Whatever is in it — a minted key, or the old secret. Section 6c.
 npm run render -- --slug cage-county-12 --list
 npm run render -- --slug cage-county-12 --bout 15 --still 300   # one PNG, fastest iteration
 npm run render -- --slug cage-county-12 --stale --publish
@@ -864,7 +915,18 @@ Deploy is done (section 12) and is no longer on this list.
 
 10. **The post-event sponsor report.** The counting is done; what is missing is a one-page thing a promoter can send. Probably the thing promoters would actually pay more for. Item 9 wants to land in this, which is why the two sit together: a report that can quote scores cast is a stronger document than one that can quote taps, and building the report first would mean coming back to it.
 
-11. **Decide the tenancy model before promoter number two.** There is one promoter account, created by the seed, and no signup. Several things become real problems the moment a second promoter exists, and all of them are cheap to decide now and expensive later. `RENDER_KEY` is a single shared secret, and section 20 already notes that anybody holding it can read any card on the instance, published or not; with one operator that is the right size of credential, and with two it is a cross-tenant read. The `fighters` table is deliberately global rather than owned by an event, because returning fighters are the biggest retention hook in the idea (item 12); across *promoters*, "returning fighters" stops being a matching problem and becomes a data-sharing and consent question — does promoter B see the profile promoter A collected? — and that interacts directly with item 2. A change-password form is the small piece of code and is also what unblocks a second account, but it understates this: the form without the decision is how you mint the second promoter into a model that was never designed for them.
+11. **The tenancy model, mostly decided.** There is still one promoter account, created by the seed, and no signup. Four things were going to become real problems the moment a second promoter existed; three are now settled and written down where the code is, and this is the design note for the fourth.
+
+    - **The render key is a row, scoped to a promoter.** `render_keys`, migration `0007`, section 6c. The single shared secret that read every card on the instance is still accepted and is now the migration path with an expiry date on it.
+    - **The shop window runs on a named show**, `SHOWCASE_SLUG`, section 6e — rather than on whichever published show has the furthest-out date, which would have put the second promoter's card on EventIQ's front page and in its sitemap with nobody having done anything.
+    - **Slugs stay global, and the collision message is the thing to fix**, section 6f. Suffixing, in the slug rather than in the refusal. Recommended, not implemented, because the refusal lives in an actions file being rewritten elsewhere.
+    - **Fighters stay global.** This is the one that is a decision rather than a change. The `fighters` table is deliberately not owned by an event, because a returning fighter getting "confirm your details" instead of a blank form is the biggest retention hook in the idea (item 12), and a fighter id is a public slug that appears in the address of their profile page and in an Instagram bio. Splitting the table per promoter would break both.
+
+      What makes that safe is that **a fighter row is only ever readable through a card the caller may see**, which is already true and is not a new rule: nothing loads a fighter by id, `loadCard` fetches them for one show, and every public route goes through `loadVisibleCard`. So promoter B holding a fighter id learns nothing from it — the card it hangs off answers 404 for them exactly as it does for a stranger, and there is a test for that in [lib/visibility.test.ts](lib/visibility.test.ts) rather than only a sentence here.
+
+      What is *not* decided, and must not be decided by an implementation detail, is **matching a returning fighter across promoters**. Within one promoter's shows it is a matching problem. Across promoters it is a data-sharing question — does promoter B see the profile promoter A collected, and did the fighter agree to that — and it lands directly on item 2. Until there is consent wording that says so, matching stays within a promoter. Note that the row being global means the plumbing for cross-promoter matching is already there and costs one query to switch on, which is exactly why the decision wants writing down rather than leaving to whoever writes item 12.
+
+    A change-password form is the small piece of code left and is what unblocks a second account; the point that stands is that the form without the decisions above is how a second promoter gets minted into a model that was never designed for them.
 
 12. **Returning fighters.** The schema already keeps fighters across events. What is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. That remains the biggest retention hook in the idea for a single promoter. Matching across promoters waits on item 11, and on the consent in item 2 saying whether a profile may follow a fighter onto somebody else's card.
 
@@ -891,7 +953,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
 - **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It needs consent wording, a privacy notice, a retention policy and a basis for publishing. The questionnaire is the natural consent point — design it in rather than bolting it on. This is now more urgent than it was, because the data is stored rather than living in a browser tab, and it is a blocker on a real show (section 19 items 1 and 2) rather than a parallel task.
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
-- **So is the render key.** It is one shared secret held by whatever machine renders the videos, and anybody holding it can read any card on the instance, published or not. That is the right size of credential for a machine doing one job, but it wants rotating if the renderer ever runs somewhere less trusted than the operator's own laptop, and per-promoter keys would be the next step if there is ever more than one promoter — which is one of the things that wants deciding before promoter number two exists, not as they are created (section 19 item 11). Rotation costs nothing else: nothing but the renderer reads it.
+- **So is the render key, and it is now per promoter.** It used to be one shared secret held by whatever machine rendered the videos, and anybody holding it could read any card on the instance, published or not. Keys are rows in `render_keys` now, scoped to a promoter, expiring and revocable — section 6c. Two things are left of the risk. The runner's key is unscoped by necessity, because the hourly job renders whatever is queued, so it is still a credential that reads every draft on the instance and it lives in repository secrets: anyone who can read those, or push a workflow that echoes them, holds it. And **the `RENDER_KEY` secret is still accepted**, which means the old cross-tenant credential exists until somebody mints a runner key and runs `wrangler secret delete RENDER_KEY`. That is the one piece of this that is a chore rather than a decision, and it is not done. Rotation costs nothing else: nothing but the renderer reads it.
 - **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.
 - **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. Same consent point.
 - **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission.

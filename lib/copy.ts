@@ -51,6 +51,28 @@ export const EMPTY_PROGRAMME = {
   promoter: "Add the bouts and both corners get an invite link straight away.",
 } as const;
 
+/**
+ * The pitch page with no show behind it.
+ *
+ * The shop window used to run on whatever was published with the furthest-out
+ * date, so a version of this was only ever reached on an empty database. It is
+ * ordinary now: the demo is one named show, and an instance that has not named
+ * one — or has named one that is still a draft — has a pitch to make and no card
+ * to open. Everything above it is true without a live card, so this replaces the
+ * links into the programme and nothing else.
+ *
+ * Written for whoever is standing the instance up, because that is who reads it,
+ * and in the same register as the rest: what the state is, and what fills it.
+ */
+export const NO_SHOWCASE = {
+  heading: "No show on display here yet",
+  body:
+    "Everything above is the product as it stands. What is missing is a card to open: the " +
+    "shop window runs on one published show, named in SHOWCASE_SLUG, and this instance has " +
+    "not been pointed at one.",
+  action: "Promoter sign in",
+} as const;
+
 /** The pitch page's hero line, which counts the card it is running on. */
 export function tapeForEveryBout(bouts: number): string {
   return bouts > 0

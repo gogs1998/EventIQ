@@ -24,12 +24,23 @@ declare global {
     /** Signs the promoter's login cookie. Set with `wrangler secret put`. */
     SESSION_SECRET: string;
     /**
-     * What the mp4 renderer presents instead of a session, to reach the capture
-     * page for a card that is not published yet. Optional in the type because an
-     * unset one has to mean deny: the route refuses everybody without a promoter
-     * session rather than falling open. See lib/visibility.ts.
+     * The one shared key the mp4 renderer used to present instead of a session,
+     * to reach the capture page for a card that is not published yet. Keys are
+     * rows in `render_keys` now, one per machine and scoped to a promoter; this
+     * is the migration path and is still accepted. Optional in the type because
+     * an unset one has to mean deny: the route refuses everybody without a
+     * promoter session rather than falling open. See lib/visibility.ts.
      */
     RENDER_KEY?: string;
+    /**
+     * The one published show the shop window runs on — the pitch page, the
+     * sitemap, /f/demo and /qr. Optional because an unset one has to mean no
+     * showcase: the pitch page makes its argument without a live card rather
+     * than falling back to whatever is published, which on an instance with two
+     * promoters on it is somebody else's show. A `var` in wrangler.jsonc rather
+     * than a secret, because it names something public.
+     */
+    SHOWCASE_SLUG?: string;
   }
 }
 

@@ -34,8 +34,25 @@ export async function getMedia(): Promise<R2Bucket> {
 /** Every secret the Worker reads. Set with `wrangler secret put`. See DEPLOY.md. */
 export type SecretName = "SESSION_SECRET" | "RENDER_KEY";
 
+/**
+ * Every plain variable the Worker reads. In `vars` in wrangler.jsonc and in
+ * .dev.vars locally, rather than in `wrangler secret put`, because a variable
+ * names something public — which show the shop window is pointed at — and
+ * putting it in the config is what makes a deploy able to change it.
+ */
+export type VarName = "SHOWCASE_SLUG";
+
 /** Undefined where the secret is not set. Never an empty string. */
 export async function readSecret(name: SecretName): Promise<string | undefined> {
+  return readEnv(name);
+}
+
+/** Undefined where the variable is not set. Never an empty string. */
+export async function readVar(name: VarName): Promise<string | undefined> {
+  return readEnv(name);
+}
+
+async function readEnv(name: string): Promise<string | undefined> {
   const { env } = await getCloudflareContext({ async: true });
   return (env as unknown as Record<string, string | undefined>)[name] || undefined;
 }

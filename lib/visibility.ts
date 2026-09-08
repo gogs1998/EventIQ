@@ -1,11 +1,12 @@
 import { headers } from "next/headers";
-import { RENDER_KEY_HEADER, secretMatches } from "@/lib/auth";
+import { digestsMatch, RENDER_KEY_HEADER, secretDigest, secretMatches } from "@/lib/auth";
 import { readSecret, type Db } from "@/lib/db";
 import {
   eventVisibility,
   eventsShowingPortrait,
   inviteHoldsPortrait,
   loadCard,
+  renderKeysFor,
   type LoadedCard,
 } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
@@ -65,7 +66,8 @@ export async function loadVisibleCard(db: Db, slug: string): Promise<LoadedCard 
  *
  * So it gets its own credential rather than the publish check. Either is enough:
  *
- * - the shared render key in a header, which is what the renderer holds, or
+ * - a render key in a header, which is what the renderer holds — scoped to this
+ *   promoter or to none, unexpired and unrevoked; see `renderKeyGrants`, or
  * - a promoter session that owns the show, so a promoter can open the capture
  *   page in their own browser to see what the video will look like.
  *
@@ -81,6 +83,83 @@ export function renderableTo(
   return access.keyMatched || (!!access.viewerId && access.viewerId === card.promoterId);
 }
 
+/** One row of `render_keys`, as the rule below needs it. */
+export type RenderKey = {
+  /** Null is the runner's: it renders whatever is queued, so it reads any card. */
+  promoterId: string | null;
+  digest: string;
+  expiresAt: number | null;
+  revokedAt: number | null;
+};
+
+/**
+ * Whether a key that has been presented and matched is a credential for these
+ * promoters' cards.
+ *
+ * There was one render key, in a secret, and it read every card on the instance
+ * published or not. That is the right size of credential while one operator runs
+ * one promoter's shows; the moment there are two promoters it is a cross-tenant
+ * read held by a GitHub runner, and section 20 had already written it down as
+ * the thing to fix before promoter number two rather than as they arrive.
+ *
+ * So the scope is on the row. A key scoped to a promoter reaches that promoter's
+ * shows and answers 404 on everybody else's, exactly as a stranger does, and an
+ * unscoped key is the runner's — it has to reach every promoter because it
+ * renders whatever is queued, and it is the one key that wants keeping narrow in
+ * *who holds it* rather than in what it reads.
+ *
+ * Expiry and revocation are checked here rather than in the query so that the
+ * whole rule is one function with a test per branch. An expired key and a
+ * revoked one are both simply not a credential; neither is told apart from a
+ * wrong key by anything the caller can see.
+ */
+export function renderKeyGrants(
+  key: RenderKey,
+  promoterIds: readonly string[],
+  now: number,
+): boolean {
+  if (key.revokedAt !== null) return false;
+  if (key.expiresAt !== null && key.expiresAt <= now) return false;
+  return key.promoterId === null || promoterIds.includes(key.promoterId);
+}
+
+/**
+ * Whether the key on this request opens these promoters' cards.
+ *
+ * Both the capture page and `/media` ask this, so a key that reads a draft show
+ * and a key that reads the mp4 of the same draft show cannot come apart — they
+ * were two calls to the same comparison before and they are two calls to the
+ * same function now.
+ */
+export async function renderKeyMatches(
+  db: Db,
+  presented: string | null | undefined,
+  promoterIds: readonly string[],
+  now = Date.now(),
+): Promise<boolean> {
+  if (!presented) return false;
+
+  // The migration path, and nothing else. `RENDER_KEY` is the single shared
+  // secret the table above exists to replace, and it is still accepted so that
+  // the Worker, the workflow and whoever renders by hand do not all have to
+  // change in the same breath as this ships. Once every runner holds a minted
+  // key, `wrangler secret delete RENDER_KEY` and this branch both go — DEPLOY.md
+  // has the order to do it in.
+  if (await secretMatches(presented, await readSecret("RENDER_KEY"))) return true;
+
+  const digest = await secretDigest(presented);
+  const keys = await renderKeysFor(db, promoterIds);
+
+  // Every row, without breaking out of the loop on the first hit: the comparison
+  // is over digests and how long it takes must not depend on which key was
+  // presented or how far down the table the right one sits.
+  let matched = false;
+  for (const key of keys) {
+    if (digestsMatch(key.digest, digest) && renderKeyGrants(key, promoterIds, now)) matched = true;
+  }
+  return matched;
+}
+
 /**
  * The card at this slug for the renderer, or null where the caller has not
  * proved it is entitled to it. Null, like everywhere else here, so the route can
@@ -91,10 +170,9 @@ export async function loadRenderableCard(db: Db, slug: string): Promise<LoadedCa
   const card = await loadCard(db, slug);
   if (!card) return null;
 
-  const keyMatched = await secretMatches(
-    (await headers()).get(RENDER_KEY_HEADER),
-    await readSecret("RENDER_KEY"),
-  );
+  const keyMatched = await renderKeyMatches(db, (await headers()).get(RENDER_KEY_HEADER), [
+    card.promoterId,
+  ]);
   const viewerId = keyMatched ? null : (await currentPromoter())?.id;
 
   return renderableTo(card, { keyMatched, viewerId }) ? card : null;
@@ -217,9 +295,13 @@ export async function mediaVisibility(
   const open = mediaVisibleTo({ events }, { keyMatched: false });
   if (open.visible) return open;
 
-  const keyMatched = await secretMatches(
+  // The same check the capture page makes, on the same key, scoped to whichever
+  // shows this object hangs off. An object on nobody's show is refused below
+  // whatever the key says, so an empty list here asks only about the runner's.
+  const keyMatched = await renderKeyMatches(
+    db,
     requestHeaders.get(RENDER_KEY_HEADER),
-    await readSecret("RENDER_KEY"),
+    events.map((event) => event.promoterId),
   );
   const viewerId = keyMatched ? null : (await currentPromoter())?.id;
 

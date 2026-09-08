@@ -29,7 +29,12 @@ secret in place before anything is uploaded.
 > being reachable by anybody who could guess a slug. A fresh deployment without
 > it renders no videos, and **no copy of the deployed value is kept anywhere**,
 > so whoever wants to render mints their own — two commands, no other
-> consequences. See [section 4](#4-set-the-secrets).
+> consequences. See [section 4](#4-set-the-secrets). That secret is on its way
+> out: render keys are rows in the database now, scoped to a promoter, and
+> `RENDER_KEY` is what a deployment runs on until the runner has one of its own.
+>
+> **And one variable.** `SHOWCASE_SLUG` in `wrangler.jsonc` names the published
+> show EventIQ's own front page runs on. See [section 4a](#4a-set-the-variables).
 
 ---
 
@@ -174,6 +179,65 @@ npx wrangler secret list
 Secrets survive a deploy. Both of these were confirmed present after
 `npm run deploy`, which is worth knowing because `wrangler.jsonc` declares
 neither.
+
+### Render keys are rows now, and the secret is the migration path
+
+A key that opens the capture page is a row in `render_keys`, minted with
+[scripts/render-key.mjs](scripts/render-key.mjs) and scoped to a promoter or to
+none. `RENDER_KEY` above is still accepted, so that a deployment, a workflow and
+whoever renders by hand do not all have to change in the same breath — and it is
+the thing to remove once every runner holds a minted key, because it is one
+credential that reads every promoter's cards, published or not.
+[HANDOVER section 6c](HANDOVER.md#6c-the-render-key-and-why-the-renderer-could-not-use-the-publish-check).
+
+```bash
+# The runner's key. Unscoped, because the hourly job renders whatever is queued
+# and cannot know in advance whose show that will be. Printed once.
+npm run render-key -- mint --label "GitHub Actions" --remote
+
+# Anything held by a person, or by a machine doing one promoter's shows.
+npm run render-key -- mint --promoter cage-county --label "a laptop" --days 90 --remote
+
+npm run render-key -- list --remote
+npm run render-key -- revoke --id rk_... --remote
+```
+
+**Whatever is minted goes into `RENDER_KEY` wherever the renderer runs** — the
+repository secret for the workflow, the shell or `.dev.vars` for a run by hand.
+The renderer itself is unchanged: it presents that value in the
+`x-eventiq-render-key` header on the capture page's own request, and it neither
+knows nor cares whether the far side matched a row or the Worker's secret.
+
+Finish the migration in this order: mint the runner's key, put it in the
+`RENDER_KEY` repository secret, run the workflow once to prove it renders, then
+`npx wrangler secret delete RENDER_KEY`. Deleting first stops every render until
+the new key is in place.
+
+## 4a. Set the variables
+
+There is one, and unlike the secrets it lives in `vars` in
+[wrangler.jsonc](wrangler.jsonc) and is set by a deploy.
+
+```jsonc
+"vars": {
+  "SHOWCASE_SLUG": "cage-county-12"
+}
+```
+
+`SHOWCASE_SLUG` names the one published show EventIQ's own shop window runs on:
+the pitch page, the sitemap, `/f/demo` and the bare `/qr` redirect. A var rather
+than a secret because it names something public, and because changing which show
+is on display should be a deploy with a diff on it rather than a
+`wrangler secret put` nobody can read back.
+
+It replaces "whichever published show has the furthest-out date", which was a
+rule that would put a second promoter's card on EventIQ's front page and into its
+sitemap the moment their date was the later one, with nobody having done
+anything. **Unset, or naming a show that is not published, means no showcase**:
+the pitch page makes its whole argument without a live card, `/qr` answers 404
+and the sitemap lists `/` alone. Nothing else is affected — a promoter's own
+programme is at `/e/<slug>` either way.
+[HANDOVER section 6e](HANDOVER.md#6e-the-shop-window-runs-on-a-named-show).
 
 ## 5. Seed the first promoter
 
@@ -473,7 +537,7 @@ secrets:
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | the deploy token, scopes as above |
 | `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
-| `RENDER_KEY` | `wrangler secret put RENDER_KEY` on the Worker |
+| `RENDER_KEY` | an unscoped key from `npm run render-key -- mint --remote` |
 
 The workflow finds Chrome on the runner and exports `CHROME_PATH`, and installs
 ffmpeg if the image does not already carry it. Neither is promised by anything
@@ -483,9 +547,18 @@ expensive way to be told.
 **This is where the render key now lives.** It used to be held by whoever
 rendered, on their own laptop, and open question 5 in the handover was where it
 should live instead. It lives in repository secrets, which means anyone who can
-read those, or push a workflow that echoes them, can read any card on the
-instance including unpublished ones. That is the trade for the videos being made
-without a person; it is worth knowing rather than discovering.
+read those, or push a workflow that echoes them, holds it. That is the trade for
+the videos being made without a person; it is worth knowing rather than
+discovering.
+
+What that secret should hold is **a key minted for the runner and nothing else**:
+`npm run render-key -- mint --label "GitHub Actions" --remote`, unscoped, because
+the hourly job renders whatever is queued and cannot know whose show that will
+be. Unscoped means it still reads every promoter's cards, published or not, so it
+is narrow in who holds it rather than in what it opens — and it can be revoked
+and replaced in two commands without touching the Worker or signing anybody out.
+Anything held by a person wants `--promoter <slug>` and probably `--days`, which
+makes it a credential for one promoter's shows and nobody else's.
 
 ### Cutouts happen here too
 
@@ -762,15 +835,21 @@ once, before a promoter's card and a room full of spectators depend on it.
       answers 200 over plain http today. The deploy token gets 403 on every zone
       setting, so this cannot be scripted from here.
       [The detail](#https-at-the-edge).
-- [ ] **Put `RENDER_KEY` and `SESSION_SECRET` in a password manager.** Neither
-      can be read back out of the Worker and there is no copy of either
-      anywhere. That is survivable while one person renders on their own laptop
-      and is the wrong shape the moment two people, a second machine or a cron
-      job need one. Rotating `RENDER_KEY` costs nothing else; rotating
-      `SESSION_SECRET` signs **everybody** out at once, which is the blunt
-      instrument. Signing out one account is a password change or
+- [ ] **Put `SESSION_SECRET` in a password manager.** It cannot be read back out
+      of the Worker and there is no copy of it anywhere. Rotating it signs the
+      promoter out, which is the whole of the revocation story and is deliberate.
+      Render keys no longer belong on this list in the same way: they are rows,
+      they are minted per machine, and one that is lost is revoked and replaced
+      rather than recovered.
+      Signing out one account instead is a password change or
       `npm run promoter -- set-password`, which bumps that promoter's
       `session_version` and leaves everyone else alone.
+- [ ] **Mint the runner a key of its own, then delete the `RENDER_KEY` secret.**
+      `npm run render-key -- mint --label "GitHub Actions" --remote`, into the
+      repository secret, one workflow run to prove it renders, then
+      `npx wrangler secret delete RENDER_KEY`. Until that last command runs, the
+      old single credential that reads every promoter's cards still exists.
+      [Render keys](#render-keys-are-rows-now-and-the-secret-is-the-migration-path).
 - [ ] **Point an external uptime check at `/api/health`.** Anything that will
       send a message to a phone — a free tier is fine. Nothing here phones home,
       so a 500 on show night stays a 500 until somebody happens to log in, and
@@ -825,14 +904,14 @@ What remains on the account:
 6. **Set `RENDER_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
    repository secrets, and keep the render key somewhere a person can read it.**
    The hourly workflow needs all three, and until they are set it fails every
-   hour. Today nobody holds the render key: it is set on the Worker, cannot be
-   read back, and whoever wants to render mints a fresh one — see
-   [the operator mints their own render key](#the-operator-mints-their-own-render-key).
-   That was fine while one person rendered on their own machine and is not now
-   that a schedule needs it. A password manager entry as well as the secret, not
-   a file in the repository, and it is worth knowing that anyone who can push a
-   workflow can read a repository secret. It is also one of the things that
-   wants deciding before a second promoter exists — HANDOVER section 19 item 11.
+   hour. What goes in `RENDER_KEY` is now a key minted for the runner —
+   `npm run render-key -- mint --label "GitHub Actions" --remote` — rather than
+   the Worker's secret, and once it is in place `wrangler secret delete
+   RENDER_KEY` retires the one credential that could read every promoter's cards
+   without a row behind it. A password manager entry as well as the repository
+   secret, not a file in the repository, and it is worth knowing that anyone who
+   can push a workflow can read a repository secret. The tenancy half of this is
+   decided — HANDOVER section 19 item 11 — and what is left is the chore.
 
 Done since this list was last written: the `eventiq-photos` bucket has been
 deleted (it held one orphaned photograph from an end-to-end run against a

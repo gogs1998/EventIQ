@@ -23,7 +23,7 @@ When you need to know why something is written a particular way, HANDOVER.md alm
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, SHOWCASE_SLUG, the seed password
 npm run db:reset                   # migrate and seed the local D1
 npm run dev                        # http://localhost:3000
 ```
