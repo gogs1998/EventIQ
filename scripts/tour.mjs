@@ -175,6 +175,19 @@ async function tour() {
   await goto(page, "/f/demo");
   await sleep(2600);
 
+  // The notice comes before the form, for a fighter and for this recording
+  // alike. It is worth a beat on screen: it is the thing that lets a promoter
+  // put real people on a card at all.
+  await page.evaluate(() => {
+    const age = document.querySelector("#consent-age");
+    if (!age) return;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(age, "24");
+    age.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await sleep(1400);
+  await page.evaluate(() => document.querySelector("#consent")?.click());
+  await sleep(1800);
+
   await clickText(page, "Use the one from the gym");
   await parkCursor();
   await sleep(2800);

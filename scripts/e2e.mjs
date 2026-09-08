@@ -75,6 +75,19 @@ const fill = (page, selector, value) =>
     value,
   );
 
+/**
+ * A checkbox the way a user would tick it. The prototype setter above is for a
+ * value; React listens for the click on one of these.
+ */
+const check = (page, selector) =>
+  page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) throw new Error(`no ${s}`);
+    if (!el.checked) el.click();
+  }, selector);
+
+const present = (page, selector) => page.evaluate((s) => !!document.querySelector(s), selector);
+
 const clickText = (page, text) =>
   page.evaluate((t) => {
     const button = [...document.querySelectorAll("button")].find((b) =>
@@ -292,9 +305,46 @@ await step("the invite link opens their questionnaire", async () => {
   return line;
 });
 
+const NICKNAME = 'input[placeholder="The Welsh Dragon"]';
+
+/**
+ * Consent is the first thing on the form and nothing else exists until it is
+ * given, so the suite has to satisfy the same gate a fighter does. It is also
+ * the only place that would catch the gate falling open: a form that still
+ * showed its fields with the box unticked would pass every other step here.
+ */
+await step("the form asks before it asks for anything else", async () => {
+  await sleep(1000);
+  const body = await textOf(fighter);
+  if (!body.includes("before you fill this in")) throw new Error("no notice on the form");
+
+  // A fighter who agreed on a previous run comes back to an open form, which is
+  // the point of storing it. The gate itself is only exercisable against a fresh
+  // seed, so say which of the two this run was rather than failing the second.
+  if (await present(fighter, NICKNAME)) {
+    if (!body.includes("you agreed to this")) throw new Error("open with no consent on it");
+    return "already agreed on this invite";
+  }
+
+  // Under eighteen closes it again, and offers no tick at all.
+  await fill(fighter, "#consent-age", "16");
+  await sleep(300);
+  if (await present(fighter, "#consent")) throw new Error("a fighter under 18 was offered the tick");
+  if (!(await textOf(fighter)).includes("parent or guardian")) {
+    throw new Error("nothing said what happens for a fighter under 18");
+  }
+
+  await fill(fighter, "#consent-age", "24");
+  await sleep(300);
+  await check(fighter, "#consent");
+  await sleep(2500);
+  if (!(await present(fighter, NICKNAME))) throw new Error("the form did not open after the tick");
+  return "gated, then open";
+});
+
 await step("typing saves without a save button", async () => {
   await sleep(1000);
-  await fill(fighter, 'input[placeholder="The Welsh Dragon"]', "The Verifier");
+  await fill(fighter, NICKNAME, "The Verifier");
   await fill(fighter, 'input[placeholder="@owenpryce"]', "theverifier");
   await fill(fighter, 'input[placeholder="Wrexham"]', "Runcorn");
   await fill(fighter, "textarea", "Two years in the gym and the whole street has bought tickets.");
@@ -428,6 +478,19 @@ await step("a Tapology link fails honestly", async () => {
   }, BASE);
   if (outcome.ok) throw new Error("claimed to have read Tapology");
   return outcome.reason?.slice(0, 50);
+});
+
+/**
+ * The notice the consent text links to. It is the one page on the site whose
+ * absence would be a broken link inside the thing a fighter just agreed to.
+ */
+await step("the privacy notice is where the form points", async () => {
+  const response = await page.goto(`${BASE}/privacy`, { waitUntil: "networkidle0" });
+  if (response.status() !== 200) throw new Error(`got ${response.status()}, wanted 200`);
+  const body = await textOf(page);
+  for (const want of ["privacy notice", "promoter", "sponsors", "180 days"]) {
+    if (!body.includes(want)) throw new Error(`missing "${want}"`);
+  }
 });
 
 await step("a made-up token is not a way in", async () => {

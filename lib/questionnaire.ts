@@ -35,6 +35,14 @@ export type Draft = {
   sub: string;
   styleTags: string[];
   sponsorIds: string[];
+  /**
+   * The consent tick. It travels with the draft rather than through an action of
+   * its own so that the thing being autosaved is still exactly the thing being
+   * previewed — and so a fighter who ticks the box and closes the tab has given
+   * a consent that landed. What may be written before it is given is decided in
+   * lib/consent.ts, not here.
+   */
+  consented: boolean;
 };
 
 export const EMPTY_DRAFT: Draft = {
@@ -55,6 +63,7 @@ export const EMPTY_DRAFT: Draft = {
   sub: "",
   styleTags: [],
   sponsorIds: [],
+  consented: false,
 };
 
 export const STYLE_OPTIONS = [
@@ -86,7 +95,7 @@ export function num(value: string): number | undefined {
  * the retention hook in the whole idea, and it is the reason fighters are their
  * own table rather than rows hanging off a bout.
  */
-export function draftFromFighter(fighter: Fighter): Draft {
+export function draftFromFighter(fighter: Fighter, consented = false): Draft {
   return {
     nickname: str(fighter.nickname),
     instagram: str(fighter.instagram),
@@ -106,6 +115,8 @@ export function draftFromFighter(fighter: Fighter): Draft {
     sub: str(fighter.finishes?.sub),
     styleTags: fighter.styleTags ?? [],
     sponsorIds: fighter.sponsorIds ?? [],
+    // From the invite rather than the fighter: consent is given for a show.
+    consented,
   };
 }
 
@@ -135,6 +146,9 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
     instagram: draft.instagram.replace(/^@/, "") || undefined,
     photo: draft.photo,
     cutout: draft.photo === base.photo ? base.cutout : undefined,
+    // A stylised portrait is made from one particular photograph, so it goes
+    // the same way the cutout does when that photograph is replaced.
+    stylised: draft.photo === base.photo ? base.stylised : undefined,
     bio: draft.bio || undefined,
     hometown: draft.hometown || undefined,
     age: num(draft.age),
@@ -256,5 +270,8 @@ export function sanitiseDraft(input: unknown): Draft {
     sub,
     styleTags: list("styleTags", STYLE_OPTIONS, 3),
     sponsorIds: list("sponsorIds", null, 6),
+    // Only an explicit true is a tick. Anything else — absent, a string, a
+    // number — is a payload that did not say yes, and a consent has to be said.
+    consented: raw.consented === true,
   };
 }

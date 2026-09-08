@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { markOpened, saveDraft, submitProfile, uploadPhoto } from "@/app/f/[token]/actions";
+import { removeMyDetails } from "@/app/f/[token]/consent-actions";
 import { Questionnaire } from "@/components/Questionnaire";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadCard, loadInviteByToken } from "@/lib/db/queries";
+import { loadCard, loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
+import { PRIVACY, REMOVAL } from "@/lib/copy";
 
 /**
  * A fighter's own page, reached by the token in the link and nothing else.
@@ -23,7 +26,14 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   const db = await getDb();
 
   const row = await loadInviteByToken(db, token);
-  if (!row) notFound();
+  if (!row) {
+    // A link the fighter switched off themselves says so, rather than answering
+    // the same "there is nothing at this address" a made-up token gets. It is
+    // also what the browser lands on immediately after the removal, because a
+    // server action re-renders the page it was called from.
+    if (await inviteWasRevoked(db, token)) return <DetailsRemoved />;
+    notFound();
+  }
 
   const card = await loadCard(db, row.event.slug);
   if (!card) notFound();
@@ -54,6 +64,28 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
       save={saveDraft.bind(null, token)}
       submit={submitProfile.bind(null, token)}
       upload={uploadPhoto.bind(null, token)}
+      consent={{
+        at: row.invite.consentedAt ?? undefined,
+        version: row.invite.consentVersion ?? undefined,
+      }}
+      remove={removeMyDetails.bind(null, token)}
     />
+  );
+}
+
+/**
+ * What is left of a fighter's page after they have asked for their details back.
+ * The same words the control on the form uses, so pressing the button and
+ * opening the link a week later say the same thing.
+ */
+function DetailsRemoved() {
+  return (
+    <main className="mx-auto w-full max-w-xl px-5 py-24">
+      <h1 className="display text-3xl">{REMOVAL.done.heading}</h1>
+      <p className="text-ash mt-4 text-sm leading-relaxed">{REMOVAL.done.body}</p>
+      <Link href="/privacy" className="label hover:text-chalk mt-6 inline-block">
+        {PRIVACY.link}
+      </Link>
+    </main>
   );
 }
