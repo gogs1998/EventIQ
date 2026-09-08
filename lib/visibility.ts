@@ -3,6 +3,7 @@ import { RENDER_KEY_HEADER, secretMatches } from "@/lib/auth";
 import { readSecret, type Db } from "@/lib/db";
 import {
   eventVisibility,
+  eventsOfPromoter,
   eventsShowingPortrait,
   inviteHoldsPortrait,
   loadCard,
@@ -120,7 +121,9 @@ export type MediaKey =
   /** `fighters/…` or `cutouts/…`, addressed by the path stored on the fighter. */
   | { kind: "portrait"; path: string }
   /** `renders/<slug>/…`, the mp4 for one bout of that show. */
-  | { kind: "render"; slug: string };
+  | { kind: "render"; slug: string }
+  /** `sponsors/<promoterId>/…`, an emblem the promoter uploaded. */
+  | { kind: "sponsor"; promoterId: string };
 
 /** The shape of the key, or null where it is not one this route serves. */
 export function parseMediaKey(key: string): MediaKey | null {
@@ -135,6 +138,13 @@ export function parseMediaKey(key: string): MediaKey | null {
   if (segments.length === 3 && segments[0] === "renders") {
     return { kind: "render", slug: segments[1] };
   }
+  // A sponsor's emblem says which promoter it belongs to in the key itself,
+  // which is the third way one of these can name its show and the reason the
+  // promoter is carried separately below: an emblem exists from the moment it is
+  // uploaded, which can be before the promoter has published anything at all.
+  if (segments.length === 3 && segments[0] === "sponsors") {
+    return { kind: "sponsor", promoterId: segments[1] };
+  }
   return null;
 }
 
@@ -143,6 +153,12 @@ export type MediaSubject = {
   events: readonly { published: boolean; promoterId: string }[];
   /** The caller came from the questionnaire of the fighter this portrait is of. */
   heldByInvite?: boolean;
+  /**
+   * The promoter the object belongs to directly, rather than through a show.
+   * Only a sponsor's emblem has one, and it is what lets a promoter see the
+   * artwork they have just uploaded on a card nobody has published yet.
+   */
+  ownerId?: string;
 };
 
 export type MediaAccess = {
@@ -171,6 +187,7 @@ export function mediaVisibleTo(
     published ||
     access.keyMatched ||
     !!subject.heldByInvite ||
+    (!!subject.ownerId && subject.ownerId === access.viewerId) ||
     subject.events.some((event) => visibleTo(event, access.viewerId));
 
   return { visible, public: published };
@@ -209,12 +226,19 @@ export async function mediaVisibility(
   const target = parseMediaKey(key);
   if (!target) return refused;
 
+  // A sponsor's emblem goes behind the promoter's own shows: it is on the
+  // strip, on a bout card and inside the videos, so it is as public as the
+  // cards it appears on and no more. `ownerId` is what keeps the promoter's own
+  // view of it working before any of those shows is published.
   const events =
     target.kind === "render"
       ? [await eventVisibility(db, target.slug)].filter((event) => event !== null)
-      : await eventsShowingPortrait(db, target.path);
+      : target.kind === "sponsor"
+        ? await eventsOfPromoter(db, target.promoterId)
+        : await eventsShowingPortrait(db, target.path);
+  const ownerId = target.kind === "sponsor" ? target.promoterId : undefined;
 
-  const open = mediaVisibleTo({ events }, { keyMatched: false });
+  const open = mediaVisibleTo({ events, ownerId }, { keyMatched: false });
   if (open.visible) return open;
 
   const keyMatched = await secretMatches(
@@ -223,7 +247,7 @@ export async function mediaVisibility(
   );
   const viewerId = keyMatched ? null : (await currentPromoter())?.id;
 
-  const owned = mediaVisibleTo({ events }, { keyMatched, viewerId });
+  const owned = mediaVisibleTo({ events, ownerId }, { keyMatched, viewerId });
   if (owned.visible || target.kind !== "portrait") return owned;
 
   const token = inviteTokenFromReferrer(requestHeaders.get("referer"));

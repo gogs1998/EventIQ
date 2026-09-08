@@ -83,14 +83,34 @@ export type RenderInputField = (typeof RENDER_INPUT_FIELDS)[number];
 /** Built from a SQL row in the renderer and from Drizzle in the app. */
 export type RenderInputs = Partial<Record<RenderInputField, unknown>>;
 
+/**
+ * The emblem a sponsor lockup actually draws, or nothing.
+ *
+ * A mark the promoter uploaded wins over the curated artwork under
+ * public/sponsors, because assets-src/ is not in the repository: for any sponsor
+ * a promoter added themselves, the upload is the only artwork there is. It lives
+ * here rather than in the row mapper because the fingerprint below has to agree
+ * with the picture — the tape draws the resolved mark, so hashing the raw columns
+ * would leave a bout's video showing the emblem it was made with and nothing
+ * saying so.
+ */
+export function sponsorMark(sponsor: {
+  mark?: string | null;
+  markKey?: string | null;
+}): string | undefined {
+  if (sponsor.markKey) return `/media/${sponsor.markKey}`;
+  return sponsor.mark ?? undefined;
+}
+
 /** One sponsor lockup, flattened to the four things SponsorRow draws. */
 export function sponsorFingerprint(sponsor: {
   id: string;
   name: string;
   qualifier?: string | null;
   mark?: string | null;
+  markKey?: string | null;
 }): string {
-  return [sponsor.id, sponsor.name, sponsor.qualifier ?? "", sponsor.mark ?? ""].join("|");
+  return [sponsor.id, sponsor.name, sponsor.qualifier ?? "", sponsorMark(sponsor) ?? ""].join("|");
 }
 
 /**

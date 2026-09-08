@@ -319,7 +319,10 @@ async function boutsOf(eventSlug) {
   const lockups = new Map(
     (
       await d1(
-        `SELECT s.id AS id, s.name AS name, s.qualifier AS qualifier, s.mark AS mark
+        // mark_key as well as mark: a promoter's own upload is the emblem the
+        // composition draws, so it is the emblem the fingerprint has to hash.
+        `SELECT s.id AS id, s.name AS name, s.qualifier AS qualifier,
+                s.mark AS mark, s.mark_key AS markKey
            FROM sponsors s
            JOIN events e ON e.promoter_id = s.promoter_id
           WHERE e.slug = ${lit(eventSlug)}`,

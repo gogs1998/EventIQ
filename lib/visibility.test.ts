@@ -116,11 +116,20 @@ describe("parseMediaKey", () => {
     });
   });
 
+  it("reads a sponsor's emblem as the promoter it belongs to", () => {
+    expect(parseMediaKey("sponsors/pr_9aBc/sp_1dEf-0a1b2c3d.png")).toEqual({
+      kind: "sponsor",
+      promoterId: "pr_9aBc",
+    });
+  });
+
   it("refuses a key with no rule attached to it, rather than serving it", () => {
     expect(parseMediaKey("secrets/backup.sql")).toBeNull();
     expect(parseMediaKey("fighters")).toBeNull();
     expect(parseMediaKey("fighters/sub/dir.jpg")).toBeNull();
     expect(parseMediaKey("renders/cage-county-12")).toBeNull();
+    expect(parseMediaKey("sponsors/pr_9aBc")).toBeNull();
+    expect(parseMediaKey("sponsors/pr_9aBc/deeper/mark.png")).toBeNull();
     expect(parseMediaKey("")).toBeNull();
   });
 
@@ -194,6 +203,36 @@ describe("mediaVisibleTo", () => {
     expect(mediaVisibleTo({ events: [] }, { keyMatched: false, viewerId: "cage-county" }).visible).toBe(
       false,
     );
+  });
+
+  /**
+   * A sponsor's emblem belongs to the promoter rather than to one card, and it
+   * exists from the moment it is uploaded — which can be before that promoter
+   * has published anything at all. Without the owner it would be an object
+   * hanging off no show, refused above, and the promoter would not be able to
+   * see the artwork they had just sent.
+   */
+  it("shows a promoter their own emblem before any of their shows is published", () => {
+    const emblem = { events: draft, ownerId: "cage-county" };
+    expect(mediaVisibleTo(emblem, { keyMatched: false, viewerId: "cage-county" })).toEqual({
+      visible: true,
+      public: false,
+    });
+    expect(mediaVisibleTo({ events: [], ownerId: "cage-county" }, { keyMatched: false, viewerId: "cage-county" }).visible).toBe(
+      true,
+    );
+  });
+
+  it("keeps another promoter's emblem out of reach on a draft, and lets it go once a show is live", () => {
+    expect(
+      mediaVisibleTo({ events: draft, ownerId: "cage-county" }, { keyMatched: false, viewerId: "another-promoter" })
+        .visible,
+    ).toBe(false);
+    expect(mediaVisibleTo({ events: draft, ownerId: "cage-county" }, stranger).visible).toBe(false);
+    expect(mediaVisibleTo({ events: live, ownerId: "cage-county" }, stranger)).toEqual({
+      visible: true,
+      public: true,
+    });
   });
 
   it("takes one published show out of several as enough", () => {

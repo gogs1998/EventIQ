@@ -278,6 +278,17 @@ export const ACTION_ERRORS = {
   boutNeedsBothCorners: "A bout needs a name in both corners.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
   sponsorNeedsName: "A sponsor needs a name.",
+  /**
+   * The emblem. Separate sentences for the same reason the fighter's photograph
+   * has three: a different file and a smaller file are different things to go
+   * and do. Neither mentions the sponsor's name, because an emblem is artwork
+   * and the name is set in the app's own type whatever happens here.
+   */
+  markNotAnImage: "That emblem is not a JPEG, PNG or WebP image.",
+  markTooLarge: "That emblem is too large to send. A few hundred pixels across is plenty.",
+  markNotStored:
+    "That emblem would not upload. Try again, or add the sponsor without one — the name is set " +
+    "in the programme's own type either way.",
 
   /** The fighter's side. Their typing stays in the boxes whatever these say. */
   unknownInvite: "This link is no longer active. Ask the promoter for a new one.",

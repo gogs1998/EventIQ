@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
-import { renderUrl, type Renders } from "@/lib/renders";
+import { renderUrl, sponsorMark, type Renders } from "@/lib/renders";
 import type {
   AnalyticsKind,
   Billing,
@@ -98,7 +98,10 @@ function toSponsor(row: SponsorRow): Sponsor {
     id: row.id,
     name: row.name,
     qualifier: optional(row.qualifier),
-    mark: optional(row.mark),
+    // The promoter's own upload where there is one, the curated artwork
+    // otherwise. Resolved here so the strip, the lockup and the tape all get the
+    // same answer from the one place that reads the columns.
+    mark: sponsorMark(row),
     url: optional(row.url),
   };
 }
@@ -428,6 +431,19 @@ export async function eventsShowingPortrait(db: Db, path: string) {
     )
     .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
     .where(or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)));
+}
+
+/**
+ * Every show a promoter has, for an object that belongs to the promoter rather
+ * than to one card — a sponsor's emblem, which is on the strip of every show
+ * they place it on. One published show is enough, for the same reason it is
+ * enough for a photograph: the emblem is already on a page anybody can open.
+ */
+export async function eventsOfPromoter(db: Db, promoterId: string) {
+  return db
+    .select({ published: schema.events.published, promoterId: schema.events.promoterId })
+    .from(schema.events)
+    .where(eq(schema.events.promoterId, promoterId));
 }
 
 /** Whether this invite token belongs to the fighter this portrait is of. */

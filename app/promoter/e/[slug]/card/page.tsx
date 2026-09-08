@@ -103,9 +103,9 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
       <section className="mt-12">
         <h2 className="display text-2xl">Sponsors</h2>
         <p className="text-ash mt-2 max-w-2xl text-xs leading-relaxed">
-          Add them here and they become selectable against any bout above. Emblems are
-          uploaded with the asset pipeline for now; the name is set in the app&rsquo;s own
-          type either way, so it can never come out misspelled.
+          Add them here and they become selectable against any bout above. An emblem can
+          come up with them; the name is set in the app&rsquo;s own type either way, so it
+          can never come out misspelled.
         </p>
         <AddSponsorForm slug={event.slug} />
       </section>
