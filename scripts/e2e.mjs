@@ -124,6 +124,13 @@ await step("the right password signs in", async () => {
   ]);
   await sleep(2500);
   if (page.url().includes("/login")) throw new Error(`still on login`);
+  // A promoter with one show is sent on from /promoter to it, and the show page
+  // is the slowest on the site to build. Reading the address during that second
+  // hop reported "/promoter" and every later step then had no slug to work with.
+  if (page.url().replace(BASE, "") === "/promoter") {
+    await page.waitForFunction(() => !location.pathname.endsWith("/promoter"), { timeout: 60000 }).catch(() => {});
+    await page.waitForNetworkIdle({ timeout: 60000 }).catch(() => {});
+  }
   return page.url().replace(BASE, "");
 });
 
