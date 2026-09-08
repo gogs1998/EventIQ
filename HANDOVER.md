@@ -338,6 +338,25 @@ So a key is a row in `render_keys` (migration `0007`): an id, a nullable `promot
 
 Proved locally against a second promoter inserted by hand, each promoter with an unpublished show: no key 404, cage-county's key 200 on its own draft and 404 on the other promoter's, budo's key the other way round, the unscoped runner key 200 on both, an expired key 404, a revoked key 404, a wrong key 404, and the `RENDER_KEY` secret still 200.
 
+### Four ways to a card, and no fifth
+
+`loadCard` fetches a show and asks nobody whether the caller may see it, so **nothing under app/ may import it**. There is an eslint rule saying exactly that, in [eslint.config.mjs](eslint.config.mjs), scoped to `app/**`. A route gets a card one of four ways, all of them in [lib/visibility.ts](lib/visibility.ts):
+
+| Function | For | The credential |
+| --- | --- | --- |
+| `loadVisibleCard` | the public programme, its fighter pages, the table card | published, or the promoter's own session |
+| `loadRenderableCard` | the capture page | a render key, or the promoter's own session |
+| `loadOwnedCard` | the promoter's dashboard and card editor, and `ownedEvent` in all three actions files | the promoter's own session, and the show is theirs |
+| `loadInvitedCard` | the fighter's questionnaire | the invite token, already spent by `loadInviteByToken` |
+
+`loadOwnedCard` is the one that arrived last and it replaced five copies of the same rule: `card.promoterId !== promoter.id` written inline in two promoter pages, and a where clause written out three times in three `"use server"` files — which could not share a helper, because everything a server module exports is an endpoint reachable from the internet. lib/visibility.ts is not a server module, so one function serves all five. It costs the whole card rather than the one row a where clause fetched, which is deliberate: nearly every caller goes on to ask for a render and loads the same card again, and none of them is on a spectator's path.
+
+`loadInvitedCard` looks like it does nothing, and that is the point. The token is the whole authorisation and the lookup has already spent it, so there is no check left to make — which is exactly the shape of the capture page's argument in this section, and **"this one is different" is where the next hole will be**. It also takes the show off the invite row rather than out of the address, so a fighter cannot be shown a card their link was not issued for.
+
+**The return types are branded**, and that is the half the lint rule cannot do. `loadVisibleCard` returns a `VisibleCard` and `loadOwnedCard` an `OwnedCard`; neither can be made anywhere but those two functions, because the cast that makes one lives beside them and nowhere else. So a card that came from somewhere unchecked cannot be passed where a checked one is wanted — the lint rule stops the import, the brand stops the value.
+
+There are tests for all four against a real database with two promoters, a draft and a published show, in [tests/db/visibility.test.ts](tests/db/visibility.test.ts), and a table-driven one in [tests/db/promoter-actions.test.ts](tests/db/promoter-actions.test.ts) that puts **every** promoter action against another promoter's show and asserts both the refusal and that nothing on the show moved. The list every action has to be in is the part that catches the action somebody adds next.
+
 ---
 
 ## 6d. The gate on `/media`, and the three limiters

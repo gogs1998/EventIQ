@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { RENDER_KEY_HEADER } from "@/lib/auth";
-import { loadRenderableCard, loadVisibleCard, mediaVisibility } from "@/lib/visibility";
+import { loadInviteByToken } from "@/lib/db/queries";
+import {
+  loadInvitedCard,
+  loadOwnedCard,
+  loadRenderableCard,
+  loadVisibleCard,
+  mediaVisibility,
+} from "@/lib/visibility";
 import { setEnv } from "./bindings";
 import { plantPromoters, plantRenderKey, plantShow, plantSponsor } from "./fixtures";
 import { signInAs, testDatabase } from "./harness";
@@ -78,6 +85,42 @@ describe("loadVisibleCard", () => {
     // behind, so it is not a session any more.
     await signInAs("pr_budo", 3);
     expect(await loadVisibleCard(db, "budo-79")).toBeNull();
+  });
+});
+
+describe("loadOwnedCard", () => {
+  it("hands a promoter their own draft", async () => {
+    const { db } = await twoShows();
+    expect(await loadOwnedCard(db, "budo-79", "pr_budo")).not.toBeNull();
+  });
+
+  it("refuses another promoter's show, published or not, exactly as a missing one", async () => {
+    const { db } = await twoShows();
+    expect(await loadOwnedCard(db, "budo-79", "pr_cage")).toBeNull();
+    expect(await loadOwnedCard(db, "cage-county-12", "pr_budo")).toBeNull();
+    expect(await loadOwnedCard(db, "no-such-show", "pr_cage")).toBeNull();
+  });
+
+  it("asks nothing of the session, so a signed-in promoter cannot borrow one", async () => {
+    const { db } = await twoShows();
+    await signInAs("pr_budo");
+    expect(await loadOwnedCard(db, "budo-79", "pr_cage")).toBeNull();
+  });
+});
+
+describe("loadInvitedCard", () => {
+  it("brings back the show the link was issued for, with no session anywhere", async () => {
+    const { db, draft } = await twoShows();
+    const fighterId = draft.fighterIds[0];
+
+    const row = await loadInviteByToken(db, draft.tokens[fighterId]);
+    const card = await loadInvitedCard(db, row!.invite);
+
+    // A draft card, reached with nothing but the token. That is the whole of the
+    // authorisation and it has already been spent by the lookup above.
+    expect(card?.eventId).toBe(draft.eventId);
+    expect(card?.published).toBe(false);
+    expect(card?.event.bouts).toHaveLength(2);
   });
 });
 

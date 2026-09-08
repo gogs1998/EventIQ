@@ -1,11 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
-import * as schema from "@/db/schema";
-import { getDb, type Db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { enqueueRender } from "@/lib/db/render-jobs";
 import { requirePromoter } from "@/lib/session";
+import { loadOwnedCard } from "@/lib/visibility";
 
 /**
  * Asking for a video, and nothing else.
@@ -17,29 +16,22 @@ import { requirePromoter } from "@/lib/session";
  * handover — so the honest thing for the dashboard to say afterwards is
  * "queued", which is what it says.
  *
- * Its own file rather than app/promoter/actions.ts, which is being rewritten
- * elsewhere. The ownership check is the same one, repeated rather than exported:
- * every export of a "use server" module is a callable endpoint, and a helper
- * that takes a slug and hands back a show is not something to publish.
+ * Its own file rather than app/promoter/actions.ts, and the ownership check used
+ * to be written out here for the third time: every export of a "use server"
+ * module is a callable endpoint, so the two actions files could not share one.
+ * It is `loadOwnedCard` in lib/visibility.ts now, beside the publish gate, which
+ * is not a server module and can be imported by both.
  */
-
-async function ownedEvent(db: Db, slug: string) {
-  const promoter = await requirePromoter();
-  const [event] = await db
-    .select()
-    .from(schema.events)
-    .where(and(eq(schema.events.slug, slug), eq(schema.events.promoterId, promoter.id)))
-    .limit(1);
-  if (!event) throw new Error("No such show");
-  return { promoter, event };
-}
 
 /** One bout, or every bout on the card. */
 export async function requestRender(slug: string, bout: number | "all"): Promise<void> {
   const db = await getDb();
-  const { event } = await ownedEvent(db, slug);
+  const promoter = await requirePromoter();
 
-  await enqueueRender(db, event.id, bout === "all" ? "all" : [bout]);
+  const card = await loadOwnedCard(db, slug, promoter.id);
+  if (!card) throw new Error("No such show");
+
+  await enqueueRender(db, card.eventId, bout === "all" ? "all" : [bout]);
 
   revalidatePath(`/promoter/e/${slug}`);
 }

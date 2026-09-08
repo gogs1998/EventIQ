@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, max } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
@@ -22,6 +22,7 @@ import { logError } from "@/lib/log";
 import { withinPromoterImportLimit } from "@/lib/rate-limit";
 import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
+import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
 import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
 
@@ -43,10 +44,16 @@ import { parseWeightKg } from "@/lib/tape";
  * it stays outside the wrapper.
  */
 
-type Owned = { promoter: Promoter; event: typeof schema.events.$inferSelect };
+type Owned = { promoter: Promoter; card: OwnedCard };
 
 /**
  * The show and the promoter who owns it, or the sentence to show instead.
+ *
+ * The check itself is `loadOwnedCard` in lib/visibility.ts, beside the publish
+ * gate, rather than a where clause written out here. There were five copies of
+ * it and five copies of a rule is exactly what section 14 keeps recording. The
+ * branded `OwnedCard` is the other half: it can only be made by that function,
+ * so nothing in this file can come to hold a card nobody checked.
  *
  * A show that is not this promoter's and a show that does not exist still answer
  * identically, so guessing a slug tells you nothing. It reads the session rather
@@ -57,14 +64,10 @@ async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
   const promoter = await currentPromoter();
   if (!promoter) return refuse(ACTION_ERRORS.signedOut);
 
-  const [event] = await db
-    .select()
-    .from(schema.events)
-    .where(and(eq(schema.events.slug, slug), eq(schema.events.promoterId, promoter.id)))
-    .limit(1);
-  if (!event) return refuse(ACTION_ERRORS.noSuchShow);
+  const card = await loadOwnedCard(db, slug, promoter.id);
+  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
 
-  return done({ promoter, event });
+  return done({ promoter, card });
 }
 
 function text(form: FormData, key: string, max = 200): string {
@@ -146,28 +149,29 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { event } = owned;
+      const { card } = owned;
+      const show = card.event;
 
       await db
         .update(schema.events)
         .set({
-          name: text(form, "name", 80) || event.name,
+          name: text(form, "name", 80) || show.name,
           tagline: text(form, "tagline", 120) || null,
           date: /^\d{4}-\d{2}-\d{2}$/.test(text(form, "date", 10))
             ? text(form, "date", 10)
-            : event.date,
-          doorsTime: text(form, "doorsTime", 8) || event.doorsTime,
-          firstBellTime: text(form, "firstBellTime", 8) || event.firstBellTime,
-          venue: text(form, "venue", 80) || event.venue,
-          city: text(form, "city", 60) || event.city,
+            : show.date,
+          doorsTime: text(form, "doorsTime", 8) || show.doorsTime,
+          firstBellTime: text(form, "firstBellTime", 8) || show.firstBellTime,
+          venue: text(form, "venue", 80) || show.venue,
+          city: text(form, "city", 60) || show.city,
           sanctioning: text(form, "sanctioning", 80) || null,
           updatedAt: Date.now(),
         })
-        .where(eq(schema.events.id, event.id));
+        .where(eq(schema.events.id, card.eventId));
 
       // The show's name, date and venue are on screen in three of the five
       // scenes, so every bout's video is out of date now.
-      await requestRenderQuietly(db, event.id, "all", { event: "updateEvent", route: `/promoter/e/${slug}/card` });
+      await requestRenderQuietly(db, card.eventId, "all", { event: "updateEvent", route: `/promoter/e/${slug}/card` });
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
@@ -188,12 +192,12 @@ export async function setPublished(slug: string, published: boolean): Promise<Ac
       await db
         .update(schema.events)
         .set({ published, updatedAt: Date.now() })
-        .where(eq(schema.events.id, owned.event.id));
+        .where(eq(schema.events.id, owned.card.eventId));
 
       // A card nobody could read did not need its videos made; a card people
       // are about to read does, and the hourly run only looks at published shows.
       if (published) {
-        await requestRenderQuietly(db, owned.event.id, "all", { event: "setPublished", route: `/promoter/e/${slug}` });
+        await requestRenderQuietly(db, owned.card.eventId, "all", { event: "setPublished", route: `/promoter/e/${slug}` });
       }
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -228,16 +232,15 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { event } = owned;
+      const { card } = owned;
 
       const redName = text(form, "redName", 60);
       const blueName = text(form, "blueName", 60);
       if (!redName || !blueName) return refuse(ACTION_ERRORS.boutNeedsBothCorners);
 
-      const [{ highest }] = await db
-        .select({ highest: max(schema.bouts.number) })
-        .from(schema.bouts)
-        .where(eq(schema.bouts.eventId, event.id));
+      // Off the card the ownership check has already loaded, rather than a
+      // second query for a number that is sitting in it.
+      const nextNumber = Math.max(0, ...card.event.bouts.map((bout) => bout.number)) + 1;
 
       const now = Date.now();
       const fighterIds: string[] = [];
@@ -262,15 +265,15 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
           }),
           // Through newInviteValues so the token is sealed rather than stored in
           // the clear, and so a third place that issues one cannot forget to.
-          db.insert(schema.invites).values((await newInviteValues(event.id, id, now)).values),
+          db.insert(schema.invites).values((await newInviteValues(card.eventId, id, now)).values),
         );
       }
 
       writes.push(
         db.insert(schema.bouts).values({
           id: newId("bo"),
-          eventId: event.id,
-          number: (highest ?? 0) + 1,
+          eventId: card.eventId,
+          number: nextNumber,
           discipline: text(form, "discipline", 20) || "MMA",
           // Weights are the one number here that is not whole: catchweights on
           // these cards are agreed at the half kilo, so this is not rounded like
@@ -287,7 +290,7 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
 
       await db.batch(writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
-      await requestRenderQuietly(db, event.id, [(highest ?? 0) + 1], { event: "addBout", route: `/promoter/e/${slug}/card` });
+      await requestRenderQuietly(db, card.eventId, [nextNumber], { event: "addBout", route: `/promoter/e/${slug}/card` });
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
@@ -338,7 +341,7 @@ export async function updateBout(
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { promoter, event } = owned;
+      const { promoter, card } = owned;
 
       const sponsorId = text(form, "sponsorId", 60);
       const billing = text(form, "billing", 10);
@@ -356,15 +359,12 @@ export async function updateBout(
         if (!theirs) return refuse(ACTION_ERRORS.noSuchSponsor);
       }
 
-      // Read before the write, because a bout that is off has no video to bring
-      // up to date and must not be queued for one. `loadBoutFingerprints` leaves
-      // it out anyway, so this is belt and braces — but the queue call is where
-      // the decision reads, and a reader should not have to go and check.
-      const [existing] = await db
-        .select({ cancelled: schema.bouts.cancelled })
-        .from(schema.bouts)
-        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)))
-        .limit(1);
+      // As the bout stood before this write, because one that is off has no
+      // video to bring up to date and must not be queued for one.
+      // `loadBoutFingerprints` leaves it out anyway, so this is belt and braces
+      // — but the queue call is where the decision reads, and a reader should
+      // not have to go and check.
+      const existing = card.event.bouts.find((bout) => bout.number === boutNumber);
 
       await db
         .update(schema.bouts)
@@ -379,10 +379,10 @@ export async function updateBout(
           billing: billing === "MAIN" || billing === "CO_MAIN" ? billing : null,
           sponsorId: sponsorId || null,
         })
-        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+        .where(and(eq(schema.bouts.eventId, card.eventId), eq(schema.bouts.number, boutNumber)));
 
       if (!existing?.cancelled) {
-        await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+        await requestRenderQuietly(db, card.eventId, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
       }
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -422,7 +422,7 @@ export async function setBoutOff(
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { event } = owned;
+      const { card } = owned;
 
       await db
         .update(schema.bouts)
@@ -432,14 +432,14 @@ export async function setBoutOff(
           // weight miss and was rematched does not carry the old line.
           cancelledNote: off ? note.trim().slice(0, CANCELLED_NOTE_MAX) || null : null,
         })
-        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+        .where(and(eq(schema.bouts.eventId, card.eventId), eq(schema.bouts.number, boutNumber)));
 
       // A bout coming back on is a bout that needs its video again; one going off
       // is not asked for at all. The queued row is left where it is: the runner
       // reads the fingerprints, which no longer carry this bout, and a bout put
       // back on the following morning gets its place in the queue back with it.
       if (!off) {
-        await requestRenderQuietly(db, event.id, [boutNumber], { event: "setBoutOff", route: `/promoter/e/${slug}/card` });
+        await requestRenderQuietly(db, card.eventId, [boutNumber], { event: "setBoutOff", route: `/promoter/e/${slug}/card` });
       }
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -467,23 +467,23 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { event } = owned;
+      const { card } = owned;
 
       await db
         .delete(schema.bouts)
-        .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+        .where(and(eq(schema.bouts.eventId, card.eventId), eq(schema.bouts.number, boutNumber)));
       // The video request goes with the bout. Left behind, it is a queued job
       // for a bout that no longer exists, which the runner would try, fail and
       // report against a card that has nothing at that number.
       await db
         .delete(schema.renderJobs)
-        .where(and(eq(schema.renderJobs.eventId, event.id), eq(schema.renderJobs.boutNumber, boutNumber)));
+        .where(and(eq(schema.renderJobs.eventId, card.eventId), eq(schema.renderJobs.boutNumber, boutNumber)));
 
-      if (!event.published) {
+      if (!card.published) {
         const remaining = await db
           .select({ id: schema.bouts.id, number: schema.bouts.number })
           .from(schema.bouts)
-          .where(eq(schema.bouts.eventId, event.id))
+          .where(eq(schema.bouts.eventId, card.eventId))
           .orderBy(schema.bouts.number);
 
         // Shifted downwards one at a time from the bottom, because (event, number)
@@ -500,12 +500,12 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
             await db
               .update(schema.renderJobs)
               .set({ boutNumber: index + 1 })
-              .where(and(eq(schema.renderJobs.eventId, event.id), eq(schema.renderJobs.boutNumber, bout.number)));
+              .where(and(eq(schema.renderJobs.eventId, card.eventId), eq(schema.renderJobs.boutNumber, bout.number)));
           }
         }
         // Renumbering moves every bout below the gap, and the number is in the
         // video's key and on its screen.
-        await requestRenderQuietly(db, event.id, "all", { event: "removeBout", route: `/promoter/e/${slug}/card` });
+        await requestRenderQuietly(db, card.eventId, "all", { event: "removeBout", route: `/promoter/e/${slug}/card` });
       }
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -536,7 +536,7 @@ export async function updateFighter(
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
 
-      if (!(await isOnCard(db, owned.event.id, fighterId))) {
+      if (!(await isOnCard(db, owned.card.eventId, fighterId))) {
         return refuse(ACTION_ERRORS.notOnThisCard);
       }
 
@@ -554,7 +554,7 @@ export async function updateFighter(
 
       // The name and gym are on the tape. The fighter is on one bout of this
       // card, but the fingerprint tells the other bouts apart for nothing.
-      await requestRenderQuietly(db, owned.event.id, "all", { event: "updateFighter", route: `/promoter/e/${slug}/card`, fighterId });
+      await requestRenderQuietly(db, owned.card.eventId, "all", { event: "updateFighter", route: `/promoter/e/${slug}/card`, fighterId });
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
@@ -631,7 +631,7 @@ export async function applyFighterRecord(
     async () => {
       const found = await importableFighter(slug, fighterId);
       if (!found.ok) return found;
-      const { db, promoter, event, fighter } = found;
+      const { db, promoter, card, fighter } = found;
 
       const outcome = await importRecord(db, url, promoterScope(promoter.id));
       if (!outcome.ok) {
@@ -665,7 +665,7 @@ export async function applyFighterRecord(
       // A record and a hometown are two rows of the tale of the tape, so the
       // bout's video is out of date. Asked for the card, like updateFighter: the
       // fingerprint tells the other bouts apart for nothing.
-      await requestRenderQuietly(db, event.id, "all", { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId });
+      await requestRenderQuietly(db, card.eventId, "all", { event: "applyFighterRecord", route: `/promoter/e/${slug}/card`, fighterId });
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/promoter/e/${slug}/card`);
@@ -692,16 +692,16 @@ async function importableFighter(
   ActionResult<{
     db: Db;
     promoter: Promoter;
-    event: typeof schema.events.$inferSelect;
+    card: OwnedCard;
     fighter: typeof schema.fighters.$inferSelect;
   }>
 > {
   const db = await getDb();
   const owned = await ownedEvent(db, slug);
   if (!owned.ok) return owned;
-  const { promoter, event } = owned;
+  const { promoter, card } = owned;
 
-  if (!(await isOnCard(db, event.id, fighterId))) return refuse(ACTION_ERRORS.notOnThisCard);
+  if (!(await isOnCard(db, card.eventId, fighterId))) return refuse(ACTION_ERRORS.notOnThisCard);
 
   if (!(await withinPromoterImportLimit(promoter.id))) {
     return refuse(ACTION_ERRORS.importTooMany);
@@ -714,7 +714,7 @@ async function importableFighter(
     .limit(1);
   if (!fighter) return refuse(ACTION_ERRORS.notOnThisCard);
 
-  return done({ db, promoter, event, fighter });
+  return done({ db, promoter, card, fighter });
 }
 
 /**
@@ -815,7 +815,7 @@ export async function addSponsor(slug: string, form: FormData): Promise<ActionRe
       const db = await getDb();
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
-      const { promoter, event } = owned;
+      const { promoter, card } = owned;
 
       const name = text(form, "name", 60);
       if (!name) return refuse(ACTION_ERRORS.sponsorNeedsName);
@@ -840,9 +840,9 @@ export async function addSponsor(slug: string, form: FormData): Promise<ActionRe
         const existing = await db
           .select({ position: schema.eventSponsors.position })
           .from(schema.eventSponsors)
-          .where(eq(schema.eventSponsors.eventId, event.id));
+          .where(eq(schema.eventSponsors.eventId, card.eventId));
         await db.insert(schema.eventSponsors).values({
-          eventId: event.id,
+          eventId: card.eventId,
           sponsorId: id,
           position: existing.length,
         });

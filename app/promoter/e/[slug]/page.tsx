@@ -8,12 +8,7 @@ import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { getDb } from "@/lib/db";
-import {
-  loadCard,
-  loadDashboardRows,
-  rendersFrom,
-  type AnalyticsTotals,
-} from "@/lib/db/queries";
+import { loadDashboardRows, rendersFrom, type AnalyticsTotals } from "@/lib/db/queries";
 import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
 import {
   EMPTY_DASHBOARD,
@@ -40,6 +35,7 @@ import {
 } from "@/lib/promoter";
 import { renderState, type RenderState } from "@/lib/renders";
 import { currentPromoter } from "@/lib/session";
+import { loadOwnedCard } from "@/lib/visibility";
 import { SITE_URL } from "@/lib/site";
 import { boutBillingLabel, boutClassLine, formatEventDate, lastName } from "@/lib/tape";
 import type { FightEvent, InviteStatus } from "@/lib/types";
@@ -266,15 +262,18 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   const { slug } = await params;
   const db = await getDb();
 
-  // Neither of these needs the other's answer, and the card is the expensive
-  // one. A visitor with no cookie at all never reaches here — proxy.ts sends
-  // them to the login form — so the card loaded ahead of the check is only ever
-  // wasted on a session that has expired or been forged.
-  const [promoter, card] = await Promise.all([currentPromoter(), loadCard(db, slug)]);
+  // The session first, because the gate needs to know who is asking. It used to
+  // be fetched alongside the card to save a wait, with the ownership check
+  // written out inline underneath — and an inline copy of a rule is what this
+  // whole file's worth of section 14 is about. One round trip is a smaller
+  // price than a second place that decides whether a card is this promoter's,
+  // on a page that makes six more below this line.
+  const promoter = await currentPromoter();
   if (!promoter) redirect(`/promoter/login?next=/promoter/e/${slug}`);
   // Somebody else's show and a show that does not exist give the same answer, so
   // this page cannot be used to find out which promoters run what.
-  if (!card || card.promoterId !== promoter.id) notFound();
+  const card = await loadOwnedCard(db, slug, promoter.id);
+  if (!card) notFound();
 
   const { event } = card;
 

@@ -8,8 +8,8 @@ import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { EMPTY_CARD_EDITOR, boutCountLabel, boutsOffLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
-import { loadCard } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
+import { loadOwnedCard } from "@/lib/visibility";
 
 export const metadata: Metadata = {
   title: "Edit the card — EventIQ",
@@ -28,8 +28,8 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
   const promoter = await currentPromoter();
   if (!promoter) redirect(`/promoter/login?next=/promoter/e/${slug}/card`);
 
-  const card = await loadCard(await getDb(), slug);
-  if (!card || card.promoterId !== promoter.id) notFound();
+  const card = await loadOwnedCard(await getDb(), slug, promoter.id);
+  if (!card) notFound();
 
   const { event } = card;
   const sponsors = Object.values(card.sponsors);
