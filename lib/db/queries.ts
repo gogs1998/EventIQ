@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
@@ -318,6 +318,34 @@ export async function eventVisibility(db: Db, slug: string) {
     .where(eq(schema.events.slug, slug))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The render keys that could be a credential for these promoters' cards: the
+ * unscoped ones, which are the runner's, and the ones scoped to a promoter here.
+ *
+ * Scope is the only thing filtered here. Whether a key has expired or been
+ * revoked is decided in lib/visibility.ts alongside everything else about who
+ * may see a card, because a rule written half in SQL and half in a function is a
+ * rule with two places to forget it — and this is a handful of rows either way.
+ */
+export async function renderKeysFor(db: Db, promoterIds: readonly string[]) {
+  const mine = promoterIds.length
+    ? or(
+        isNull(schema.renderKeys.promoterId),
+        inArray(schema.renderKeys.promoterId, [...promoterIds]),
+      )
+    : isNull(schema.renderKeys.promoterId);
+
+  return db
+    .select({
+      promoterId: schema.renderKeys.promoterId,
+      digest: schema.renderKeys.digest,
+      expiresAt: schema.renderKeys.expiresAt,
+      revokedAt: schema.renderKeys.revokedAt,
+    })
+    .from(schema.renderKeys)
+    .where(mine);
 }
 
 /**

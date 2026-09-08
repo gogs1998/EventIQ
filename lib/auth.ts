@@ -119,6 +119,40 @@ export async function secretMatches(
   return equal(a, b);
 }
 
+/**
+ * What a render key is stored as: SHA-256 of it, base64url, and never the key.
+ *
+ * PBKDF2 is right for a password and wrong here. A render key is 32 bytes out of
+ * the CSPRNG, so there is no dictionary it is in and no work factor would add
+ * anything to it — and this is asked on the capture page and on every object
+ * /media serves, so a hundred thousand iterations per photograph on a page would
+ * be the cost of defending against a guess nobody can make. It is also why
+ * minting stays in scripts/render-key.mjs, which imports this: a key a person
+ * chose is exactly the input the reasoning above does not hold for.
+ */
+export async function secretDigest(value: string): Promise<string> {
+  return toBase64Url(await sha256(value));
+}
+
+/**
+ * Whether two digests are the same, without returning early.
+ *
+ * Both sides are digests already, so this leaks neither a length nor a prefix of
+ * anything secret. What it keeps is the property `secretMatches` has: a
+ * presented key is compared against every stored digest in turn, and the time
+ * that takes must not depend on how much of one happened to be right. Anything
+ * that will not decode is a no rather than a throw, because a row that cannot be
+ * read is a row that grants nothing.
+ */
+export function digestsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  try {
+    return equal(fromBase64Url(a), fromBase64Url(b));
+  } catch {
+    return false;
+  }
+}
+
 async function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "raw",
