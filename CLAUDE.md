@@ -31,7 +31,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 240 unit tests in 18 files, ~1s
+npm test           # 404 unit tests in 27 files, ~2s
 npm run lint
 npm run typecheck
 npm run build
@@ -57,13 +57,15 @@ Each of these looks like an improvement from the outside and is a regression. Ne
 
 **Decide what an upload is from its bytes.** `lib/image-type.ts` reads magic numbers; `file.type` is a string the caller writes and is never read. An `image/svg+xml` upload satisfied every check the old code had, and an SVG is a document that can carry `<script>` which then runs at our own origin with our cookies in scope (bug 21, HANDOVER section 6b). The browser's JPEG re-encode in the questionnaire is not a control — the server action behind it is reachable directly.
 
+**Nothing a fighter sends is stored before the box is ticked, and the check is in the action.** The questionnaire asks first — notice, age, tick, then everything else — and `lib/consent.ts` decides what a save may write. Under eighteen the form stops and stores nothing at all, including the age, because the gate checks the age before it checks the tick. The one thing a save may carry before there is a consent is the tick itself. Every one of these is a server action anybody holding a link can call directly, so hiding the fields in the component is not the control. The wording is versioned (`CONSENT_VERSION`) and stored on the invite with the timestamp, because "what exactly did this fighter agree to" is a question that gets asked once and has to be answerable — **bump the version whenever the text changes**. HANDOVER section 6e.
+
 **`lib/visibility.ts` is the only thing that decides who may see a card.** Public pages get a card through `loadVisibleCard` and the renderer's capture page through `loadRenderableCard`. Do not call `loadCard` from a route. A rule written inline in the one place somebody thought of is a rule three other places are free to forget (bugs 23, 27). **The objects belong to the card too**: `/media` asks `mediaVisibility` in the same file before it touches the bucket, because a draft show's mp4 is the draft show. A key shape with no rule written for it is refused rather than served, so a new prefix has to come here and say who may read it (HANDOVER section 6d).
 
 **An endpoint anybody can reach accepts only what it can verify, and is counted.** `/api/track` takes no credential by design, so it writes nothing for an unpublished show and nothing naming a bout, fighter or sponsor that is not on the card — the counts are what a promoter hands a sponsor, so a table anybody can put a row in is not evidence. The login form, the record importer and the counter each have a `ratelimits` binding, and the login form also has a per-account lockout, because ten a minute per caller does not bound one password guessed from a thousand addresses. HANDOVER sections 6d and 9.
 
 **"This one is different" is where the next hole will be.** The worst thing found in this project was `/render/[slug]/[bout]` serving unpublished shows to anyone who could guess a slug. It had a legitimate reason not to use the publish gate — the renderer works on drafts, which is the point of it — and a comment saying so, and that comment was where the thinking stopped. Anything that opts out of a general rule needs its own rule, not none.
 
-**Background removal happens in the renderer and nowhere else.** It is an ONNX model, ~3.5s of CPU per image; Workers cannot run it and a fighter's phone should not be asked to. `scripts/cutouts.mjs` runs before any bout renders. The upload path stores a photograph and clears any stale cutout. `lib/portrait.ts` is the single place that decides between cutout, photograph and initialled plate — the sequence, the head-to-head and the questionnaire preview all read it, so a fighter sees in the preview what the video will show.
+**Background removal happens in the renderer and nowhere else.** It is an ONNX model, ~3.5s of CPU per image; Workers cannot run it and a fighter's phone should not be asked to. `scripts/cutouts.mjs` runs before any bout renders. The upload path stores a photograph and clears any stale cutout. `lib/portrait.ts` is the single place that decides between stylised portrait, cutout, photograph and initialled plate — the sequence, the head-to-head and the questionnaire preview all read it, so a fighter sees in the preview what the video will show. The stylised one sits above the cutout for a consent reason rather than a picture-quality one, and it is null unless a fighter asked for it and approved what came back: HANDOVER section 6f.
 
 **The demo card's unevenness is the pitch, not unfinished work.** The main event is fully filled in; bouts 1–9 are a name and a gym like the paper programme. In particular **Chloe Baines has opened her link and done nothing since**, which makes her the warmest name on the chase list and the clearest illustration of what the dashboard is for. The end-to-end suite finishes by submitting and photographing her, so **re-seed after any production run** and delete the photograph it pushed to R2, which the seed does not clear (bugs 19, 20). Do not "fix" the card by filling everyone in.
 
@@ -101,7 +103,7 @@ The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `B
 
 `npm test` is the derivation layer, which is pure and therefore cheap to test. It does not touch a database or a browser.
 
-The other half is `scripts/e2e.mjs`, 25 steps through a real browser:
+The other half is `scripts/e2e.mjs`, 27 steps through a real browser:
 
 ```bash
 npm run e2e -- --base http://localhost:8788     # against the Workers runtime
