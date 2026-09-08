@@ -1,4 +1,4 @@
-import type { R2Bucket } from "@cloudflare/workers-types";
+import type { Ai, R2Bucket } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@/db/schema";
@@ -29,6 +29,25 @@ export async function getDb(): Promise<Db> {
 export async function getMedia(): Promise<R2Bucket> {
   const { env } = await getCloudflareContext({ async: true });
   return env.MEDIA;
+}
+
+/**
+ * Workers AI, or undefined where there is none.
+ *
+ * Undefined rather than a throw, because `next dev` has no AI binding and the
+ * whole local questionnaire would otherwise be a page that breaks on a feature
+ * nobody switched on. The caller says "not available here" and the fighter keeps
+ * the photograph they sent.
+ */
+export async function getAi(): Promise<Ai | undefined> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.AI;
+}
+
+/** Plain variables, as opposed to secrets. Undefined where unset. */
+export async function readVar(name: "STYLISED_PORTRAITS"): Promise<string | undefined> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env[name] || undefined;
 }
 
 /** Every secret the Worker reads. Set with `wrangler secret put`. See DEPLOY.md. */

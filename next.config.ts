@@ -116,5 +116,14 @@ export default nextConfig;
 // Gives `next dev` the same D1 and R2 bindings the Worker gets, backed by the
 // local Miniflare state under .wrangler. Without this the dev server has no
 // database at all and every page falls over on its first query.
+//
+// remoteBindings is off because Workers AI has no local emulation: the moment an
+// `ai` binding is in wrangler.jsonc, the dev server tries to open a remote proxy
+// session, and without a CLOUDFLARE_API_TOKEN in the environment that fails —
+// taking D1 and R2 down with it, so every page that reads the database answers
+// 500. Local development is meant to work offline and with no Cloudflare
+// credentials at all. The cost is that the AI binding is simply absent here,
+// which is the case app/f/[token]/portrait-actions.ts already answers with "not
+// available here". Set a token and turn this back on to exercise it for real.
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-void initOpenNextCloudflareForDev();
+void initOpenNextCloudflareForDev({ remoteBindings: false });

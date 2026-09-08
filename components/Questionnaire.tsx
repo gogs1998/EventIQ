@@ -15,6 +15,7 @@ import {
   CONSENT_GIVEN,
   PRIVACY,
   REMOVAL,
+  STYLISED,
   UNDER_AGE,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
@@ -70,6 +71,15 @@ export type QuestionnaireProps = {
   consent?: { at?: number; version?: string };
   /** Withdrawing it. Its own action file, because it is the other half of consent. */
   remove?: () => Promise<ActionResult>;
+  /**
+   * The opt-in stylised portrait, where a deployment offers one. Absent means
+   * the control is not drawn at all, rather than drawn and always refusing.
+   */
+  stylised?: {
+    make: () => Promise<ActionResult<{ path: string; preview: string }>>;
+    approve: (path: string) => Promise<ActionResult>;
+    discard: (path: string) => Promise<ActionResult>;
+  };
 };
 
 /** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
@@ -174,6 +184,7 @@ export function Questionnaire({
   alreadySubmitted = false,
   consent,
   remove,
+  stylised,
 }: QuestionnaireProps) {
   const eventName = card.event.name;
   const sponsors = Object.values(card.sponsors);
@@ -204,6 +215,14 @@ export function Questionnaire({
   const [removing, setRemoving] = useState(false);
   const [removed, setRemoved] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const [artOptIn, setArtOptIn] = useState(false);
+  const [artPath, setArtPath] = useState<string | null>(base.stylised ?? null);
+  const [artPreview, setArtPreview] = useState<string | null>(null);
+  const [artState, setArtState] = useState<"idle" | "making" | "ready" | "approved">(
+    base.stylised ? "approved" : "idle",
+  );
+  const [artError, setArtError] = useState<string | null>(null);
 
   // The age is asked before anything else because a fighter under the minimum is
   // not asked anything else at all, and the tick is what opens the rest of it.
@@ -364,9 +383,61 @@ export function Questionnaire({
         return;
       }
       update((current) => ({ ...current, photo: result.path }));
+      // The drawing was of the previous photograph, so it goes with it — the
+      // same rule the stored column is held to in lib/questionnaire.ts.
+      setArtState("idle");
+      setArtPath(null);
+      setArtPreview(null);
     } catch {
       setPhotoError(ACTION_ERRORS.photoNotStored);
     }
+  };
+
+  const makeArt = async () => {
+    if (!stylised) return;
+    setArtError(null);
+    // A second attempt throws the first away rather than leaving it in the
+    // bucket with nothing pointing at it.
+    if (artPath && artState === "ready") await stylised.discard(artPath).catch(() => {});
+    setArtState("making");
+    try {
+      const result = await stylised.make();
+      if (!result.ok) {
+        setArtError(result.error);
+        setArtState("idle");
+        return;
+      }
+      setArtPath(result.path);
+      setArtPreview(result.preview);
+      setArtState("ready");
+    } catch {
+      setArtError(ACTION_ERRORS.portraitNotMade);
+      setArtState("idle");
+    }
+  };
+
+  const approveArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.approve(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtState("approved");
+  };
+
+  const discardArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.discard(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtPath(null);
+    setArtPreview(null);
+    setArtState("idle");
   };
 
   const removeDetails = async () => {
@@ -385,7 +456,15 @@ export function Questionnaire({
   // Repainting the full 1080x1920 preview on every keystroke makes typing feel
   // sticky, so the preview trails the input by a frame or two instead.
   const settled = useDeferredValue(draft);
-  const fighter = useMemo(() => fighterFromDraft(base, settled), [base, settled]);
+  // A drawing that has been made but not approved is shown on the card anyway,
+  // because judging it anywhere else is judging it out of the frame it would go
+  // in. Nothing is published until approve is pressed, and the panel says so.
+  const artOnCard =
+    artState === "ready" || artState === "approved" ? (artPreview ?? artPath) : null;
+  const fighter = useMemo(
+    () => ({ ...fighterFromDraft(base, settled), stylised: artOnCard ?? undefined }),
+    [base, settled, artOnCard],
+  );
 
   const { score, missing } = completeness(fighter);
   const behind = tapeGapsBehind(fighter, opponent);
@@ -715,6 +794,81 @@ export function Questionnaire({
                 <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
               ) : null}
             </Field>
+
+            {/* After the photograph and never instead of it. Drawn only on
+                request, and on the card only once the fighter has looked at
+                what came back. */}
+            {stylised && draft.photo ? (
+              <Field label={STYLISED.label} hint={STYLISED.hint}>
+                {artState === "approved" ? (
+                  <div>
+                    <p className="text-gold text-[0.7rem] leading-relaxed">{STYLISED.approved}</p>
+                    <button
+                      type="button"
+                      onClick={() => void discardArt()}
+                      className="border-hairline hover:border-chalk/40 text-ash mt-2 border px-3 py-1.5 text-xs transition-colors"
+                    >
+                      {STYLISED.discard}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        id="stylised-consent"
+                        type="checkbox"
+                        checked={artOptIn}
+                        onChange={(e) => setArtOptIn(e.target.checked)}
+                        className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="text-ash text-xs leading-relaxed">{STYLISED.consent}</span>
+                    </label>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!artOptIn || artState === "making"}
+                        onClick={() => void makeArt()}
+                        className="border-chalk/60 hover:bg-chalk hover:text-ink border px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {artState === "making"
+                          ? STYLISED.making
+                          : artState === "ready"
+                            ? STYLISED.again
+                            : STYLISED.make}
+                      </button>
+                      {artState === "ready" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void approveArt()}
+                            className="border-gold/60 text-gold hover:bg-gold hover:text-ink border px-3 py-1.5 text-xs transition-colors"
+                          >
+                            {STYLISED.approve}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void discardArt()}
+                            className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                          >
+                            {STYLISED.discard}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {artState === "ready" ? (
+                      <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                        {STYLISED.preview}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+                {artError ? (
+                  <p className="text-red-corner-hot mt-2 text-[0.7rem]">{artError}</p>
+                ) : null}
+              </Field>
+            ) : null}
 
             <Field
               label="Instagram"

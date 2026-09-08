@@ -3,6 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { markOpened, saveDraft, submitProfile, uploadPhoto } from "@/app/f/[token]/actions";
 import { removeMyDetails } from "@/app/f/[token]/consent-actions";
+import {
+  approveStylisedPortrait,
+  discardStylisedPortrait,
+  makeStylisedPortrait,
+  stylisedPortraitsOffered,
+} from "@/app/f/[token]/portrait-actions";
 import { Questionnaire } from "@/components/Questionnaire";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
@@ -53,6 +59,10 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   // something an ad blocker or a tab closed after two seconds can swallow.
   await markOpened(token);
 
+  // Decided here rather than guessed in the browser, so an instance with no AI
+  // binding draws no control at all instead of one that always refuses.
+  const offersStylised = await stylisedPortraitsOffered();
+
   return (
     <Questionnaire
       card={card}
@@ -69,6 +79,15 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
         version: row.invite.consentVersion ?? undefined,
       }}
       remove={removeMyDetails.bind(null, token)}
+      stylised={
+        offersStylised
+          ? {
+              make: makeStylisedPortrait.bind(null, token),
+              approve: approveStylisedPortrait.bind(null, token),
+              discard: discardStylisedPortrait.bind(null, token),
+            }
+          : undefined
+      }
     />
   );
 }
