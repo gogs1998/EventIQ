@@ -94,6 +94,20 @@ describe("claimSql", () => {
     expect(sql()).toMatch(/render_jobs\.attempts < 2/);
   });
 
+  /**
+   * The first run from CI rendered the ten bouts with no row at all and reported
+   * the five finished before the pipeline existed — `done`, with a key and no
+   * current_hash — as left to another runner, and would have done so every hour
+   * forever. A finished row that does not match the bout as it stands is stale,
+   * which is what --stale selected it for. `IS NOT` rather than `<>`, because
+   * `<>` against a NULL hash is NULL and a NULL is not a true.
+   */
+  it("takes a finished bout whose published video is not of this bout", () => {
+    expect(sql()).toContain("render_jobs.status = 'done'");
+    expect(sql()).toContain("render_jobs.current_hash IS NOT 'abcdef0123456789'");
+    expect(sql()).not.toContain("current_hash <>");
+  });
+
   it("takes any bout when an operator names it, lease aside", () => {
     const forced = sql({ force: true });
     expect(forced).toContain("1 = 1");
@@ -105,9 +119,16 @@ describe("claimSql", () => {
     expect(sql()).toContain("attempts = render_jobs.attempts + 1");
   });
 
+  /**
+   * Reading current_hash to decide whether a finished render is still of this
+   * bout is not writing it: those two columns are the video the programme plays
+   * and only a successful publish touches them, so this looks at what the
+   * statement writes rather than at the whole of its text.
+   */
   it("leaves the video the programme plays alone", () => {
-    expect(sql()).not.toContain("current_r2_key");
-    expect(sql()).not.toContain("current_hash");
+    const written = sql().slice(0, sql().indexOf("WHERE (render_jobs.lease_until"));
+    expect(written).not.toContain("current_r2_key");
+    expect(written).not.toContain("current_hash");
   });
 
   it("addresses the row the app addresses", () => {

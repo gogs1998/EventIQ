@@ -151,37 +151,73 @@ function job(over: Partial<RenderJobState> = {}): RenderJobState {
   };
 }
 
+/** What the bout hashes to now. job()'s published render is of this one. */
+const LIVE = "abcdef0123456789";
+/** The same bout after a fighter sent a photograph. */
+const MOVED = "0000000000000000";
+
 describe("claimable", () => {
   it("takes a bout nothing has ever rendered", () => {
-    expect(claimable(null, NOW)).toBe(true);
+    expect(claimable(null, LIVE, NOW)).toBe(true);
   });
 
-  it("takes a queued bout and leaves a finished one alone", () => {
-    expect(claimable(job({ status: "queued" }), NOW)).toBe(true);
-    expect(claimable(job({ status: "done" }), NOW)).toBe(false);
+  it("takes a queued bout and leaves a finished, current one alone", () => {
+    expect(claimable(job({ status: "queued" }), LIVE, NOW)).toBe(true);
+    expect(claimable(job({ status: "done" }), LIVE, NOW)).toBe(false);
+  });
+
+  /**
+   * The failure the first hourly run showed: ten bouts with no row rendered,
+   * and the five finished before the pipeline existed — `done`, with a key and
+   * no hash — reported as somebody else's and never made again. A finished row
+   * that does not match the bout as it stands is stale, and a --stale run is
+   * the thing that exists to take it.
+   */
+  it("takes a finished bout whose video is no longer of this bout", () => {
+    expect(claimable(job({ status: "done" }), MOVED, NOW)).toBe(true);
+    expect(claimable(job({ status: "done", currentHash: null }), LIVE, NOW)).toBe(true);
   });
 
   /** Two runners must never render the same bout. */
   it("will not take a bout another runner still holds", () => {
     const held = job({ status: "running", leaseUntil: NOW + RENDER_LEASE_MS });
-    expect(claimable(held, NOW)).toBe(false);
-    expect(claimable(held, NOW, { force: true })).toBe(false);
+    expect(claimable(held, LIVE, NOW)).toBe(false);
+    expect(claimable(held, MOVED, NOW)).toBe(false);
+    expect(claimable(held, LIVE, NOW, { force: true })).toBe(false);
+    // A stale finished row is still somebody's while the lease runs.
+    const heldDone = job({ status: "done", currentHash: null, leaseUntil: NOW + RENDER_LEASE_MS });
+    expect(claimable(heldDone, LIVE, NOW)).toBe(false);
   });
 
   /** A runner killed by a CI timeout leaves the row saying "running" forever. */
   it("takes a bout whose runner died", () => {
-    expect(claimable(job({ status: "running", leaseUntil: NOW - 1 }), NOW)).toBe(true);
+    expect(claimable(job({ status: "running", leaseUntil: NOW - 1 }), LIVE, NOW)).toBe(true);
   });
 
   it("retries a failure up to the attempt ceiling and then stops", () => {
-    expect(claimable(job({ status: "failed", attempts: 1 }), NOW)).toBe(true);
-    expect(claimable(job({ status: "failed", attempts: MAX_RENDER_ATTEMPTS }), NOW)).toBe(false);
+    expect(claimable(job({ status: "failed", attempts: 1 }), LIVE, NOW)).toBe(true);
+    expect(claimable(job({ status: "failed", attempts: MAX_RENDER_ATTEMPTS }), LIVE, NOW)).toBe(
+      false,
+    );
   });
 
   /** An operator naming a bout means it, even one that is already current. */
   it("takes a current bout when it is asked for by name", () => {
-    expect(claimable(job(), NOW, { force: true })).toBe(true);
-    expect(claimable(job({ status: "failed", attempts: 9 }), NOW, { force: true })).toBe(true);
+    expect(claimable(job(), LIVE, NOW, { force: true })).toBe(true);
+    expect(claimable(job({ status: "failed", attempts: 9 }), LIVE, NOW, { force: true })).toBe(true);
+  });
+
+  /**
+   * The two halves of the pipeline have to agree: anything the dashboard calls
+   * stale is something an unattended run can pick up, or it sits there saying so
+   * forever, and anything it calls current is left alone.
+   */
+  it("takes exactly what the dashboard reports as stale", () => {
+    for (const state of [job({ status: "done" }), job({ status: "done", currentHash: null })]) {
+      for (const hash of [LIVE, MOVED]) {
+        expect(claimable(state, hash, NOW)).toBe(renderState(state, hash, NOW) === "stale");
+      }
+    }
   });
 });
 

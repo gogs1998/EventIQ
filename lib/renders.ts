@@ -198,9 +198,19 @@ export const MAX_RENDER_ATTEMPTS = 2;
  * The renderer asks the same question in SQL, as one UPDATE, so two runners
  * asking at the same moment cannot both win. This is the readable half: it is
  * what says why a bout was skipped, and what the tests hold the SQL to.
+ *
+ * `liveHash` is the bout's fingerprint as it stands, and it is what makes a
+ * finished row claimable again. A `done` row whose published fingerprint is not
+ * the current one is out of date, and a `--stale` run exists to take exactly
+ * those: the queue row is the only thing that says a bout has been rendered at
+ * all, so refusing it because it says `done` left every video made before the
+ * pipeline existed — five of them, with no `current_hash` — unrenderable by
+ * anything but an operator typing a bout number. The lease still comes first,
+ * so a row another runner holds is left alone whatever its hash says.
  */
 export function claimable(
   job: RenderJobState | null | undefined,
+  liveHash: string,
   now: number,
   { force = false }: { force?: boolean } = {},
 ): boolean {
@@ -215,6 +225,10 @@ export function claimable(
   if (job.status === "failed" || job.status === "running") {
     return job.attempts < MAX_RENDER_ATTEMPTS;
   }
+  // A finished render of a bout that has since moved on, or one published before
+  // there were fingerprints and so carrying none. Both read as "stale" on the
+  // dashboard, and both are what an unattended run is for.
+  if (job.status === "done") return job.currentHash !== liveHash;
   return false;
 }
 

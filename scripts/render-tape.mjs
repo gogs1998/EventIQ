@@ -363,13 +363,22 @@ function jobId(eventId, boutNumber) {
  * `force` is an operator naming a bout on the command line, which means it even
  * for a bout that is already current — but never for one another runner is
  * holding, because that is two Chromes on one bout rather than a decision.
+ *
+ * A row saying `done` is claimable when what it published is not what the bout
+ * hashes to now, which is the same thing --stale selected it for. `IS NOT`
+ * rather than `<>`, because a render finished before fingerprints existed has no
+ * `current_hash` at all and `<>` against NULL is NULL rather than true — the
+ * five seeded renders were exactly that, and every hourly run left them where
+ * they were while reporting them as held by somebody else.
  */
 export function claimSql(eventId, boutNumber, hash, { now, force }) {
   const wanted = force
     ? "1 = 1"
     : `(render_jobs.status = 'queued'
             OR (render_jobs.status IN ('failed', 'running')
-                AND render_jobs.attempts < ${MAX_RENDER_ATTEMPTS}))`;
+                AND render_jobs.attempts < ${MAX_RENDER_ATTEMPTS})
+            OR (render_jobs.status = 'done'
+                AND render_jobs.current_hash IS NOT ${lit(hash)}))`;
 
   return `INSERT INTO render_jobs
             (id, event_id, bout_number, status, input_hash, error, attempts, lease_until, requested_at)
