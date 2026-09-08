@@ -35,7 +35,7 @@ Video rendering is the one part that does not run on Cloudflare, because headles
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY and the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, SHOWCASE_SLUG and the seed password
 npm run db:reset                   # migrate and seed the local database
 npm run dev
 ```

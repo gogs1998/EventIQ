@@ -10,7 +10,22 @@ SESSION_SECRET=local-development-only-not-a-real-secret
 # publish check. Without it that page refuses everybody who is not the signed-in
 # promoter who owns the show, and `npm run render` stops working. Both the dev
 # server and scripts/render-tape.mjs read it from this file.
+#
+# This one secret reads every promoter's cards, published or not, which is why
+# keys now live in the render_keys table instead — `npm run render-key -- mint`.
+# The renderer still presents whatever is in RENDER_KEY here, so a minted key
+# goes in this same line; the secret below is the migration path and goes once
+# every runner holds a minted one. See DEPLOY.md.
 RENDER_KEY=local-development-only-not-a-real-render-key
+
+# SHOWCASE_SLUG names the one published show the shop window runs on: the pitch
+# page, the sitemap, /f/demo and the bare /qr redirect. It was whichever show had
+# the furthest-out date, which with a second promoter on the instance swings
+# EventIQ's own front page onto their card the moment their date is the later
+# one. Unset, or naming a show that is not published, means the pitch page makes
+# its argument without a live card. In deployment it is a var in wrangler.jsonc
+# rather than a secret, because it names something public.
+SHOWCASE_SLUG=cage-county-12
 
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.
