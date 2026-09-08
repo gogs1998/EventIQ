@@ -27,6 +27,7 @@
     "assets": "node scripts/prepare-assets.mjs",
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
+    "retention": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/ts-alias-loader-register.mjs scripts/retention.mjs",
     "render": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/render-tape.mjs",
     "golden-frames": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/golden-frames.mjs",
     "e2e": "node scripts/e2e.mjs",

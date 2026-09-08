@@ -12,6 +12,12 @@ SESSION_SECRET=local-development-only-not-a-real-secret
 # server and scripts/render-tape.mjs read it from this file.
 RENDER_KEY=local-development-only-not-a-real-render-key
 
+# Whether the opt-in stylised portrait is offered. Off unless this says on, true,
+# yes or 1, because it sends a fighter's photograph to Workers AI and that is a
+# decision rather than a default. It does nothing under `next dev` either way:
+# there is no AI binding there, and the action says so rather than failing.
+STYLISED_PORTRAITS=off
+
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.
 SEED_PROMOTER_PASSWORD=letmein
