@@ -658,6 +658,14 @@ export async function applyFighterRecord(
           ...(filling.has("record") && tape.record
             ? { recordW: tape.record.w, recordL: tape.record.l, recordD: tape.record.d }
             : {}),
+          // Both or neither, for the same reason: queries.ts reads the pair as
+          // all-or-nothing, and a stored knockout count with no submission count
+          // beside it is not a set of finishes. `finishCount` holds the total to
+          // the wins, so a page that disagrees with its own record cannot put
+          // more finishes on the tape than there are wins to have had them in.
+          ...(filling.has("finishes") && tape.finishes
+            ? { finishKo: tape.finishes.ko, finishSub: tape.finishes.sub }
+            : {}),
           updatedAt: Date.now(),
         })
         .where(eq(schema.fighters.id, fighterId));
@@ -718,11 +726,12 @@ async function importableFighter(
 }
 
 /**
- * The four boxes an import can fill, off the stored row.
+ * The five boxes an import can fill, off the stored row.
  *
  * The record is all three columns or none, exactly as lib/db/queries.ts reads
  * it: a partly stored record is not a record, and reading it as one would let an
- * import top up a fighter's losses without their wins.
+ * import top up a fighter's losses without their wins. The finishes are the same
+ * rule over two columns.
  */
 function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
   return {
@@ -730,6 +739,10 @@ function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
     record:
       fighter.recordW !== null && fighter.recordL !== null && fighter.recordD !== null
         ? { w: fighter.recordW, l: fighter.recordL, d: fighter.recordD }
+        : null,
+    finishes:
+      fighter.finishKo !== null && fighter.finishSub !== null
+        ? { ko: fighter.finishKo, sub: fighter.finishSub }
         : null,
     age: fighter.age,
     hometown: fighter.hometown,

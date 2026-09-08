@@ -149,7 +149,7 @@ export const SOURCE_LABEL: Record<ImportSource, string> = {
  * win, and waits. That is the same principle as the badge on the fighter's own
  * form: an imported value is a suggestion, and amateur records go stale.
  */
-export type ImportField = "name" | "record" | "age" | "hometown";
+export type ImportField = "name" | "record" | "finishes" | "age" | "hometown";
 
 export type RecordFill = {
   key: ImportField;
@@ -170,14 +170,16 @@ export type RecordFill = {
 const FIELD_LABEL: Record<ImportField, string> = {
   name: "Name",
   record: "Record",
+  finishes: "Finishes",
   age: "Age",
   hometown: "From",
 };
 
-/** What the card holds now for the four boxes an import can fill. */
+/** What the card holds now for the five boxes an import can fill. */
 export type ImportTarget = {
   name?: string | null;
   record?: { w: number; l: number; d: number } | null;
+  finishes?: { ko: number; sub: number } | null;
   age?: number | null;
   hometown?: string | null;
 };
@@ -185,6 +187,20 @@ export type ImportTarget = {
 /** The way a card prints a record: the draws only where there are any. */
 function recordLabel(record: { w: number; l: number; d: number }): string {
   return record.d > 0 ? `${record.w}-${record.l}-${record.d}` : `${record.w}-${record.l}`;
+}
+
+/**
+ * How the wins finished, spelled out rather than totalled.
+ *
+ * The tape prints one number, because that is the row it contests. This is a
+ * confirmation the promoter reads before anything is written, and the two
+ * columns are stored separately and answered separately on the fighter's own
+ * form, so both are named. Zeroes are said rather than dropped: a page reporting
+ * no knockouts is telling us something, and a half-shown pair would leave the
+ * promoter agreeing to a number they had not been shown.
+ */
+function finishesLabel(finishes: { ko: number; sub: number }): string {
+  return `${finishes.ko} by knockout, ${finishes.sub} by submission`;
 }
 
 /** Text somebody has actually given us. A box of spaces is an empty box. */
@@ -211,6 +227,15 @@ export function recordDiff(
 
   add("name", given(target.name), given(tape.name));
   add("record", target.record ? recordLabel(target.record) : undefined, tape.record ? recordLabel(tape.record) : undefined);
+  // Sherdog counts the knockouts and submissions it lists and the parser has
+  // always carried them; the promoter's importer wrote four fields and dropped
+  // them, so the finish rate — a hook and a contested row on the tape — stayed
+  // empty on a fighter whose record had just been filled in from the same page.
+  add(
+    "finishes",
+    target.finishes ? finishesLabel(target.finishes) : undefined,
+    tape.finishes ? finishesLabel(tape.finishes) : undefined,
+  );
   add("age", target.age ? String(target.age) : undefined, tape.age ? String(tape.age) : undefined);
   add("hometown", given(target.hometown), given(tape.hometown));
 

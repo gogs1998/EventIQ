@@ -556,7 +556,7 @@ One operational note: **the seed does not clear `import_cache`**, since it is no
 
 The most valuable version is not the fighter pasting their own link, it is **the promoter pasting links for the fighters who never reply**. That flips the failure mode: instead of a blank card you get real stats and merely no photo or story. It lets a promoter unilaterally raise the floor on the whole undercard.
 
-**Done.** Every corner of every bout in the card editor has a paste box, in `RecordImport.tsx`, and it does not go through `/api/import-record`. It is a pair of server actions with the promoter's session on them — `lookupFighterRecord` reads and writes nothing, `applyFighterRecord` writes — so it is counted against the promoter rather than against whatever address they are on, which is the better answer to "who is asking" when there is a session to read.
+**Done.** Every corner of every bout in the card editor has a paste box, in `RecordImport.tsx`, and it does not go through `/api/import-record`. It is a pair of server actions with the promoter's session on them — `lookupFighterRecord` reads and writes nothing, `applyFighterRecord` writes — so it is counted against the promoter rather than against whatever address they are on, which is the better answer to "who is asking" when there is a session to read. It fills five boxes: the name, the record, how those wins finished, the age and the town. The finishes arrived late — the first version wrote four and dropped the knockout and submission counts the parser had already read, so a fighter whose record had just been filled in from a page kept an empty Finishes row on the tape and no finish-rate hook, off a page carrying both numbers.
 
 Two properties are worth keeping if this is ever changed:
 
