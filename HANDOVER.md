@@ -817,6 +817,22 @@ npx wrangler dev --port 8788 --local
 
 `.dev.vars` is the source of truth for local secrets and **wrangler ignores the shell**, so anything outside the Worker that reads the same names has to read that file the same way. [scripts/dev-vars.mjs](scripts/dev-vars.mjs) exists because Node's `process.loadEnvFile` is the wrong way round — it leaves an already-exported variable in place — so with `SEED_PROMOTER_PASSWORD` exported in the shell the seed set one password and the login page expected another. That presents as "the password is wrong" and is not fun to diagnose.
 
+### The database-backed suite
+
+```bash
+npm run test:db
+```
+
+`npm test` is two vitest projects now. The pure one is the derivation layer and runs in two seconds; the second runs the queries, [lib/visibility.ts](lib/visibility.ts) and the promoter's server actions against a **real local D1**, and it exists because three of the worst bugs in section 14 were invisible to a pure test by construction.
+
+**What it can see that nothing else could.** A where clause that reads correctly and selects one row too many — which on an instance with one promoter is every instance this has ever run on. The hundred-parameter cap on a D1 statement, which is why a fighter's submission on the full fifteen-bout card queued no video and said so only in the log. A foreign key that turns out to be the thing actually enforcing an invariant the code merely assumes. And the migration chain applied to a database that already has a show in it, which is the one rehearsal `npm run db:migrate` on a fresh checkout can never be.
+
+**How it is wired.** [tests/db/platform.ts](tests/db/platform.ts) calls `getPlatformProxy()` — wrangler's own Node API — with this project's wrangler.jsonc, `persist: false` and `remoteBindings: false`, and applies `db/migrations` to the database it hands back. `persist: false` is not optional: the default is `.wrangler/state`, which is the development database, and a second writer on that file is the trap this section already warns about twice. Four modules that only exist inside a request are aliased to doubles in tests/db — `lib/db` for the bindings, and `next/headers`, `next/cache`, `next/navigation` — and nothing else is swapped, so signing a promoter in during a test goes through `signIn()` and a real signed cookie.
+
+**Not `@cloudflare/vitest-pool-workers`**, which runs the tests themselves inside workerd. That is the more faithful arrangement and it is also a second runtime to keep working on Windows, a second resolver for the `@/` alias, and an isolate with a workerd behind it per test file. The proxy gives a real D1 and real R2 for one workerd and ordinary Node tests.
+
+**One measurement worth carrying.** A write through the D1 binding costs about forty milliseconds and batching does not help — twenty inserts in one `batch()` cost forty each. The same twenty through `exec()` cost forty for the lot. So the fixtures build their SQL with drizzle and then send it through `exec` with the parameters written in, which is the difference between a suite that runs in ten seconds and one nobody runs.
+
 ### The browser walkthrough
 
 ```bash

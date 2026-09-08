@@ -42,6 +42,10 @@ jobs:
       # have nothing to do with the change under test.
       - run: npm run typecheck
 
+      # Both vitest projects: the pure suite, and the database one, which starts
+      # a Miniflare from wrangler.jsonc and applies db/migrations to a D1 held in
+      # memory. It needs the throwaway .dev.vars above and nothing else — no
+      # Cloudflare account and no network.
       - run: npm test
 
       # About twenty seconds, and it is the only step that would catch a page

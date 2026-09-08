@@ -31,7 +31,8 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 404 unit tests in 27 files, ~2s
+npm test           # 610 tests in 34 files, ~40s
+npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck
 npm run build
@@ -95,13 +96,18 @@ lib/db/         the only files that know what the tables look like
 db/             schema.ts is the single description; migrations are generated
 data/event.ts   the demo card — now only the seed, nothing reads it at runtime
 scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
+tests/db/       the database-backed suite and its harness; everything else is tested beside itself
 ```
 
 The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the original fixture used, and `loadCard()` fetches a whole show in two `db.batch` round trips, whatever the card holds. Everything downstream is a pure function of that `Card` object — `lib/tape.ts` and `lib/promoter.ts` never see a database, which is why they kept every test through the move from fixture to D1. Keep new derivation on that side of the line.
 
 ## Testing
 
-`npm test` is the derivation layer, which is pure and therefore cheap to test. It does not touch a database or a browser.
+`npm test` runs two vitest projects.
+
+**`unit`** is the derivation layer, which is pure and therefore cheap to test. It touches no database and no browser.
+
+**`db`** (`npm run test:db` on its own) runs against a real local D1. `getPlatformProxy()` from wrangler starts one Miniflare from this project's own wrangler.jsonc, `db/migrations` is applied to a database held in memory, and the four modules that exist only inside a request — `lib/db`, `next/headers`, `next/cache`, `next/navigation` — are aliased to doubles in `tests/db/`. Everything else runs exactly as written: the queries, `lib/visibility.ts`, and the promoter's server actions, against a real signed session cookie. It covers what a pure test structurally cannot — a where clause that selects one row too many, the hundred-parameter limit on a D1 statement, and the migration chain applied to a database that already has a card in it. [tests/db/platform.ts](tests/db/platform.ts) says why this and not `@cloudflare/vitest-pool-workers`, and why writes go through `exec` rather than the binding.
 
 The other half is `scripts/e2e.mjs`, 27 steps through a real browser:
 
