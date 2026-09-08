@@ -9,6 +9,7 @@ import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-res
 import { newId, newToken } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
+import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
@@ -153,6 +154,10 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
         })
         .where(eq(schema.events.id, event.id));
 
+      // The show's name, date and venue are on screen in three of the five
+      // scenes, so every bout's video is out of date now.
+      await requestRenderQuietly(db, event.id, "all", { event: "updateEvent", route: `/promoter/e/${slug}/card` });
+
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
       return DONE;
@@ -173,6 +178,12 @@ export async function setPublished(slug: string, published: boolean): Promise<Ac
         .update(schema.events)
         .set({ published, updatedAt: Date.now() })
         .where(eq(schema.events.id, owned.event.id));
+
+      // A card nobody could read did not need its videos made; a card people
+      // are about to read does, and the hourly run only looks at published shows.
+      if (published) {
+        await requestRenderQuietly(db, owned.event.id, "all", { event: "setPublished", route: `/promoter/e/${slug}` });
+      }
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
@@ -269,6 +280,8 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
 
       await db.batch(writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
+      await requestRenderQuietly(db, event.id, [(highest ?? 0) + 1], { event: "addBout", route: `/promoter/e/${slug}/card` });
+
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
       return DONE;
@@ -351,6 +364,8 @@ export async function updateBout(
         })
         .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
 
+      await requestRenderQuietly(db, event.id, [boutNumber], { event: "updateBout", route: `/promoter/e/${slug}/card` });
+
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
       return DONE;
@@ -399,6 +414,9 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
               .where(eq(schema.bouts.id, bout.id));
           }
         }
+        // Renumbering moves every bout below the gap, and the number is in the
+        // video's key and on its screen.
+        await requestRenderQuietly(db, event.id, "all", { event: "removeBout", route: `/promoter/e/${slug}/card` });
       }
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -444,6 +462,10 @@ export async function updateFighter(
           updatedAt: Date.now(),
         })
         .where(eq(schema.fighters.id, fighterId));
+
+      // The name and gym are on the tape. The fighter is on one bout of this
+      // card, but the fingerprint tells the other bouts apart for nothing.
+      await requestRenderQuietly(db, owned.event.id, "all", { event: "updateFighter", route: `/promoter/e/${slug}/card`, fighterId });
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);

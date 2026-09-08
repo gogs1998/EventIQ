@@ -10,6 +10,7 @@ import { isLinkPreviewBot } from "@/lib/bots";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
+import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { cutoutSurvives } from "@/lib/portrait";
 import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
@@ -204,6 +205,11 @@ export async function submitProfile(token: string, input: unknown): Promise<Acti
         .update(schema.invites)
         .set({ submittedAt: Date.now() })
         .where(eq(schema.invites.id, row.invite.id));
+
+      // A fighter sending their photograph and record is the change the whole
+      // pipeline exists for. Asked for the card rather than their bout: the
+      // fingerprint leaves the other bouts alone, and it saves a lookup here.
+      await requestRenderQuietly(db, row.event.id, "all", { event: "submitProfile", route: "/f/[token]", fighterId: row.fighter.id });
 
       revalidatePath(`/e/${row.event.slug}`);
       return DONE;

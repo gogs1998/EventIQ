@@ -1,6 +1,7 @@
 import { eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
+import { logError, type LogContext } from "@/lib/log";
 import { renderFingerprint, sponsorFingerprint, type RenderInputs } from "@/lib/renders";
 
 /**
@@ -212,6 +213,29 @@ export async function enqueueRender(
  * dashboard wants, kept here so that file does not grow a second reason to
  * change.
  */
+/**
+ * The same, for a server action that has already saved what the promoter or the
+ * fighter typed.
+ *
+ * A queue row is a request, not the change itself. If the request cannot be
+ * written the saved change is still saved, so telling the person "that did not
+ * save" would be untrue and would have them type it again. The failure goes to
+ * the log and the hourly --stale run, which compares fingerprints rather than
+ * queue rows, catches the bout up anyway.
+ */
+export async function requestRenderQuietly(
+  db: Db,
+  eventId: string,
+  bouts: number[] | "all",
+  context: LogContext,
+): Promise<void> {
+  try {
+    await enqueueRender(db, eventId, bouts);
+  } catch (error) {
+    logError({ ...context, eventId }, error);
+  }
+}
+
 export function jobsByBout<T extends { boutNumber: number }>(rows: T[]): Record<number, T> {
   const jobs: Record<number, T> = {};
   for (const row of rows) jobs[row.boutNumber] = row;
