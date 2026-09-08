@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import {
   ABSENT_PROMOTER_HASH,
-  SESSION_COOKIE_NAMES,
+  SESSION_COOKIES,
   SESSION_MAX_AGE_SECONDS,
   readSession,
   sessionCookieName,
+  sessionCookieOptions,
   sessionIsCurrent,
   signSession,
   verifyPassword,
@@ -23,7 +24,9 @@ import { NO_FAILURES, afterFailure, lockedOut } from "@/lib/lockout";
  * Secure is set outside development, where there is no https to attach it to.
  * Where it is set the cookie also takes the `__Host-` prefix — see
  * sessionCookieName in lib/auth.ts for what that buys and why the name has to
- * change with the attribute rather than being one string everywhere.
+ * change with the attribute rather than being one string everywhere. The
+ * attributes are next to it in sessionCookieOptions, and everything here that
+ * writes a cookie or expires one takes them from there.
  */
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -45,22 +48,35 @@ export async function signIn(promoterId: string, sessionVersion: number): Promis
   const jar = await cookies();
   // The other name first, so a cookie left over from a deploy on the other side
   // of the https line cannot sit there shadowing the one being set.
-  for (const name of SESSION_COOKIE_NAMES) jar.delete(name);
+  clearSessionCookies(jar);
 
+  // The attributes come from the same place the clearing above takes them from,
+  // which is the only reason the two agree — and they have to, exactly.
   jar.set(sessionCookieName(isProduction), value, {
-    httpOnly: true,
-    sameSite: "lax",
-    // Both of these are also what `__Host-` requires: no domain, path at the
-    // root, secure. Changing either would silently stop the browser storing it.
-    secure: isProduction,
-    path: "/",
+    ...sessionCookieOptions(isProduction),
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
 }
 
+/**
+ * Signing out is expiring the cookie, and a cookie is only expired by a
+ * Set-Cookie carrying the attributes it was set with.
+ *
+ * `jar.delete(name)` with a bare name is not that. Next turns it into a set of
+ * an empty value with an expiry in 1970 and nothing else — no `Secure`, no
+ * `SameSite` — and a browser refuses a `__Host-` cookie that is not `Secure`
+ * outright, so off localhost the header expiring the session was thrown away and
+ * the promoter stayed signed in. Both names go through the options in lib/auth.ts
+ * instead. Bug 44.
+ */
 export async function signOut(): Promise<void> {
-  const jar = await cookies();
-  for (const name of SESSION_COOKIE_NAMES) jar.delete(name);
+  clearSessionCookies(await cookies());
+}
+
+type CookieJar = Awaited<ReturnType<typeof cookies>>;
+
+function clearSessionCookies(jar: CookieJar): void {
+  for (const cookie of SESSION_COOKIES) jar.delete(cookie);
 }
 
 export type Promoter = typeof schema.promoters.$inferSelect;

@@ -4,6 +4,7 @@ import {
   PASSWORD_MIN_LENGTH,
   RENDER_KEY_HEADER,
   SESSION_COOKIE_NAMES,
+  SESSION_COOKIES,
   digestToken,
   hashPassword,
   newToken,
@@ -11,6 +12,7 @@ import {
   readSession,
   secretMatches,
   sessionCookieName,
+  sessionCookieOptions,
   sessionIsCurrent,
   signSession,
   verifyPassword,
@@ -242,5 +244,43 @@ describe("the session cookie name", () => {
 
   it("knows both, so signing out clears whichever is there", () => {
     expect([...SESSION_COOKIE_NAMES]).toEqual(["__Host-eventiq_session", "eventiq_session"]);
+  });
+});
+
+/**
+ * The attributes are the other half of the prefix. A `__Host-` cookie that is
+ * not Secure, or not at the root, is refused by the browser on the way in —
+ * which is a silent no-op when the header in question is the one expiring a
+ * session, and was bug 44.
+ */
+describe("the session cookie attributes", () => {
+  it("satisfies everything __Host- demands wherever the cookie is secure", () => {
+    expect(sessionCookieOptions(true)).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+    });
+  });
+
+  it("names no domain, which is the third of them", () => {
+    expect(sessionCookieOptions(true)).not.toHaveProperty("domain");
+    expect(sessionCookieOptions(false)).not.toHaveProperty("domain");
+  });
+
+  it("drops only Secure in development, where there is no https to attach it to", () => {
+    expect(sessionCookieOptions(false)).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      path: "/",
+    });
+  });
+
+  it("pairs each name with the attributes that name requires", () => {
+    expect(SESSION_COOKIES).toEqual([
+      { name: "__Host-eventiq_session", httpOnly: true, sameSite: "lax", secure: true, path: "/" },
+      { name: "eventiq_session", httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    ]);
   });
 });

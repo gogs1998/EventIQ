@@ -18,9 +18,12 @@ import {
   revokeInvite,
 } from "@/app/promoter/invite-actions";
 import { requestRender } from "@/app/promoter/render-actions";
+import { logout } from "@/app/promoter/login/actions";
 import type { ActionResult } from "@/lib/action-result";
 import { ACTION_ERRORS } from "@/lib/copy";
+import { currentPromoter } from "@/lib/session";
 import { plantPromoters, plantShow, type PlantedShow } from "./fixtures";
+import { cookiesCleared } from "./request";
 import { redirectedTo } from "./next-navigation";
 import { signInAs, testDatabase } from "./harness";
 
@@ -385,5 +388,51 @@ describe("createEvent", () => {
     );
 
     expect(went).toBe("/promoter/e/cage-county-12-rematch");
+  });
+});
+
+/**
+ * Signing out, from the outside.
+ *
+ * The first of these is what anybody would write and it passed throughout bug 44,
+ * because a jar in a test forgets a cookie whenever it is asked to. A browser
+ * does not: it matches the header expiring a cookie against the one it holds, and
+ * under a `__Host-` name it refuses the header outright unless it is Secure and at
+ * the root. So the second is the one that would have caught it — the promoter
+ * stayed signed in on staging while every local run of this suite and of the
+ * walkthrough said sign-out worked.
+ */
+describe("signing out", () => {
+  it("leaves the caller holding nothing the gate accepts", async () => {
+    await twoPromoters();
+    await signInAs("pr_cage");
+    expect(await currentPromoter()).not.toBeNull();
+
+    expect(await redirectedTo(() => logout())).toBe("/");
+
+    expect(await currentPromoter()).toBeNull();
+  });
+
+  it("expires the __Host- name with the attributes that name demands", async () => {
+    await twoPromoters();
+    await signInAs("pr_cage");
+    await redirectedTo(() => logout());
+
+    const prefixed = cookiesCleared().filter((cookie) => cookie.name.startsWith("__Host-"));
+    expect(prefixed.length).toBeGreaterThan(0);
+    for (const cookie of prefixed) {
+      expect(cookie.secure).toBe(true);
+      expect(cookie.path).toBe("/");
+      // The third thing the prefix requires, and the one that is an absence.
+      expect(cookie.domain).toBeUndefined();
+    }
+  });
+
+  it("clears the plain name too, so neither side of the https line lingers", async () => {
+    await twoPromoters();
+    await signInAs("pr_cage");
+    await redirectedTo(() => logout());
+
+    expect(cookiesCleared().map((cookie) => cookie.name)).toContain("eventiq_session");
   });
 });

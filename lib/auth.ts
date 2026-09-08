@@ -43,11 +43,53 @@ export function sessionCookieName(secure: boolean): string {
   return secure ? `__Host-${SESSION_COOKIE_PLAIN}` : SESSION_COOKIE_PLAIN;
 }
 
-/** Both of them, for clearing and for the proxy's "is there a cookie at all". */
-export const SESSION_COOKIE_NAMES = [
-  sessionCookieName(true),
-  sessionCookieName(false),
-] as const;
+/**
+ * The attributes the cookie is written with — and therefore the attributes it
+ * has to be cleared with.
+ *
+ * Expiring a cookie is setting it again with a dead expiry, and a browser only
+ * matches that against the cookie it is holding if the attributes agree. Under a
+ * `__Host-` name it is stricter still: the prefix's conditions are checked on the
+ * way in, so a Set-Cookie under that name arriving without `Secure` and `Path=/`
+ * is not a removal that misses — it is a header the browser discards whole, and
+ * the session outlives its own sign-out. That is bug 44, and it is why these live
+ * beside the name rather than being written out at each call site: two copies of
+ * a rule the browser enforces exactly are two copies that can drift.
+ */
+export type SessionCookieOptions = {
+  httpOnly: true;
+  sameSite: "lax";
+  secure: boolean;
+  path: "/";
+};
+
+export function sessionCookieOptions(secure: boolean): SessionCookieOptions {
+  return {
+    // httpOnly and lax rather than strict: the note at the top of lib/session.ts
+    // says why.
+    httpOnly: true,
+    sameSite: "lax",
+    // Secure and a root path are two of the three things `__Host-` requires. The
+    // third is that no Domain is named, which is what leaving it out means.
+    secure,
+    path: "/",
+  };
+}
+
+/**
+ * Both cookies, each carrying the attributes its own name demands — the prefixed
+ * one is `Secure` whatever environment is doing the clearing, because the name is
+ * what the browser checks against. Signing out clears both, so a cookie left over
+ * from a deploy on the other side of the https line cannot sit there shadowing
+ * the one in use.
+ */
+export const SESSION_COOKIES = [true, false].map((secure) => ({
+  name: sessionCookieName(secure),
+  ...sessionCookieOptions(secure),
+}));
+
+/** Just the names, for the caching rule and the proxy's "is there a cookie at all". */
+export const SESSION_COOKIE_NAMES = SESSION_COOKIES.map((cookie) => cookie.name);
 
 /**
  * The floor on a new password, and the whole of the policy.
