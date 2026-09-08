@@ -9,16 +9,12 @@ import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { getDb } from "@/lib/db";
 import {
-  analyticsTotals,
   loadCard,
-  loadInvites,
-  loadRenderJobs,
-  loadRenders,
-  previousShow,
-  sponsorTaps,
+  loadDashboardRows,
+  rendersFrom,
   type AnalyticsTotals,
 } from "@/lib/db/queries";
-import { jobsByBout, loadBoutFingerprints } from "@/lib/db/render-jobs";
+import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
 import {
   EMPTY_DASHBOARD,
   INVITE_SHARE,
@@ -268,11 +264,14 @@ function Foot() {
 
 export default async function PromoterEventPage({ params }: PageProps<"/promoter/e/[slug]">) {
   const { slug } = await params;
-  const promoter = await currentPromoter();
-  if (!promoter) redirect(`/promoter/login?next=/promoter/e/${slug}`);
-
   const db = await getDb();
-  const card = await loadCard(db, slug);
+
+  // Neither of these needs the other's answer, and the card is the expensive
+  // one. A visitor with no cookie at all never reaches here — proxy.ts sends
+  // them to the login form — so the card loaded ahead of the check is only ever
+  // wasted on a session that has expired or been forged.
+  const [promoter, card] = await Promise.all([currentPromoter(), loadCard(db, slug)]);
+  if (!promoter) redirect(`/promoter/login?next=/promoter/e/${slug}`);
   // Somebody else's show and a show that does not exist give the same answer, so
   // this page cannot be used to find out which promoters run what.
   if (!card || card.promoterId !== promoter.id) notFound();
@@ -313,12 +312,21 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
     );
   }
 
-  const invites = await loadInvites(db, card.eventId);
-  const renders = await loadRenders(db, card.eventId);
+  // Everything else this page reads is one batch: nothing in it needs anything
+  // else in it, including the last show's counts, which are keyed on the same
+  // subquery that names the last show. The fingerprints are worked out from the
+  // card already in hand, so what used to be six more queries is now none, and
+  // they are hashed while the batch is in flight.
+  const [{ invites, jobRows, analytics, previous, previousAnalytics }, fingerprints] =
+    await Promise.all([
+      loadDashboardRows(db, card.eventId, promoter.id, event.date),
+      boutFingerprints(card),
+    ]);
+
   // The jobs say what the renderer has been doing; the fingerprints say what the
   // card looks like now. A video is only current where the two agree.
-  const jobs = jobsByBout(await loadRenderJobs(db, card.eventId));
-  const fingerprints = await loadBoutFingerprints(db, card.eventId);
+  const jobs = jobsByBout(jobRows);
+  const renders = rendersFrom(jobRows);
   const progress = eventProgress(card, invites);
   const chase = chaseList(card, invites);
   const bouts = boutReadiness(card, invites);
@@ -328,17 +336,9 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   // in the total would report a card as permanently short of a video.
   const rendered = bouts.filter(({ bout }) => renders[bout.number]).length;
 
-  const live = await analyticsTotals(db, card.eventId);
-  const liveTaps = await sponsorTaps(db, card.eventId);
-
-  const previous = await previousShow(db, promoter.id, event.date);
-  const last = previous
-    ? {
-        event: previous,
-        totals: await analyticsTotals(db, previous.id),
-        taps: await sponsorTaps(db, previous.id),
-      }
-    : null;
+  // Null where the promoter has not run a show before, which the panel says
+  // rather than filling the space with something.
+  const last = previous ? { event: previous, ...previousAnalytics } : null;
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
@@ -567,7 +567,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           Live, from the moment the first person scans the code. A zero here means nobody
           has looked yet, not that nothing is being counted.
         </p>
-        <Counts totals={live} sponsors={Object.keys(liveTaps).length} />
+        <Counts totals={analytics.totals} sponsors={Object.keys(analytics.taps).length} />
       </section>
 
       {/* --------------------------------------------------------- last show */}

@@ -85,6 +85,13 @@
       "when": 1788850000005,
       "tag": "0011_consent_and_stylised",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788850000006,
+      "tag": "0012_analytics_events_by_time",
+      "breakpoints": true
     }
   ]
 }

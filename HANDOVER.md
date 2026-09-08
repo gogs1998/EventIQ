@@ -206,9 +206,13 @@ Timestamps are Unix milliseconds, because SQLite has no date type and a number a
 
 [lib/db/queries.ts](lib/db/queries.ts) is the only file that knows what the tables look like, and it knows nothing about pages. It maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the demo used, which is what let the derivation layer keep every one of its tests.
 
-`loadCard()` fetches a whole show in six queries regardless of how many bouts are on it. D1 charges per row read and a fifteen-bout card touches thirty fighters, so the difference between this and the obvious per-fighter loop is the difference between a page that is cheap and one that is not.
+`loadCard()` fetches a whole show in **two `db.batch` round trips** regardless of how many bouts are on it. D1 charges per row read and a fifteen-bout card touches thirty fighters, so the difference between this and the obvious per-fighter loop is the difference between a page that is cheap and one that is not — and the difference between six statements and two batches is six waits from the edge to the database against two, which was most of what the promoter's dashboard was spending.
 
-The result is a [`Card`](lib/card.ts): the event, every fighter on it, every sponsor the promoter has. Everything downstream is a pure function of that object. `lib/tape.ts` and `lib/promoter.ts` never see a database.
+It cannot be one batch. The first fetches the event and its running order together, by joining the bouts onto the same condition; everything in the second is keyed on the show's id or on the fighter ids that running order names, and neither is known until the first has answered.
+
+`loadCardById()` is the same card addressed by row id, for the callers that hold an event id and no slug. A card read twice through two code paths is two code paths that can come to disagree about what a bout is made of, which is what `loadBoutFingerprints()` used to be: a second reading of the same bouts, fighters and sponsors whose only job was to agree with the first. It is now that function plus `boutFingerprints(card)`, and the dashboard, which already has the card, calls the second one and asks for nothing.
+
+The result is a [`Card`](lib/card.ts): the event, every fighter on it, every sponsor the promoter has. Everything downstream is a pure function of that object. `lib/tape.ts` and `lib/promoter.ts` never see a database. The one thing on a `LoadedCard` that is not a `Card` and is not an id is `fighterUpdatedAt`, a map of row timestamps — nothing a page draws depends on it, and the render fingerprint does, so carrying it is what lets the staleness of every video be worked out without a second read.
 
 ### The seed
 
@@ -567,9 +571,9 @@ Two properties are worth keeping if this is ever changed:
 
 **There is no user identifier and none is wanted.** `sessionId` is a random value held for the length of one visit, so opens can be counted per spectator rather than per reload, and it is stored nowhere else.
 
-The table is append-only and unaggregated, because the value to a promoter is a report they can hand a sponsor and the questions a sponsor asks are not known in advance.
+The table is append-only and unaggregated, because the value to a promoter is a report they can hand a sponsor and the questions a sponsor asks are not known in advance. It is still read by scanning every row for a show, which is the right answer while a show is a few thousand rows and is the thing a rollup would replace. `analytics_events(event_id, created_at)` is indexed as of migration 0007 — nothing reads by time yet, and a report over the hours of a show and the rollup that stands in front of these scans both will, and the index is cheap on a quiet afternoon and awkward on a table with a season of counting in it.
 
-The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same query so they cannot end up meaning different things.
+The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same function so they cannot end up meaning different things — `analyticsFor()`, which is the two aggregations in one `db.batch`. They are two statements because one query cannot group by kind and by sponsor at once; they are one round trip because there is no reason for them to be two.
 
 **The invented "last show" figures are gone.** They were the most dangerous thing in the demo: plausible numbers that would have been repeated to a sponsor. The panel now shows real counts or explicit zeroes, and says in the footer that nothing on the page is estimated.
 
@@ -587,6 +591,10 @@ None of that changes what is stored. There is still no address, no cookie and no
 - **Bout readiness.** Ready, one side missing, or nothing in. "One side missing" is called out hardest, because a bout with one finished fighter and one blank looks worse on the night than two blanks, which at least looks consistent.
 - **Sponsor inventory.** How many of the fifteen bout slots are sold.
 - **The counts**, section 9.
+
+**It used to take a second and a half of database waits before it drew anything.** Eighteen statements, one after another, each waiting for the last: the card in six, the invites, the jobs, the videos, the fingerprints in six more, four separate aggregations of the counting table, and the previous show. Every one of them was independent of most of the others and none of them said so. It is four waits now — the card's two batches, then one batch for the invites, the jobs and the previous show alongside one for the counting, then the last show's counts, which cannot be asked for until the previous show has been named. The fingerprints cost nothing at all, because they are worked out from the card that has already been loaded. Measured warm on the seeded fifteen-bout card against the local D1: about 1,850ms of application time before, about 700ms after.
+
+Two things about that are worth keeping rather than the numbers. `db.batch` is only correct for statements that do not need each other's answers, and the page reads top to bottom in the order the waits actually happen, so the two places where something genuinely depends on something else are visible rather than hidden in a helper. And the session and the card are fetched together with `Promise.all`, which means a card is loaded for a request that turns out not to be signed in — `proxy.ts` has already turned away anybody without a cookie, so that only happens for a session that has expired or been forged.
 
 The card editor at `/promoter/e/[slug]/card` writes: event details, add and edit and remove bouts, fighter names and gyms, add sponsors with an emblem, take a bout off and put it back on, and fill a fighter in from their record page. Creating a bout creates both fighters and both invites in the same action, because a bout with no way to contact either corner is not a useful thing to have made.
 
@@ -703,9 +711,10 @@ Five things that bit, and will bite again on a fresh account:
 4. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
 5. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
 
-`npm run e2e -- --base https://eventiq.win` runs the whole walk against production. It is honest about what it does to the data — it adds a bout, removes it again, and fills in a fighter's profile — so anything it touches needs putting back afterwards, with a re-seed **and** a delete of the photograph it pushed to R2, which the seed does not clear. Running it against a card a promoter is actually using would be rude.
+`npm run e2e` runs the whole walk, and it is honest about what it does to the data — it adds a bout, removes it again, fills in a fighter's profile and uploads a photograph. **It goes at staging** (section 12b). Pointed at production it needs everything it touched putting back afterwards, with a re-seed **and** a delete of the photograph it pushed to R2, which the seed does not clear, and running it against a card a promoter is actually using would be rude.
 
 ---
+
 
 ## 12a. Reading the logs
 
@@ -739,6 +748,46 @@ From a terminal, `npx wrangler tail eventiq --format pretty` is the same stream 
 - **Sentry.** `@sentry/cloudflare` with the DSN as a secret, initialised once in the Worker entry, and `Sentry.captureException` inside `logError`. That buys grouping, release tracking and an alert that reaches a phone, at the cost of a dependency in the bundle and a third party holding stack traces. **Not added now**, and not only for bundle size: an error report can carry a fighter's invite token in a URL, and this project has an open item on consent and a privacy notice (section 19 item 2) that wants settling before stack traces leave the account.
 
 Whichever is chosen, the shape above is the interface. Keep `event` stable — it is what any filter, alert or grouping rule will be written against.
+
+---
+
+## 12b. Staging
+
+`eventiq-staging` is a second Worker with its own D1 database, its own R2 bucket
+and its own secrets, declared as `env.staging` in
+[wrangler.jsonc](wrangler.jsonc). Nothing it does is visible from eventiq.win.
+
+**It exists because the browser suite writes.** For the whole of this project's
+first life the only place to run twenty-five steps of adding bouts and
+submitting fighters was the card the entire pitch is built on, and the mitigation
+was a ritual in DEPLOY.md that somebody had to remember afterwards. A check you
+have to tidy up after is a check that stops being run. It is also where a
+migration or a deploy goes before a promoter's show is behind it.
+
+Three things about the shape of it are deliberate:
+
+- **Every script takes the same `--env`, and without it means production.** The
+  names live in [scripts/environments.mjs](scripts/environments.mjs) rather than
+  as `const DATABASE = "eventiq"` at the top of five files. A flag that has to be
+  passed in order to *reach* production is a flag somebody eventually forgets in
+  the other direction, so the default is the thing that has always been the
+  default.
+- **`scripts/deploy.mjs` refuses to deploy production from a side branch.**
+  Everything is built on branches merged into the working one, often several at
+  once in separate worktrees. It reads the branch, and `--force` is how you say
+  you mean it. Migrations here are additive with no down path, so a production
+  deploy from the wrong worktree is not a rollback away.
+- **`/api/health` says which environment answered**, from a var rather than from
+  the hostname, and the end-to-end workflow asks it before it opens a browser. A
+  staging hostname pointed at the production Worker would pass every check made
+  on a URL.
+
+`.github/workflows/e2e-staging.yml` is `workflow_dispatch` only, takes the
+address from a repository secret, refuses anything under `eventiq.win`, and
+re-seeds staging afterwards. There is deliberately no input that could point it
+at production. Standing the environment up is six commands and is in
+[DEPLOY.md](DEPLOY.md#standing-it-up); nobody here holds a Cloudflare token, so
+none of it has been run.
 
 ---
 
@@ -1009,7 +1058,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 12. **Returning fighters.** The schema already keeps fighters across events. What is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. That remains the biggest retention hook in the idea for a single promoter. Matching across promoters waits on item 11, and on the consent in item 2 saying whether a profile may follow a fighter onto somebody else's card.
 
-13. **Cache the public programme for the show window.** Small. Several hundred spectators hit `/e/[slug]` inside a ninety-minute window; `loadCard()` is six D1 queries per load plus an analytics write, and the card does not change during the show. A short cache would cut cost and latency. Minor, but it lands exactly when the product is under its only real load.
+13. ~~**Cache the public programme for the show window.**~~ Done. `/e/[slug]` and its fighter pages go out with `public, s-maxage=60, stale-while-revalidate=300`, and only for a reader with no session cookie, so a promoter's preview of an unpublished show stays private. `loadCard()` is two round trips rather than six as well. Where that header is set is the interesting part and is written up in [DEPLOY.md](DEPLOY.md#caching-the-programme): a server component cannot set one, middleware's is dropped by the OpenNext adapter, and `next.config.ts` `headers()` works and overrides Next's own `no-cache` — the opposite of what the Next.js documentation promises, which is true on Vercel and not here. What is left is a Cloudflare Cache Rule, because a Worker's own response is not cached by the edge on its own.
 
 14. **An accessibility pass.** Small. The broadcast palette is high-contrast by design, but this is a programme read on phones by a wide public audience and nobody has checked contrast ratios, focus order or screen-reader labelling.
 
@@ -1042,5 +1091,5 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Backups exist now and are only as good as the schedule nobody has set.** `npm run db:backup` exports D1 to a plain .sql file in R2 and `npm run db:restore-rehearsal` proves one restores — D1's own time travel is 30 days, lives in the same account and cannot be inspected without restoring, which is a recovery mechanism rather than a backup. Two things about this stay risks. The bucket is in the same Cloudflare account as the database, so it covers a bad migration and not a lost account; `--out` on a machine somebody controls is the other half and is a habit rather than a mechanism. And nothing runs it: the cron line is in [DEPLOY.md](DEPLOY.md#scheduling-it), and until somebody installs it the capability is not the same as the backup. Check the bucket, not the schedule.
 - **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
 - **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
-- **The demo card is a live database, not a fixture.** Anything run against production — the end-to-end suite especially — edits the card the pitch depends on. Re-seed afterwards, every time.
+- **The demo card is a live database, not a fixture.** Anything run against production edits the card the pitch depends on. The end-to-end suite was the worst of that and now has staging to do it in (section 12b), which is a mitigation only once somebody has actually stood staging up. Everything else — a `wrangler d1 execute` typed to check something, a re-seed — is still a person and a terminal, and still wants putting back afterwards.
 - **A crowd scorecard that is wrong in public.** Not built yet. Every existing failure mode is an absence and degrades; a score that disagrees with the official decision is a different kind of exposure. Section 19 item 9 is the constraint. Do not ship it without the framing.

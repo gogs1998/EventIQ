@@ -4,6 +4,7 @@
  *   npm run db:backup                    # export, upload as backups/<today>.sql
  *   npm run db:backup -- --out backups   # and keep a copy on this machine
  *   npm run db:backup -- --dry-run       # export and check it, upload nothing
+ *   npm run db:backup -- --env staging   # the staging database, into its bucket
  *
  * D1 has time travel for thirty days, which is a recovery mechanism and not a
  * backup: it lives inside the same account, it cannot be inspected without
@@ -26,10 +27,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
 const PREFIX = "backups";
 
 const args = process.argv.slice(2);
@@ -43,6 +43,11 @@ function fail(...lines) {
   console.error(`\n${lines.join("\n")}\n`);
   process.exit(1);
 }
+
+// Each environment's export goes into its own bucket. A staging backup landing
+// on top of a production one under the same key would be the one file nobody
+// checks quietly becoming the wrong file.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(args, (message) => fail(message));
 
 function wrangler(commandArgs) {
   execFileSync(...localBin(["wrangler", ...commandArgs]), { stdio: "inherit" });

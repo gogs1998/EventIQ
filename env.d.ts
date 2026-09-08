@@ -62,6 +62,12 @@ declare global {
      * lib/invite-token.ts.
      */
     INVITE_KEY?: string;
+    /**
+     * "production" or "staging", from the vars block rather than from a secret,
+     * because it is not one. Optional because `next dev` binds no vars, and a
+     * laptop is neither of them.
+     */
+    EVENTIQ_ENV?: string;
   }
 }
 

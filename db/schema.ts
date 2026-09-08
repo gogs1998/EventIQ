@@ -474,7 +474,20 @@ export const analyticsEvents = sqliteTable(
     sessionId: text("session_id"),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [index("analytics_event_kind").on(table.eventId, table.kind)],
+  (table) => [
+    index("analytics_event_kind").on(table.eventId, table.kind),
+    /**
+     * The same show, in the order the rows arrived.
+     *
+     * The table only ever grows and is only ever read for one show, so the index
+     * above answers the dashboard's two aggregations. Nothing yet reads by time
+     * — and everything that comes next does: a report over the hours of a show,
+     * and the rollup that will eventually stand in front of these full scans.
+     * Adding it now costs a migration on a quiet afternoon rather than one on a
+     * table with a season of a promoter's counting in it.
+     */
+    index("analytics_event_recent").on(table.eventId, table.createdAt),
+  ],
 );
 
 /**

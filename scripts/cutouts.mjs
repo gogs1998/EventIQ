@@ -36,10 +36,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
+// See scripts/environments.mjs. `--env staging` reads and writes staging's own
+// rows and objects; without it this is production, as it always was.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (message) => {
+  console.error(`\n${message}\n`);
+  process.exit(1);
+});
 
 /** Matches scripts/prepare-assets.mjs, so a curated cutout and a generated one look the same. */
 const CUTOUT_WIDTH = 1000;

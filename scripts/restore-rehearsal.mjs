@@ -32,10 +32,15 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
+// The bucket the export is fetched from, and the schema it is checked against.
+// Nothing here writes to either: the restore happens in a scratch database in a
+// temporary directory. `--env staging` rehearses staging's own backups.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (message) =>
+  fail(message),
+);
 
 /**
  * The tables a restored EventIQ database cannot sensibly be empty in.

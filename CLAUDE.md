@@ -97,7 +97,7 @@ data/event.ts   the demo card — now only the seed, nothing reads it at runtime
 scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
 ```
 
-The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the original fixture used, and `loadCard()` fetches a whole show in six queries. Everything downstream is a pure function of that `Card` object — `lib/tape.ts` and `lib/promoter.ts` never see a database, which is why they kept every test through the move from fixture to D1. Keep new derivation on that side of the line.
+The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the original fixture used, and `loadCard()` fetches a whole show in two `db.batch` round trips, whatever the card holds. Everything downstream is a pure function of that `Card` object — `lib/tape.ts` and `lib/promoter.ts` never see a database, which is why they kept every test through the move from fixture to D1. Keep new derivation on that side of the line.
 
 ## Testing
 
@@ -106,11 +106,11 @@ The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `B
 The other half is `scripts/e2e.mjs`, 27 steps through a real browser:
 
 ```bash
-npm run e2e -- --base http://localhost:8788     # against the Workers runtime
-npm run e2e -- --base https://eventiq.win --password '...'
+npm run e2e -- --base http://localhost:8788        # against the Workers runtime
+npm run e2e -- --base <staging url> --password '...'
 ```
 
-It is the only thing that would catch a form posting to the wrong action or a cookie that never gets set. It **writes as it goes** — adds a bout, removes it, fills in a fighter, uploads a photograph — so pointing it at production means re-seeding afterwards, and it is not something to point at a card a promoter is using.
+It is the only thing that would catch a form posting to the wrong action or a cookie that never gets set. It **writes as it goes** — adds a bout, removes it, fills in a fighter, uploads a photograph — so it goes at staging (`eventiq-staging`, its own database and bucket, [DEPLOY.md](DEPLOY.md#staging)) and never at production, where it would edit the card the pitch depends on and mean a re-seed afterwards. `.github/workflows/e2e-staging.yml` runs it there from a button and refuses any address that is not staging.
 
 Two things it taught, worth knowing before writing another one: the design sets labels in CSS uppercase so `innerText` shouts where the source does not, and React ignores a value written straight onto an input, so a test has to go through the prototype setter and fire the event React listens for.
 

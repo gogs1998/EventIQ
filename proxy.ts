@@ -33,6 +33,12 @@ import { SESSION_COOKIE_NAMES } from "@/lib/auth";
  * for the scheme check, the gate is this pattern instead, and it covers what the
  * matcher used to: /promoter itself and a show underneath it, but not
  * /promoter/login, which a signed-out visitor is entitled to reach.
+ *
+ * Nothing here sets a response header, and nothing here can. On OpenNext for
+ * Workers a header written onto `NextResponse.next()` is dropped before the
+ * response goes out — the caching of the public programme was written here
+ * first and measured as having no effect at all, which is why it lives in
+ * next.config.ts instead. See the note above `programmeCache` there.
  */
 
 const PROMOTER_AREA = /^\/promoter(\/e(\/|$)|$)/;

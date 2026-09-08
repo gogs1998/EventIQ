@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+// Relative rather than through the "@" alias, because this file is loaded by
+// Node before the bundler's aliases exist.
+import { SESSION_COOKIE_NAMES } from "./lib/auth";
 
 /**
  * The headers every page goes out with.
@@ -80,6 +83,43 @@ const securityHeaders = [
   },
 ];
 
+/**
+ * How long a shared cache may keep the programme.
+ *
+ * The load this exists for is several hundred phones opening one card inside a
+ * ninety-minute window, during which the running order does not change. A minute
+ * is short enough that a promoter correcting a name before first bell sees it
+ * almost at once, and long enough that a hall costs a handful of renders rather
+ * than one each; `stale-while-revalidate` is what keeps the first reader after
+ * each minute from waiting for the database. The trade is stated rather than
+ * hidden: for up to a minute after a show is unpublished, a cache may still be
+ * handing out the copy it already had.
+ *
+ * **Only for a reader with no session cookie**, which is doing more work than it
+ * looks. `loadVisibleCard` gives an unpublished show to nobody but the promoter
+ * who owns it, and a promoter is signed in by definition — so with no cookie the
+ * page is either a published card or a 404. The promoter's own preview never
+ * matches this rule at all, and OpenNext puts `no-store` back on any 404
+ * whatever these say, so a draft cannot reach a shared cache by either route.
+ *
+ * **This has to be here rather than on the page or in proxy.ts.** A server
+ * component cannot set a response header at all. Middleware can, and on OpenNext
+ * for Workers it does not survive: a header set on `NextResponse.next()` is
+ * dropped before the response goes out — measured against
+ * `wrangler dev`, with a probe header that never arrived. What these rules do
+ * survive is Next.js's own `Cache-Control` for a dynamic page, because the
+ * adapter merges the config's headers over the handler's. That is the opposite
+ * of what the Next.js documentation promises on Vercel, so it is written down in
+ * DEPLOY.md rather than left to be rediscovered.
+ */
+const programmeCache = [
+  { key: "cache-control", value: "public, s-maxage=60, stale-while-revalidate=300" },
+];
+
+// Both names, because the cookie is __Host- prefixed off localhost and plain on
+// it, and a reader carrying either is a promoter rather than a stranger.
+const ANONYMOUS = SESSION_COOKIE_NAMES.map((name) => ({ type: "cookie" as const, key: name }));
+
 const nextConfig: NextConfig = {
   // The dev overlay badge would otherwise be burned into every captured frame
   // by the mp4 exporter, which screenshots the running dev server.
@@ -107,6 +147,11 @@ const nextConfig: NextConfig = {
         source: "/:path((?!media/).*)",
         headers: securityHeaders,
       },
+      // The programme and a fighter's page on it, for a reader who is not
+      // signed in. Nothing else: not the QR card, not /promoter, /f, /render or
+      // /api — three of those are behind a credential and the fourth writes.
+      { source: "/e/:slug", missing: ANONYMOUS, headers: programmeCache },
+      { source: "/e/:slug/f/:fighter", missing: ANONYMOUS, headers: programmeCache },
     ];
   },
 };
