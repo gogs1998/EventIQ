@@ -26,8 +26,12 @@ const HOUR_MS = 60 * 60 * 1000;
  * A month. Past this a cached page is a row nobody will ever read again: the
  * cache answers for a week, and a fighter whose link was pasted last spring is
  * on a card that has already happened.
+ *
+ * Exported so the same month can be asserted of the sweep in
+ * scripts/retention.mjs, which takes what is left on an instance where nobody
+ * has used the importer recently enough for the prune below to have run.
  */
-const PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+export const PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Which parser produced the payloads under a cache key.

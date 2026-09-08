@@ -975,6 +975,35 @@ Either way, **check the log the first week and then check the bucket monthly** â
 a backup job nobody looks at is the classic way to find out on the one day it
 matters that it stopped working in March.
 
+### Folding the counting, and the sweeps
+
+The same machine, the same token, and the same argument for a cron line rather
+than a workflow.
+
+```cron
+# 03:40 UTC nightly, after the backup. The order matters: the fold is what keeps
+# the numbers, and the sweep only removes counting the fold has already summed.
+40 3 * * *  cd /path/to/EventIQ && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run analytics:rollup -- --remote --apply >> /var/log/eventiq-rollup.log 2>&1
+50 3 * * *  cd /path/to/EventIQ && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run retention -- --remote --apply >> /var/log/eventiq-retention.log 2>&1
+```
+
+`npm run analytics:rollup` sums every `analytics_events` row older than 48 hours
+into a row per show, day and kind in `analytics_daily`, and removes what it
+summed. **The dashboard's numbers do not move when it runs**: it reads the folded
+days plus everything still in `analytics_events` and adds the two together, so a
+row changing tables changes no total. Run it without `--apply` first â€” the dry
+run names every show-day it would fold.
+
+`npm run retention` is the sweep. It clears fighters past the retention policy
+([HANDOVER.md section 6g](HANDOVER.md#6g-consent-removal-and-retention)), removes
+counting rows the fold has already summed, and removes cached record pages over
+thirty days old. It will **not** remove counting for a show-day that has never
+been folded, whatever its age, because until the fold has run those rows are the
+only copy of those numbers.
+
+Both are **dry run by default** and both destroy data with `--apply`. Neither is
+installed anywhere yet: as with the backup, the capability is not the schedule.
+
 ### The R2 lifecycle rule
 
 Nothing in the backup script deletes anything, on purpose: a script that prunes

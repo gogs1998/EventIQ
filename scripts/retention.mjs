@@ -1,5 +1,6 @@
 /**
- * Clears fighters nobody is putting on a card any more.
+ * Clears fighters nobody is putting on a card any more, and sweeps the two
+ * tables that grow on their own.
  *
  *   npm run retention                          # local, dry run
  *   npm run retention -- --apply               # local, for real
@@ -26,9 +27,23 @@
  * running order rather than the fighter's answers and clearing them would leave
  * a hole in a published card. lib/consent.ts holds that column list for both.
  *
- * **Dry run by default.** It prints who it would take and changes nothing until
- * `--apply`. A retention sweep is the one script here that destroys data on
- * purpose, so the default has to be the one that cannot.
+ * **The two tables that grow whether or not anybody is watching** are swept in
+ * the same pass, because they want the same schedule and the same default.
+ *
+ * - `analytics_events` rows older than the rollup window, **and only where that
+ *   show-day has already been summed into `analytics_daily`**. The fold removes
+ *   what it sums, so this ordinarily finds nothing; what it is for is the run
+ *   that summed and then could not delete. The condition is the whole safety of
+ *   it — without it a database where the fold had never run would have a season
+ *   of a promoter's counting deleted by a tidy-up.
+ * - `import_cache` rows older than thirty days. The importer prunes these on its
+ *   way past already, which means they are pruned exactly when somebody is
+ *   importing — so the rows that sit longest are the ones on an instance nobody
+ *   has used the importer on in a month, which is the case this covers.
+ *
+ * **Dry run by default.** It prints who and what it would take and changes
+ * nothing until `--apply`. A retention sweep is the one script here that
+ * destroys data on purpose, so the default has to be the one that cannot.
  *
  * Do not run this against `--local` while `npm run dev` is up: it is a second
  * writer on the same Miniflare database and it loses. Stop the server first.
@@ -40,9 +55,18 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RETENTION_DAYS, clearedFighterColumns } from "@/lib/consent";
 import { localBin } from "./local-bin.mjs";
+import { foldBefore } from "./rollup-analytics.mjs";
 
 const DATABASE = "eventiq";
 const BUCKET = "eventiq-media";
+
+/**
+ * A month, and the same month `PRUNE_AFTER_MS` in lib/record-import means. Kept
+ * as a number here rather than imported because that module reaches the Worker
+ * bindings on the way in and this is a script on somebody's laptop; a test holds
+ * the two figures together.
+ */
+export const IMPORT_CACHE_DAYS = 30;
 
 /** camelCase on the drizzle model, snake_case on disk. One place, so they agree. */
 const COLUMN_NAMES = {
@@ -101,6 +125,39 @@ export function bucketKeys(row) {
     .filter((value) => typeof value === "string" && value.startsWith("/media/"))
     .map((value) => value.slice("/media/".length))
     .filter((key) => /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(key) && !key.includes(".."));
+}
+
+/**
+ * Counting that has already been summed into `analytics_daily` and is still
+ * sitting in `analytics_events`.
+ *
+ * The `EXISTS` is not an optimisation, it is the safety. A day with no row in
+ * `analytics_daily` has never been folded, so its rows are the only copy of
+ * those numbers and this must not be what removes them — the fold is. Written as
+ * a correlated subquery on the day rather than on the cutoff so that it is the
+ * *same* show-day being asked about, not merely some folded day of some show.
+ */
+export function foldedAnalyticsWhere(before) {
+  return `created_at < ${before}
+      AND EXISTS (SELECT 1 FROM analytics_daily d
+                   WHERE d.event_id = analytics_events.event_id
+                     AND d.day = date(analytics_events.created_at / 1000, 'unixepoch'))`;
+}
+
+export function foldedAnalyticsCountSql(before) {
+  return `SELECT COUNT(*) AS n FROM analytics_events WHERE ${foldedAnalyticsWhere(before)}`;
+}
+
+export function foldedAnalyticsDeleteSql(before) {
+  return `DELETE FROM analytics_events WHERE ${foldedAnalyticsWhere(before)}`;
+}
+
+export function staleCacheCountSql(before) {
+  return `SELECT COUNT(*) AS n FROM import_cache WHERE fetched_at < ${before}`;
+}
+
+export function staleCacheDeleteSql(before) {
+  return `DELETE FROM import_cache WHERE fetched_at < ${before}`;
 }
 
 /** The statements that clear one fighter. The same set the removal action writes. */
@@ -225,33 +282,65 @@ async function main() {
     );
   }
 
-  if (!due.length) return;
+  const counted = await sweepCounts(now, scope);
 
   if (!apply) {
-    console.log("\nDry run. Nothing has been changed. Pass --apply to clear these.");
+    if (due.length || counted.analytics || counted.cache) {
+      console.log("\nDry run. Nothing has been changed. Pass --apply to take these.");
+    }
     return;
   }
 
-  await d1Script(due.flatMap((row) => clearStatements(row.id, now)).join("\n"), scope);
+  if (due.length) {
+    await d1Script(due.flatMap((row) => clearStatements(row.id, now)).join("\n"), scope);
 
-  // After the database, so a delete that fails leaves an object nothing points
-  // at rather than a row pointing at an object that has gone.
-  let deleted = 0;
-  let missed = 0;
-  for (const key of due.flatMap(bucketKeys)) {
-    try {
-      await run("npx", ["wrangler", "r2", "object", "delete", `${BUCKET}/${key}`, scope]);
-      deleted += 1;
-    } catch (error) {
-      missed += 1;
-      console.log(`  could not delete ${key}: ${error.message.split("\n")[0]}`);
+    // After the database, so a delete that fails leaves an object nothing points
+    // at rather than a row pointing at an object that has gone.
+    let deleted = 0;
+    let missed = 0;
+    for (const key of due.flatMap(bucketKeys)) {
+      try {
+        await run("npx", ["wrangler", "r2", "object", "delete", `${BUCKET}/${key}`, scope]);
+        deleted += 1;
+      } catch (error) {
+        missed += 1;
+        console.log(`  could not delete ${key}: ${error.message.split("\n")[0]}`);
+      }
     }
+
+    console.log(
+      `\n${due.length} cleared, ${deleted} objects deleted` +
+        `${missed ? `, ${missed} left in the bucket` : ""}`,
+    );
   }
 
+  if (counted.analytics) {
+    await d1Script(`${foldedAnalyticsDeleteSql(counted.foldedBefore)};`, scope);
+    console.log(`${counted.analytics} folded counting rows removed from analytics_events`);
+  }
+  if (counted.cache) {
+    await d1Script(`${staleCacheDeleteSql(counted.cacheBefore)};`, scope);
+    console.log(`${counted.cache} cached record pages removed from import_cache`);
+  }
+}
+
+/**
+ * What the two table sweeps would take, reported before anything is written so
+ * the dry run says it. Counted rather than listed: these are rows nobody can
+ * name, and a hundred thousand of them printed one per line is not a report.
+ */
+async function sweepCounts(now, scope) {
+  const foldedBefore = foldBefore(now);
+  const cacheBefore = now - IMPORT_CACHE_DAYS * 86_400_000;
+
+  const analytics = Number((await d1Query(foldedAnalyticsCountSql(foldedBefore), scope))[0]?.n ?? 0);
+  const cache = Number((await d1Query(staleCacheCountSql(cacheBefore), scope))[0]?.n ?? 0);
+
   console.log(
-    `\n${due.length} cleared, ${deleted} objects deleted` +
-      `${missed ? `, ${missed} left in the bucket` : ""}`,
+    `${analytics} folded counting rows before ${new Date(foldedBefore).toISOString().slice(0, 10)}, ` +
+      `${cache} cached record pages older than ${IMPORT_CACHE_DAYS} days`,
   );
+  return { analytics, cache, foldedBefore, cacheBefore };
 }
 
 // Only when run directly, so the pure parts above can be imported by a test.
