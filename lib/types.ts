@@ -35,6 +35,8 @@ export type Fighter = {
   stance?: Stance;
   photo?: string;
   cutout?: string;
+  /** Poster art made from the photograph, opted into and approved by the fighter. */
+  stylised?: string;
   instagram?: string;
   record?: Record;
   /** Wins by method. Never more than record.w between them. */

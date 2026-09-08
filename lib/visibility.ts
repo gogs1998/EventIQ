@@ -117,10 +117,21 @@ export async function loadRenderableCard(db: Db, slug: string): Promise<LoadedCa
  * who may read it rather than inheriting an accident.
  */
 export type MediaKey =
-  /** `fighters/…` or `cutouts/…`, addressed by the path stored on the fighter. */
+  /**
+   * `fighters/…`, `cutouts/…` or `portraits/…`, addressed by the path stored on
+   * the fighter. All three are a picture of one person and go behind one rule.
+   */
   | { kind: "portrait"; path: string }
   /** `renders/<slug>/…`, the mp4 for one bout of that show. */
   | { kind: "render"; slug: string };
+
+/**
+ * The three prefixes that hold a picture of a fighter: the photograph they
+ * sent, the cutout the renderer made from it, and the poster art they opted
+ * into. Each is found through the column on the fighter that stores its path,
+ * so an object nothing points at is refused rather than served.
+ */
+const PORTRAIT_PREFIXES = ["fighters", "cutouts", "portraits"];
 
 /** The shape of the key, or null where it is not one this route serves. */
 export function parseMediaKey(key: string): MediaKey | null {
@@ -129,7 +140,7 @@ export function parseMediaKey(key: string): MediaKey | null {
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(key) || key.includes("..")) return null;
 
   const segments = key.split("/");
-  if (segments.length === 2 && (segments[0] === "fighters" || segments[0] === "cutouts")) {
+  if (segments.length === 2 && PORTRAIT_PREFIXES.includes(segments[0])) {
     return { kind: "portrait", path: `/media/${key}` };
   }
   if (segments.length === 3 && segments[0] === "renders") {
