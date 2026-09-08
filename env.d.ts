@@ -1,4 +1,4 @@
-import type { D1Database, RateLimit, R2Bucket } from "@cloudflare/workers-types";
+import type { Ai, D1Database, RateLimit, R2Bucket } from "@cloudflare/workers-types";
 
 /**
  * The bindings, declared by hand.
@@ -41,6 +41,19 @@ declare global {
      * than a secret, because it names something public.
      */
     SHOWCASE_SLUG?: string;
+    /**
+     * Workers AI, for the opt-in stylised portrait only. Optional in the type
+     * because `next dev` has no such binding: the action answers "not available
+     * here" rather than throwing, so a fighter on a local instance is told the
+     * plain truth and keeps their photograph. See app/f/[token]/portrait-actions.ts.
+     */
+    AI?: Ai;
+    /**
+     * Whether stylised portraits are offered at all. Off unless this says
+     * otherwise — see flagOn in lib/consent.ts. A feature that sends a real
+     * fighter's photograph to a model is one somebody has to switch on.
+     */
+    STYLISED_PORTRAITS?: string;
   }
 }
 

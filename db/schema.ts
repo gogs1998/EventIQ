@@ -209,6 +209,13 @@ export const fighters = sqliteTable(
     stance: text("stance"),
     photo: text("photo"),
     cutout: text("cutout"),
+    /**
+     * A poster-art portrait made from the photograph, opted into and then
+     * approved by the fighter. Null is the ordinary state and the default: a
+     * real photograph is what the programme shows unless somebody asked for this
+     * and then looked at the result. See lib/portrait.ts for the precedence.
+     */
+    stylised: text("stylised"),
     instagram: text("instagram"),
     /**
      * Null across all three means the fighter has not given us a record, which is
@@ -231,7 +238,11 @@ export const fighters = sqliteTable(
   // /media looks a stored object back up by the path on the fighter, because a
   // key cannot be read for an id that is itself hyphenated. That happens once
   // per photograph on a page, so it must not be a scan of the table.
-  (table) => [index("fighters_photo").on(table.photo), index("fighters_cutout").on(table.cutout)],
+  (table) => [
+    index("fighters_photo").on(table.photo),
+    index("fighters_cutout").on(table.cutout),
+    index("fighters_stylised").on(table.stylised),
+  ],
 );
 
 export const bouts = sqliteTable(
@@ -336,6 +347,24 @@ export const invites = sqliteTable(
     sentAt: integer("sent_at"),
     lastOpenedAt: integer("last_opened_at"),
     submittedAt: integer("submitted_at"),
+    /**
+     * When the fighter ticked the box, and which wording was on the screen when
+     * they did. Both or neither: a timestamp with no version is a consent
+     * nobody can produce the text of, which is the same as not having one.
+     *
+     * It sits on the invite rather than on the fighter because consent is given
+     * for a show. A returning fighter on somebody's next card is asked again,
+     * which is the honest answer to "does this profile follow me onto another
+     * promoter's programme" — see HANDOVER section 19 item 11.
+     */
+    consentedAt: integer("consented_at"),
+    consentVersion: text("consent_version"),
+    /**
+     * When the fighter asked for their details to be taken down. The row stays,
+     * because deleting it would delete the record that they asked; the token
+     * stops working the moment this is set.
+     */
+    revokedAt: integer("revoked_at"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [uniqueIndex("invites_event_fighter").on(table.eventId, table.fighterId)],

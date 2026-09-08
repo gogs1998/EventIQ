@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 203 unit tests and a 25-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 404 unit tests and a 27-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -189,7 +189,7 @@ A photo of an actual amateur card (BUDO 79) changed the data model partway throu
 | `fighters` | People | **Not** owned by an event. Section below |
 | `sponsors` | A promoter's book | Resolved for show, bout and fighter placements alike |
 | `event_sponsors`, `fighter_sponsors` | Placements | Ordered, because the order was sold |
-| `invites` | A fighter's way in | Token plus three timestamps |
+| `invites` | A fighter's way in | Token, three timestamps, and the consent on it. Section 6e |
 | `render_jobs` | The interface to the renderer | Section 11 |
 | `analytics_events` | One row per interaction | Section 9 |
 | `import_cache` | Fetched record pages | Section 8 |
@@ -383,6 +383,54 @@ One side effect worth having: the pitch page stopped loading every invite row fo
 **The mitigation is suffixing, and it belongs in the slug rather than in the message.** `slugify` should take the collision and return `cage-county-13-2` — the same thing every publishing system does with a title that is already taken — so the promoter gets a show and an address rather than a refusal with a fact in it. `ACTION_ERRORS.addressTaken` then goes, because there is nothing left to refuse: a slug is derived, and a derived value that collides is disambiguated, not rejected.
 
 Recommended, not implemented, and deliberately so: `slugify` is in [lib/slug.ts](lib/slug.ts) but the collision check and the refusal are both in `createEvent` in [app/promoter/actions.ts](app/promoter/actions.ts), which is being rewritten on another branch. Doing half of it — a suffixing helper nothing calls — would leave two ideas of what a slug is. The shape of the change is: `uniqueSlug(db, name)` in `lib/db/queries.ts`, which slugifies, asks once for the rows that start with that slug and returns the first free suffix; `createEvent` calls it and drops the clash query and `addressTaken` with it. Until then the oracle is real, and what it discloses is the existence of a show name — not its date, venue, card or anything else, all of which stay behind the publish check.
+
+## 6g. Consent, removal and retention
+
+The questionnaire publishes photographs, ages and hometowns of real amateur fighters, on a page a promoter sells sponsorship against, reachable by an unguessable link with no account behind it. Until this existed, nothing asked, nothing explained, nothing deleted and there was no notice. It was the blocker on the first real show (section 19 item 2), and it is designed into the form rather than bolted on the front of it.
+
+**The wording lives in [lib/consent.ts](lib/consent.ts) with a version stamp.** `CONSENT_VERSION` is the date the text last changed, and it is stored on the invite beside the timestamp. The point of that pairing is a question that gets asked once and has to be answerable: *what exactly did this fighter agree to?* A notice typed into JSX is a notice nobody can produce six months later, and a timestamp with no version is a consent whose text has since moved. **Bump the version whenever `CONSENT_TEXT` changes** — a fighter whose stored version no longer matches is shown the notice again and asked to tick it again, which is the whole reason the pair is stored.
+
+**The order on the form is the argument.** Notice, then age, then the tick, then everything else. Nothing else is on the page until the box is on.
+
+- **Age first, and eighteen is the floor.** Amateur cards do run junior bouts, and this form is not the place for one: a published profile with sponsorship beside it is not something a child agrees to on a phone. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and **collects nothing further, including the age itself** — `consentGate` checks age before it checks the tick, because a gate that stored the age and refused afterwards would have kept the one field it should never have taken.
+- **The tick is the only thing a save may carry before there is a consent.** `saveDraft` answers `consentOnly` for that save and writes the consent alone; the browser then sends the same draft again, now that there is a consent for the answers to sit under. `uploadPhoto` refuses outright without one, because it is reachable without the form and a photograph is the most exposed thing here.
+- **The gate is in the action, not only in the UI.** Every one of these is a server action anybody holding a link can call directly. The component hides the fields; `lib/consent.ts` is what actually decides.
+
+**Removal is a control on the fighter's own form**, in [app/f/[token]/consent-actions.ts](app/f/[token]/consent-actions.ts), behind a second press. A consent that cannot be withdrawn is not a consent, and it must not require writing to the promoter — who may be the person the fighter no longer wants to talk to. It clears every column the questionnaire collects, deletes their sponsor choices, deletes the photograph, cutout and stylised portrait out of R2, revokes the invite and asks for the bout's video again. The database write is one batch and goes first, so a bucket that will not answer cannot leave a profile half-cleared; the objects go afterwards, best effort, by which point no row points at them and `/media` refuses an object nothing points at.
+
+**The name and the gym stay, and the copy says so.** They came off the promoter's matchmaking sheet rather than out of this form, and they are the running order: clearing them leaves a hole on a published card where somebody is still walking out. A fighter told "everything" who then finds their name on the programme has been told something untrue, so `REMOVAL.stays` says which two fields remain and where to take that.
+
+**A revoked link answers with what happened to it.** Everywhere else a made-up token and a regenerated one answer alike; this is the single exception and it has its own rule in `inviteWasRevoked`. It tells nobody anything they did not already hold, and the alternative is a fighter left wondering whether their request went through — which is also what the browser would land on, because a server action re-renders the page it was called from.
+
+**Retention is 180 days after the last show, and one constant.** `RETENTION_DAYS` in lib/consent.ts is read by the consent text, by [/privacy](app/privacy/page.tsx) and by [scripts/retention.mjs](scripts/retention.mjs), so a fighter cannot be told one figure and swept at another. The sweep takes a fighter whose latest connection to any show — through a bout, or through an invite issued to them — is older than the cutoff, which means a fighter still on a card for a show that has not happened is never taken however old their other shows are, and a fighter orphaned by a removed bout is still dated by their invite. It does exactly what the removal control does. **Dry run by default**; `--apply` is the only thing that changes anything, because this is the one script here that destroys data on purpose.
+
+```bash
+npm run retention                       # local, says who it would take
+npm run retention -- --apply
+npm run retention -- --remote --apply   # the live database
+```
+
+**The privacy notice is [/privacy](app/privacy/page.tsx), and it is a draft.** The position it states — the promoter is the controller, EventIQ the processor — is in a comment at the top of that file rather than on the page, in those words, for the owner to put in front of a lawyer. Two things sit awkwardly with it and want raising at the same time: the `fighters` table is global rather than owned by a promoter (section 19 item 11), and **the lawful basis for publishing is still not stated anywhere**. Consent is what the questionnaire takes; whether consent or legitimate interests is the right basis for a public programme is exactly the question to ask. The page claims no legal review and a test fails if it starts to.
+
+**The copy is tested.** [lib/copy.test.ts](lib/copy.test.ts) and [lib/consent.test.ts](lib/consent.test.ts) hold all of it to the tone rules plus two of its own: nothing may suggest that asking for your details back is a failing, and nothing may present generated artwork as a picture of anybody.
+
+---
+
+## 6h. The opt-in stylised portrait
+
+A fighter can ask for their photograph to be redrawn as fight-poster artwork. It is **off unless a deployment turns it on** (`STYLISED_PORTRAITS`, and the `AI` binding in wrangler.jsonc), and three rules run through all of it.
+
+**A real photograph is the default.** Nothing happens unless the fighter asks, and nothing reaches the programme until they have seen what came back and pressed approve. A fighter who sends a picture and says nothing gets their picture, exactly as before. The object is written to R2 at the moment it is drawn but **no row points at it**, so `/media` will not serve it and the preview comes back inline instead — which is what makes approve-or-discard real rather than decorative.
+
+**It is never presented as a likeness.** The prompt asks for poster artwork and the negative prompt forbids lettering. The lettering matters twice: models misspell text, and a sponsor's name is set in the app's own typography precisely so a real business can never be misspelled by generated artwork (section 20). The copy says drawing rather than photograph throughout, and a test enforces it.
+
+**The bytes decide what came back.** The model's output is sniffed with `lib/image-type.ts` before it is stored, for the same reason an upload is (section 6b). Anything from outside is bytes, and this object is served from our own origin.
+
+The model is **`@cf/runwayml/stable-diffusion-v1-5-img2img`**, which is the image-to-image model Workers AI hosts, at strength 0.55 — low enough that the pose and framing are still the fighter's, high enough that nobody could mistake the result for a photograph of them. Actions are in [app/f/[token]/portrait-actions.ts](app/f/[token]/portrait-actions.ts); the pure parts (the key shape, and the ownership check that stops an approved path naming somebody else's portrait) are in lib/portrait.ts and are what the tests cover.
+
+**Precedence, in [lib/portrait.ts](lib/portrait.ts): stylised, then cutout, then photograph, then plate.** The stylised one goes above the cutout for a consent reason rather than a picture-quality one — a cutout is something we made without asking, and a stylised portrait is the only one of the four that answers a question the fighter was actually asked. It cannot displace a photograph by accident: it is null until an approval writes it, and it is cleared whenever the photograph it was drawn from is replaced, exactly as the cutout is. It travels through the sequence like a photograph, because it is a rectangle with a background of its own.
+
+**Two things worth knowing before touching it.** Approving one bumps `updated_at`, which is already in the render fingerprint, so the portrait reaches the video without a new field in the hash. And `next dev` has no AI binding at all: `remoteBindings` is off in next.config.ts because the moment an `ai` binding exists the dev server tries to open a remote proxy session, and without a `CLOUDFLARE_API_TOKEN` that fails and takes D1 and R2 down with it — every page reading the database answering 500. So the action answers "not available here" locally, and **this has not been run against the real model**.
 
 ---
 
@@ -718,7 +766,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-[scripts/e2e.mjs](scripts/e2e.mjs) drives 25 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
+[scripts/e2e.mjs](scripts/e2e.mjs) drives 27 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up, import a Sherdog record, be refused by a made-up token, sign out.
 
 The unit tests cover the derivation layer, which is pure and therefore easy. This covers the half that is not, and it is the only thing that would catch a form posting to the wrong action or a cookie that never gets set.
 
@@ -789,7 +837,7 @@ Three more, and the first is the most serious thing found in this project so far
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 203 unit tests
+npm test                     # 404 unit tests
 npm run lint
 npm run typecheck
 
@@ -834,6 +882,12 @@ npm run render-key -- list
 npm run render-key -- mint --promoter cage-county --label "Ross's laptop" --days 90
 npm run render-key -- mint --label "the hourly runner"    # unscoped: every promoter
 npm run render-key -- revoke --id rk_...
+
+# The retention sweep. Dry run unless --apply, because it is the one script here
+# that destroys data on purpose. Section 6e.
+npm run retention
+npm run retention -- --apply
+npm run retention -- --days 90 --remote --apply
 
 # Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
 # deployed site. Whatever is in it — a minted key, or the old secret. Section 6c.
@@ -887,7 +941,7 @@ The recording predates the rewrite and still shows the demo. **It needs re-recor
 1. **What does FightIQ.win do?** It is currently a bare wordmark because inventing a description of a real business seemed worse than leaving it blank. A strapline would also even up the sponsor strip.
 2. **Real fighter photographs.** The generated portraits are fine for demonstrating the idea, but a promoter who recognises nobody will notice. A handful of real photos from one local gym would make a named pitch far stronger. Needs the fighters' permission.
 3. **Who else needs a login?** There is one promoter account, created by the seed, and no signup. If a second promoter is coming, several things that are the right size for one operator become cross-tenant problems, and they want deciding before the second account exists rather than as it is created. Section 19.
-4. **Consent wording.** The questionnaire collects age, hometown and photographs of real people and publishes them. It needs a sentence the fighter agrees to and a retention policy behind it. This is a blocker on a real show, not a parallel task. Section 19, section 20.
+4. **Consent wording — the mechanism is built, the decisions are not.** The questionnaire now asks before it collects anything, records what was agreed to and when, refuses under-eighteens, offers removal, sweeps on a retention policy and links a privacy notice. Section 6e. What still needs the originator rather than a commit: **read the wording** in [lib/consent.ts](lib/consent.ts) and the notice at [/privacy](app/privacy/page.tsx) and say whether they are what you want said; **confirm the controller/processor position** drafted in the comment at the top of that page with a lawyer; **decide the lawful basis** for publishing, which is nowhere stated yet; and **confirm 180 days** is the retention you want, since that number is now in front of fighters. Nothing here claims legal review and nothing should start to. Section 19, section 20.
 5. **Music.** Videos are silent by design — no licensing exposure, and Instagram plays muted anyway.
 6. **Commercial model.** Not decided. Candidates: a per-event fee to the promoter; a share of bout sponsorship; or free programme with the post-event sponsor report as the paid upsell. It still shapes what is worth charging for; it no longer decides the first next step, which is a real show (section 19).
 
@@ -901,7 +955,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 1. **Get a single real show onto the platform.** Not code. Free if necessary. Until that has happened, every subsequent item is a bet about what a promoter will actually need on the night, and the demo cannot teach it — the demo is invented people, invented gyms, invented sponsors except the three real brands in section 6. A real card will contain the next thing like per-bout sponsors (section 5): a detail that is obvious once you see it and invisible until you do. This is also the one item that cannot be picked up in a fresh session and built. It needs the originator to bring a promoter, and it is blocked by the next item rather than running in parallel with it.
 
-2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** This is not a parallel task for later. The demo collects nothing that applies; the moment real amateur fighters' photographs, ages and hometowns are collected and published, with sponsor monetisation attached, it has to be in place first. The questionnaire is the natural consent point — design it in rather than bolting it on. Section 18, section 20. Until this exists, item 1 is a way of putting real people's data on a public page with no sentence they agreed to.
+2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** Mostly built, and the rest is not code. The questionnaire asks before it collects anything, stores what was agreed to and at which version, refuses a fighter under eighteen, carries a removal control that clears the profile and the objects behind it, and there is a privacy notice at `/privacy` and a retention sweep at `npm run retention`. Section 6e has all of it. **What is left needs the originator, not a commit**: reading the wording and saying whether it is what you want said, confirming the controller/processor position with a lawyer, deciding the lawful basis for publishing — which is still stated nowhere — and confirming that 180 days is the retention you want, because fighters are now being told that number. Section 18 item 4. Item 1 is no longer blocked on somebody writing the code for this; it is blocked on somebody reading it.
 
 3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. The backup half of this item is now done: `npm run db:backup` exports D1 to a file in R2 and `npm run db:restore-rehearsal` proves one restores, both described in [DEPLOY.md](DEPLOY.md#backups), with the schedule as a cron line rather than a workflow. What is left of this item is the error reporting.
 
@@ -967,12 +1021,12 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 ## 20. Risks worth tracking
 
 - **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
-- **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It needs consent wording, a privacy notice, a retention policy and a basis for publishing. The questionnaire is the natural consent point — design it in rather than bolting it on. This is now more urgent than it was, because the data is stored rather than living in a browser tab, and it is a blocker on a real show (section 19 items 1 and 2) rather than a parallel task.
+- **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It now asks first, records what was agreed to and when, refuses under-eighteens, offers removal and sweeps on a retention policy, with a notice at `/privacy` — section 6e. **The lawful basis for publishing is still stated nowhere**, and the controller/processor position is a draft in a source comment that no lawyer has seen. Both are section 19 item 2, and both need the originator rather than a commit. The residual risks are ordinary rather than structural now: a column added to the questionnaire and not added to `clearedFighterColumns` is a field that survives a fighter asking for it to go, and the retention sweep is a command nobody has scheduled — the same shape of gap as the backup below.
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
 - **So is the render key, and it is now per promoter.** It used to be one shared secret held by whatever machine rendered the videos, and anybody holding it could read any card on the instance, published or not. Keys are rows in `render_keys` now, scoped to a promoter, expiring and revocable — section 6c. Two things are left of the risk. The runner's key is unscoped by necessity, because the hourly job renders whatever is queued, so it is still a credential that reads every draft on the instance and it lives in repository secrets: anyone who can read those, or push a workflow that echoes them, holds it. And **the `RENDER_KEY` secret is still accepted**, which means the old cross-tenant credential exists until somebody mints a runner key and runs `wrangler secret delete RENDER_KEY`. That is the one piece of this that is a chore rather than a decision, and it is not done. Rotation costs nothing else: nothing but the renderer reads it.
 - **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.
-- **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. Same consent point.
-- **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission. This matters more now than it did: the promoter's own paste box is in the card editor, so the feature is in the hands of the person with thirty fighters to fill in. It is one fighter at a time on purpose, and **bulk import is the decision this question is blocking** — the code deliberately does not take it.
+- **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. That permission is now asked for in the consent text, in those terms — the sponsors' line is there because it is the part a fighter is least likely to have guessed. The stylised portrait is a second question with a second tick, and generated art is never what a fighter gets for sending a picture and saying nothing. Sections 6e and 6f.
+- **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission.
 - **Remotion licensing** if the render harness is ever swapped. Section 4.
 - **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
 - **Nothing tells anybody a failure has happened.** Every failure is written in one shape now and is searchable in the Cloudflare dashboard (section 12a), and `/api/health` says whether D1 and R2 are answering. That is the half of section 19's item 3 that needed no decision. The half that is left is the one that matters on show night: nothing pages anyone, so if the promoter's dashboard returns a 500 at first bell it is still true that nobody finds out until somebody looks. Section 14 records this exact class of thing — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. Section 12a has the two routes to alerting and why neither is taken yet.

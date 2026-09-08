@@ -48,6 +48,18 @@
       "bucket_name": "eventiq-media"
     }
   ],
+  // Workers AI, reached only by the opt-in stylised portrait, through
+  // @cf/runwayml/stable-diffusion-v1-5-img2img. The binding costs nothing until
+  // something calls it, and STYLISED_PORTRAITS below is what decides whether
+  // anything ever does: sending a real fighter's photograph to a model is a
+  // decision somebody makes rather than a default. `next dev` has no AI binding
+  // at all, and the action answers "not available here" instead of failing.
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "STYLISED_PORTRAITS": "off"
+  },
   "ratelimits": [
     {
       // Bounds /api/import-record, which takes no token by design. Counted at

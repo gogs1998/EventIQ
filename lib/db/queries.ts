@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
@@ -73,6 +73,7 @@ export function toFighter(row: FighterRow, sponsorIds: string[]): Fighter {
     stance: optional(row.stance) as Stance | undefined,
     photo: optional(row.photo),
     cutout: optional(row.cutout),
+    stylised: optional(row.stylised),
     instagram: optional(row.instagram),
     // All three or none. A partly stored record would be a bug upstream, and
     // reading it as 0 would turn a fighter with fights into a debutant.
@@ -281,8 +282,19 @@ export async function loadShowcase(
   return card?.published ? card : null;
 }
 
+/**
+ * The invites for a show, keyed by fighter.
+ *
+ * Revoked ones are left out, so the chase list offers no link a fighter has
+ * asked to have switched off. The fighter reads as nobody has been sent
+ * anything, which is what is true of them now — and the promoter can issue a
+ * fresh link deliberately rather than by copying a dead one.
+ */
 export async function loadInvites(db: Db, eventId: string): Promise<Record<string, Invite>> {
-  const rows = await db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId));
+  const rows = await db
+    .select()
+    .from(schema.invites)
+    .where(and(eq(schema.invites.eventId, eventId), isNull(schema.invites.revokedAt)));
   const invites: Record<string, Invite> = {};
   for (const row of rows) invites[row.fighterId] = toInvite(row);
   return invites;
@@ -291,6 +303,11 @@ export async function loadInvites(db: Db, eventId: string): Promise<Record<strin
 /**
  * An invite looked up by the token in the URL, with the show and the fighter it
  * belongs to. One query, because this runs on every keystroke's autosave.
+ *
+ * A revoked invite is not found. That is how "remove my details" revokes a link
+ * without deleting the row that records the fighter asked: the token is the
+ * whole of the authorisation, so a token that cannot be looked up is a link that
+ * opens nothing, and the caller gets the same answer as for a made-up one.
  */
 export async function loadInviteByToken(db: Db, token: string) {
   const [row] = await db
@@ -302,9 +319,29 @@ export async function loadInviteByToken(db: Db, token: string) {
     .from(schema.invites)
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
-    .where(eq(schema.invites.token, token))
+    .where(and(eq(schema.invites.token, token), isNull(schema.invites.revokedAt)))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Whether this token belongs to a link the fighter switched off themselves.
+ *
+ * A made-up token and a regenerated one answer alike, and deliberately so. This
+ * is the one exception, and it gets its own rule rather than none: a fighter who
+ * has just pressed "remove my details", or who opens the same link again a week
+ * later, is told what happened to it instead of being shown the address-does-not-
+ * exist page. It tells nobody anything they did not already have — the token is
+ * thirty-two random bytes and holding one is holding the credential — and the
+ * alternative is a fighter left wondering whether their request went through.
+ */
+export async function inviteWasRevoked(db: Db, token: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.invites.id })
+    .from(schema.invites)
+    .where(and(eq(schema.invites.token, token), isNotNull(schema.invites.revokedAt)))
+    .limit(1);
+  return !!row;
 }
 
 /**
@@ -459,7 +496,13 @@ export async function eventsShowingPortrait(db: Db, path: string) {
       or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
     )
     .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
-    .where(or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)));
+    .where(
+      or(
+        eq(schema.fighters.photo, path),
+        eq(schema.fighters.cutout, path),
+        eq(schema.fighters.stylised, path),
+      ),
+    );
 }
 
 /**
@@ -484,7 +527,11 @@ export async function inviteHoldsPortrait(db: Db, token: string, path: string): 
     .where(
       and(
         eq(schema.invites.token, token),
-        or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)),
+        or(
+          eq(schema.fighters.photo, path),
+          eq(schema.fighters.cutout, path),
+          eq(schema.fighters.stylised, path),
+        ),
       ),
     )
     .limit(1);

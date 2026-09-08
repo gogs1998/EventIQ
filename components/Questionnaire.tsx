@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
@@ -8,7 +9,15 @@ import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
 import type { ActionResult } from "@/lib/action-result";
 import { FPS } from "@/lib/anim";
-import { ACTION_ERRORS } from "@/lib/copy";
+import { CONSENT_TEXT, CONSENT_VERSION, oldEnough } from "@/lib/consent";
+import {
+  ACTION_ERRORS,
+  CONSENT_GIVEN,
+  PRIVACY,
+  REMOVAL,
+  STYLISED,
+  UNDER_AGE,
+} from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
@@ -17,6 +26,7 @@ import {
   type Draft,
   draftFromFighter,
   fighterFromDraft,
+  num,
 } from "@/lib/questionnaire";
 import type { Card } from "@/lib/card";
 import { buildTape, completeness, firstName, lastName, stated, tapeGapsBehind } from "@/lib/tape";
@@ -49,10 +59,27 @@ export type QuestionnaireProps = {
    * never reaches this component, so nothing here can be persuaded to write to
    * a different fighter.
    */
-  save?: (draft: Draft) => Promise<ActionResult<{ savedAt: number }>>;
+  save?: (draft: Draft) => Promise<ActionResult<{ savedAt: number; consentOnly?: boolean }>>;
   submit?: (draft: Draft) => Promise<ActionResult>;
   upload?: (form: FormData) => Promise<ActionResult<{ path: string }>>;
   alreadySubmitted?: boolean;
+  /**
+   * What the invite already says about consent. Absent in a preview, and absent
+   * on a fighter who has not been asked yet, which are the same thing to this
+   * component: it shows the notice and waits.
+   */
+  consent?: { at?: number; version?: string };
+  /** Withdrawing it. Its own action file, because it is the other half of consent. */
+  remove?: () => Promise<ActionResult>;
+  /**
+   * The opt-in stylised portrait, where a deployment offers one. Absent means
+   * the control is not drawn at all, rather than drawn and always refusing.
+   */
+  stylised?: {
+    make: () => Promise<ActionResult<{ path: string; preview: string }>>;
+    approve: (path: string) => Promise<ActionResult>;
+    discard: (path: string) => Promise<ActionResult>;
+  };
 };
 
 /** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
@@ -156,10 +183,18 @@ export function Questionnaire({
   submit,
   upload,
   alreadySubmitted = false,
+  consent,
+  remove,
+  stylised,
 }: QuestionnaireProps) {
   const eventName = card.event.name;
   const sponsors = Object.values(card.sponsors);
-  const [draft, setDraft] = useState<Draft>(() => draftFromFighter(base));
+  // A consent given against wording that has since changed is not a consent to
+  // the wording on the screen, so the box comes back unticked and says why.
+  const consentStale = !!consent?.at && consent.version !== CONSENT_VERSION;
+  const [draft, setDraft] = useState<Draft>(() =>
+    draftFromFighter(base, !!consent?.at && !consentStale),
+  );
   const [submitted, setSubmitted] = useState(alreadySubmitted);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   // What the action said, where it said anything. Null falls back to the line
@@ -178,34 +213,74 @@ export function Questionnaire({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<Draft | null>(null);
 
+  const [removing, setRemoving] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const [artOptIn, setArtOptIn] = useState(false);
+  const [artPath, setArtPath] = useState<string | null>(base.stylised ?? null);
+  const [artPreview, setArtPreview] = useState<string | null>(null);
+  const [artState, setArtState] = useState<"idle" | "making" | "ready" | "approved">(
+    base.stylised ? "approved" : "idle",
+  );
+  const [artError, setArtError] = useState<string | null>(null);
+
+  // The age is asked before anything else because a fighter under the minimum is
+  // not asked anything else at all, and the tick is what opens the rest of it.
+  const tooYoung = oldEnough(num(draft.age)) === false;
+  const open = draft.consented && !tooYoung;
+
   const flush = useCallback(async () => {
     if (!save || !pending.current) return;
-    const toSave = pending.current;
-    pending.current = null;
     setSaveState("saving");
-    try {
-      const result = await save(toSave);
-      if (result.ok) {
+    // Twice at most. The first save of a freshly ticked form writes the consent
+    // on its own and nothing else, so the answers in the same draft go in on the
+    // one straight after it rather than waiting for the next keystroke.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Annotated, because the loop both reads and writes this ref and the
+      // inferred type would otherwise depend on itself.
+      const toSave: Draft | null = pending.current;
+      if (!toSave) return;
+      pending.current = null;
+      try {
+        const result = await save(toSave);
+        if (!result.ok) {
+          // The action answered and refused — a regenerated link is the
+          // likeliest — so it has a sentence of its own worth more than the
+          // general one.
+          setSaveError(result.error);
+          setSaveState("failed");
+          return;
+        }
+        if (result.consentOnly) {
+          pending.current = toSave;
+          continue;
+        }
         setSaveState("saved");
         setSaveError(null);
         return;
+      } catch {
+        // A request that never arrived has no sentence of its own. Either way the
+        // draft stays exactly as it is in the boxes: telling somebody their typing
+        // has not saved is far better than a silent loss they find on the night.
+        setSaveError(null);
+        setSaveState("failed");
+        return;
       }
-      // The action answered and refused — a regenerated link is the likeliest —
-      // so it has a sentence of its own worth more than the general one.
-      setSaveError(result.error);
-      setSaveState("failed");
-    } catch {
-      // A request that never arrived has no sentence of its own. Either way the
-      // draft stays exactly as it is in the boxes: telling somebody their typing
-      // has not saved is far better than a silent loss they find on the night.
-      setSaveError(null);
-      setSaveState("failed");
     }
+    setSaveState("saved");
+    setSaveError(null);
   }, [save]);
 
   const queueSave = useCallback(
     (next: Draft) => {
       if (!save) return;
+      // Nothing at all goes out before the tick, and nothing goes out while the
+      // age on the form is under the minimum — including the age itself. The
+      // server refuses both as well; this is what stops a fighter watching the
+      // form report a failure at every keystroke of a question they have not
+      // been allowed to answer yet.
+      if (!next.consented || oldEnough(num(next.age)) === false) return;
       pending.current = next;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
@@ -312,15 +387,88 @@ export function Questionnaire({
         return;
       }
       update((current) => ({ ...current, photo: result.path }));
+      // The drawing was of the previous photograph, so it goes with it — the
+      // same rule the stored column is held to in lib/questionnaire.ts.
+      setArtState("idle");
+      setArtPath(null);
+      setArtPreview(null);
     } catch {
       setPhotoError(ACTION_ERRORS.photoNotStored);
     }
   };
 
+  const makeArt = async () => {
+    if (!stylised) return;
+    setArtError(null);
+    // A second attempt throws the first away rather than leaving it in the
+    // bucket with nothing pointing at it.
+    if (artPath && artState === "ready") await stylised.discard(artPath).catch(() => {});
+    setArtState("making");
+    try {
+      const result = await stylised.make();
+      if (!result.ok) {
+        setArtError(result.error);
+        setArtState("idle");
+        return;
+      }
+      setArtPath(result.path);
+      setArtPreview(result.preview);
+      setArtState("ready");
+    } catch {
+      setArtError(ACTION_ERRORS.portraitNotMade);
+      setArtState("idle");
+    }
+  };
+
+  const approveArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.approve(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtState("approved");
+  };
+
+  const discardArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.discard(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtPath(null);
+    setArtPreview(null);
+    setArtState("idle");
+  };
+
+  const removeDetails = async () => {
+    if (!remove) return;
+    setRemoveError(null);
+    const result = await remove().catch(() => null);
+    if (!result?.ok) {
+      setRemoveError(result?.error ?? ACTION_ERRORS.detailsNotRemoved);
+      return;
+    }
+    // Nothing is refetched: the link this page was opened with no longer opens
+    // anything, so the panel is the whole of what is left to show.
+    setRemoved(true);
+  };
+
   // Repainting the full 1080x1920 preview on every keystroke makes typing feel
   // sticky, so the preview trails the input by a frame or two instead.
   const settled = useDeferredValue(draft);
-  const fighter = useMemo(() => fighterFromDraft(base, settled), [base, settled]);
+  // A drawing that has been made but not approved is shown on the card anyway,
+  // because judging it anywhere else is judging it out of the frame it would go
+  // in. Nothing is published until approve is pressed, and the panel says so.
+  const artOnCard =
+    artState === "ready" || artState === "approved" ? (artPreview ?? artPath) : null;
+  const fighter = useMemo(
+    () => ({ ...fighterFromDraft(base, settled), stylised: artOnCard ?? undefined }),
+    [base, settled, artOnCard],
+  );
 
   const { score, missing } = completeness(fighter);
   const behind = tapeGapsBehind(fighter, opponent);
@@ -378,6 +526,20 @@ export function Questionnaire({
     }
     setSubmitted(true);
   };
+
+  // Everything else is gone, including the link that opened this page, so the
+  // form is replaced rather than left on screen with empty boxes in it.
+  if (removed) {
+    return (
+      <main className="mx-auto w-full max-w-xl px-5 py-24">
+        <h1 className="display text-3xl">{REMOVAL.done.heading}</h1>
+        <p className="text-ash mt-4 text-sm leading-relaxed">{REMOVAL.done.body}</p>
+        <Link href="/privacy" className="label hover:text-chalk mt-6 inline-block">
+          {PRIVACY.link}
+        </Link>
+      </main>
+    );
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12">
@@ -520,6 +682,77 @@ export function Questionnaire({
         </header>
 
         <div className="mt-8 grid gap-8">
+          {/* Before any field. The notice, the age, then the tick — in that
+              order, because a fighter under the minimum is asked nothing else
+              and nothing they type reaches the database until the box is on. */}
+          <section className="border-hairline bg-panel/40 border p-4 sm:p-5">
+            <h2 className="display text-chalk text-xl">{CONSENT_TEXT.heading}</h2>
+            <p className="text-ash mt-2 text-xs leading-relaxed">{CONSENT_TEXT.intro}</p>
+
+            <dl className="mt-4 grid gap-3">
+              {CONSENT_TEXT.points.map((point) => (
+                <div key={point.label}>
+                  <dt className="label">{point.label}</dt>
+                  <dd className="text-ash mt-1 text-xs leading-relaxed">{point.body}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <Link
+              href="/privacy"
+              className="text-ash-dim hover:text-chalk mt-3 inline-block text-[0.7rem] underline transition-colors"
+            >
+              {CONSENT_TEXT.privacyLink}
+            </Link>
+
+            <div className="border-hairline mt-5 border-t pt-4">
+              <Field
+                label={CONSENT_TEXT.age.label}
+                hint={CONSENT_TEXT.age.hint}
+                from={importedKeys.has("age") ? sourceLabel : undefined}
+              >
+                <input
+                  id="consent-age"
+                  className={cx(inputClass, "max-w-28")}
+                  inputMode="numeric"
+                  value={draft.age}
+                  onChange={(e) => set("age", e.target.value)}
+                  placeholder="22"
+                />
+              </Field>
+            </div>
+
+            {tooYoung ? (
+              <div className="border-hairline mt-4 border-t pt-4">
+                <h3 className="display text-chalk text-lg">{UNDER_AGE.heading}</h3>
+                <p className="text-ash mt-2 text-xs leading-relaxed">{UNDER_AGE.body}</p>
+              </div>
+            ) : (
+              <div className="border-hairline mt-4 border-t pt-4">
+                {consentStale ? (
+                  <p className="text-gold mb-3 text-xs leading-relaxed">{CONSENT_GIVEN.changed}</p>
+                ) : null}
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    id="consent"
+                    type="checkbox"
+                    checked={draft.consented}
+                    onChange={(e) => set("consented", e.target.checked)}
+                    className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                  />
+                  <span className="text-chalk text-xs leading-relaxed">{CONSENT_TEXT.tick}</span>
+                </label>
+                {consent?.at && draft.consented && !consentStale ? (
+                  <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                    {CONSENT_GIVEN.body}
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </section>
+
+          {open ? (
+            <>
           <Section
             step="01"
             title="The bit people read"
@@ -565,6 +798,81 @@ export function Questionnaire({
                 <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
               ) : null}
             </Field>
+
+            {/* After the photograph and never instead of it. Drawn only on
+                request, and on the card only once the fighter has looked at
+                what came back. */}
+            {stylised && draft.photo ? (
+              <Field label={STYLISED.label} hint={STYLISED.hint}>
+                {artState === "approved" ? (
+                  <div>
+                    <p className="text-gold text-[0.7rem] leading-relaxed">{STYLISED.approved}</p>
+                    <button
+                      type="button"
+                      onClick={() => void discardArt()}
+                      className="border-hairline hover:border-chalk/40 text-ash mt-2 border px-3 py-1.5 text-xs transition-colors"
+                    >
+                      {STYLISED.discard}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        id="stylised-consent"
+                        type="checkbox"
+                        checked={artOptIn}
+                        onChange={(e) => setArtOptIn(e.target.checked)}
+                        className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="text-ash text-xs leading-relaxed">{STYLISED.consent}</span>
+                    </label>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!artOptIn || artState === "making"}
+                        onClick={() => void makeArt()}
+                        className="border-chalk/60 hover:bg-chalk hover:text-ink border px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {artState === "making"
+                          ? STYLISED.making
+                          : artState === "ready"
+                            ? STYLISED.again
+                            : STYLISED.make}
+                      </button>
+                      {artState === "ready" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void approveArt()}
+                            className="border-gold/60 text-gold hover:bg-gold hover:text-ink border px-3 py-1.5 text-xs transition-colors"
+                          >
+                            {STYLISED.approve}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void discardArt()}
+                            className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                          >
+                            {STYLISED.discard}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {artState === "ready" ? (
+                      <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                        {STYLISED.preview}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+                {artError ? (
+                  <p className="text-red-corner-hot mt-2 text-[0.7rem]">{artError}</p>
+                ) : null}
+              </Field>
+            ) : null}
 
             <Field
               label="Instagram"
@@ -725,16 +1033,9 @@ export function Questionnaire({
               ) : null}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Field label="Age" from={importedKeys.has("age") ? sourceLabel : undefined}>
-                <input
-                  className={inputClass}
-                  inputMode="numeric"
-                  value={draft.age}
-                  onChange={(e) => set("age", e.target.value)}
-                  placeholder="22"
-                />
-              </Field>
+            {/* Age is asked at the top with the notice rather than here, because
+                it decides whether there is a form at all. */}
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <Field label="Height cm" from={importedKeys.has("height") ? sourceLabel : undefined}>
                 <input
                   className={inputClass}
@@ -881,9 +1182,62 @@ export function Questionnaire({
           ) : (
             <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
               Your details go on the programme for this show and in your tale of the tape
-              video. Nothing else, and nowhere else.
+              video. Nothing else, and nowhere else.{" "}
+              <Link href="/privacy" className="hover:text-chalk underline transition-colors">
+                {PRIVACY.link}
+              </Link>
             </p>
           )}
+            </>
+          ) : null}
+
+          {/* Taking it back, and reachable whether or not the form above is
+              open: a fighter who wants their details gone should not have to
+              agree to anything first. Two presses, because it clears a profile
+              and takes a photograph down and neither comes back. */}
+          {remove && !tooYoung ? (
+            <section className="border-hairline border-t pt-6">
+              <h2 className="display text-chalk text-xl">{REMOVAL.heading}</h2>
+              <p className="text-ash mt-2 text-xs leading-relaxed">{REMOVAL.body}</p>
+              <p className="text-ash-dim mt-2 text-xs leading-relaxed">{REMOVAL.stays}</p>
+              {removing ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void removeDetails()}
+                    className="border-red-corner text-red-corner-hot hover:bg-red-corner hover:text-chalk border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                  >
+                    {REMOVAL.confirm}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRemoving(false)}
+                    className="border-hairline hover:border-chalk/40 text-ash border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                  >
+                    {REMOVAL.cancel}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRemoving(true)}
+                  className="border-hairline hover:border-chalk/40 text-ash mt-4 border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                >
+                  {REMOVAL.start}
+                </button>
+              )}
+              <p
+                role="status"
+                aria-live="polite"
+                className={cx(
+                  "text-red-corner-hot mt-2 text-xs leading-relaxed",
+                  !removeError && "sr-only",
+                )}
+              >
+                {removeError ?? ""}
+              </p>
+            </section>
+          ) : null}
         </div>
       </div>
 

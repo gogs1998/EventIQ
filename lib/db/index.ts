@@ -1,4 +1,4 @@
-import type { R2Bucket } from "@cloudflare/workers-types";
+import type { Ai, R2Bucket } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@/db/schema";
@@ -31,6 +31,19 @@ export async function getMedia(): Promise<R2Bucket> {
   return env.MEDIA;
 }
 
+/**
+ * Workers AI, or undefined where there is none.
+ *
+ * Undefined rather than a throw, because `next dev` has no AI binding and the
+ * whole local questionnaire would otherwise be a page that breaks on a feature
+ * nobody switched on. The caller says "not available here" and the fighter keeps
+ * the photograph they sent.
+ */
+export async function getAi(): Promise<Ai | undefined> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.AI;
+}
+
 /** Every secret the Worker reads. Set with `wrangler secret put`. See DEPLOY.md. */
 export type SecretName = "SESSION_SECRET" | "RENDER_KEY";
 
@@ -40,7 +53,7 @@ export type SecretName = "SESSION_SECRET" | "RENDER_KEY";
  * names something public — which show the shop window is pointed at — and
  * putting it in the config is what makes a deploy able to change it.
  */
-export type VarName = "SHOWCASE_SLUG";
+export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS";
 
 /** Undefined where the secret is not set. Never an empty string. */
 export async function readSecret(name: SecretName): Promise<string | undefined> {

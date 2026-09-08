@@ -45,7 +45,7 @@ Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the qu
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
 
 ```bash
-npm test           # 203 unit tests in 15 files, about a second
+npm test           # 404 unit tests in 27 files, about a second
 npm run lint
 npm run typecheck
 npm run build
@@ -76,7 +76,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 25 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+Drives a browser through 27 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
 
 ## The tale of the tape
 
@@ -86,7 +86,7 @@ Two things make it work.
 
 **Depth from a flat photo.** Every portrait goes through background removal to produce a transparent cutout. The cutout and the backdrop then move at different rates, which reads as parallax rather than a photograph sliding around.
 
-That happens in the render pipeline, not in the upload: background removal is an ONNX model and several seconds of CPU per image, which a Worker cannot run at all and a fighter's phone should not be asked to. So `npm run render` cuts out anybody who has sent a photograph and has no cutout of it, and until it does the sequence shows the photograph — soft-masked, vignetted and moved a third as far, because a rectangle travelling over a drifting backdrop is the thing the parallax exists to avoid. The initialled "photo to follow" plate is only for a fighter who has sent nothing at all. The order lives in [`lib/portrait.ts`](lib/portrait.ts).
+That happens in the render pipeline, not in the upload: background removal is an ONNX model and several seconds of CPU per image, which a Worker cannot run at all and a fighter's phone should not be asked to. So `npm run render` cuts out anybody who has sent a photograph and has no cutout of it, and until it does the sequence shows the photograph — soft-masked, vignetted and moved a third as far, because a rectangle travelling over a drifting backdrop is the thing the parallax exists to avoid. The initialled "photo to follow" plate is only for a fighter who has sent nothing at all. The order lives in [`lib/portrait.ts`](lib/portrait.ts), with an opt-in stylised portrait above the cutout for a fighter who asked for one and approved what came back — off unless a deployment turns it on, and never what anybody gets by default.
 
 **One composition, two outputs.** [`components/sequence/TaleOfTheTape.tsx`](components/sequence/TaleOfTheTape.tsx) is a pure function of its props, of which one is a frame number. There are no CSS animations and no timers; all motion is interpolated in JS from `frame` using the helpers in [`lib/anim.ts`](lib/anim.ts). That single constraint buys both playback modes:
 
@@ -104,6 +104,16 @@ Getting fighters to return the questionnaire is the actual hard problem, not the
 **The form is ordered to be finished.** Nickname, photo, Instagram and sponsors first; height, reach and record last. A form that opens with "reach in centimetres" does not get completed. The fighter watches their own card build as they type, and the reward for finishing is a video of it.
 
 The seeded card is deliberately uneven for the same reason: the top of the bill is what it looks like when fighters send their details in, and the openers are a name and a gym, exactly like the paper programme.
+
+## Consent, removal and retention
+
+Real amateur fighters send a photograph, an age and a hometown, and it is published on a page a promoter sells sponsorship against. So the form asks before it collects anything: a plain notice of what is taken, everywhere it appears, how long it is kept and how to have it removed, then the age, then a required tick. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and stores nothing at all.
+
+The wording is in [`lib/consent.ts`](lib/consent.ts) with a `CONSENT_VERSION` beside it, and both the version and the timestamp are stored on the invite, so what a particular fighter agreed to can be produced later. The check lives in the action rather than in the component: every one of these is reachable by anybody holding a link, so hiding the fields is not the control.
+
+"Remove my details" at the foot of the form clears everything the fighter sent, deletes their pictures out of the bucket, switches their link off and asks for the bout's video again. The name and the gym stay, because those are the promoter's running order rather than the fighter's answers, and the copy says so. [`npm run retention`](scripts/retention.mjs) does the same for fighters whose last show was more than 180 days ago — dry run unless you pass `--apply`.
+
+The notice is at [`/privacy`](app/privacy/page.tsx). It is a draft written to be read by a fighter, it claims no legal review, and the controller/processor position is a comment at the top of that file waiting for a lawyer to confirm it.
 
 ## The promoter's view
 

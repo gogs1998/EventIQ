@@ -6,6 +6,7 @@ import { cardCompleteness, featuredBout } from "@/lib/card";
 import {
   chaseNote,
   NO_SHOWCASE,
+  PRIVACY,
   programmeLinkNote,
   sponsorNote,
   tapeForEveryBout,
@@ -406,6 +407,12 @@ export default async function PitchPage() {
               Every fighter, gym and sponsor on the {event.name} card is invented.
             </span>
           ) : null}
+          {/* The notice a fighter is pointed at from their own form is reachable
+              from the front of the site too, rather than only from the link they
+              were sent. */}
+          <Link href="/privacy" className="hover:text-chalk transition-colors">
+            {PRIVACY.link}
+          </Link>
         </div>
       </footer>
     </main>

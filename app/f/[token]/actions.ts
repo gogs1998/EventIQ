@@ -7,6 +7,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { isLinkPreviewBot } from "@/lib/bots";
+import { CONSENT_VERSION, consentGate, hasConsented } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
@@ -102,7 +103,7 @@ function columnsFrom(draft: Draft) {
 export async function saveDraft(
   token: string,
   input: unknown,
-): Promise<ActionResult<{ savedAt: number }>> {
+): Promise<ActionResult<{ savedAt: number; consentOnly?: boolean }>> {
   return attempt(
     { event: "saveDraft", route: "/f/[token]" },
     ACTION_ERRORS.profileNotSaved,
@@ -113,15 +114,33 @@ export async function saveDraft(
       const { invite, fighter, event } = row;
 
       const draft = sanitiseDraft(input);
+
+      // Consent decides whether any of this may be written, and the tick is the
+      // one thing a save is allowed to carry before there is one. The rule and
+      // the wording that was agreed to are in lib/consent.ts.
+      const gate = consentGate(invite, draft);
+      if (gate === "under-age") return refuse(ACTION_ERRORS.underAge);
+      if (gate === "refuse") return refuse(ACTION_ERRORS.consentNeeded);
+      if (gate === "record") {
+        await db
+          .update(schema.invites)
+          .set({ consentedAt: Date.now(), consentVersion: CONSENT_VERSION })
+          .where(eq(schema.invites.id, invite.id));
+        return done({ savedAt: Date.now(), consentOnly: true });
+      }
+
       const sponsorIds = await claimableSponsors(db, event.promoterId, draft.sponsorIds);
 
       // Everything else about the cutout is the renderer's, but this is the one thing
       // only the request path knows: that the photograph the cutout was made from has
       // just been replaced. Left in place it would put the fighter's old picture in
       // the video for as long as nobody noticed.
+      // The stylised portrait goes the same way for the same reason: it is a
+      // drawing of one particular photograph, and the fighter approved it of
+      // that one.
       const columns = cutoutSurvives(fighter.photo, draft.photo)
         ? columnsFrom(draft)
-        : { ...columnsFrom(draft), cutout: null };
+        : { ...columnsFrom(draft), cutout: null, stylised: null };
 
       const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
         db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
@@ -198,8 +217,12 @@ export async function submitProfile(token: string, input: unknown): Promise<Acti
       // The save is what carries the answers, so a submit that goes through on a
       // save that did not would mark the profile finished with the last few
       // fields missing from it.
-      const saved = await saveDraft(token, input);
+      let saved = await saveDraft(token, input);
+      // A form ticked and submitted in the same breath: the first save writes
+      // the consent on its own, so the answers go in on the one after it.
+      if (saved.ok && saved.consentOnly) saved = await saveDraft(token, input);
       if (!saved.ok) return saved;
+      if (saved.consentOnly) return refuse(ACTION_ERRORS.consentNeeded);
 
       await db
         .update(schema.invites)
@@ -282,7 +305,10 @@ export async function uploadPhoto(
     async () => {
       const found = await inviteFor(token);
       if (!found.ok) return found;
-      const { fighter } = found.row;
+      const { fighter, invite } = found.row;
+      // A photograph is the most exposed thing this form takes, and this action
+      // is reachable without the form. Nothing is stored before the tick.
+      if (!hasConsented(invite)) return refuse(ACTION_ERRORS.consentNeeded);
 
       const file = form.get("photo");
       if (!(file instanceof File)) return refuse(ACTION_ERRORS.photoNotAPhotograph);

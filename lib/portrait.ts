@@ -18,6 +18,11 @@ import type { Fighter } from "@/lib/types";
  * deliberate, not like a missing asset.
  */
 export type Portrait =
+  /**
+   * Poster art the fighter asked for and then approved. First, and only ever
+   * reachable through a stored column that nothing but an approval writes.
+   */
+  | { kind: "stylised"; src: string }
   /** Background removed. Moves independently of the backdrop. */
   | { kind: "cutout"; src: string }
   /** The photograph as sent. Soft-masked and moved less, because it is a plane. */
@@ -25,7 +30,24 @@ export type Portrait =
   /** Nothing sent. The initialled plate. */
   | { kind: "plate" };
 
-export function portraitOf(fighter: Pick<Fighter, "cutout" | "photo">): Portrait {
+/**
+ * The stylised portrait goes above the cutout, and the reason is consent rather
+ * than picture quality.
+ *
+ * A cutout is something we made from a fighter's photograph without asking. A
+ * stylised portrait is something they opted into, waited for, looked at and
+ * pressed approve on, and it is the only one of the four that answers a question
+ * they were actually asked. Ranking it below the cutout would mean the fighter
+ * approving an image and then not seeing it, which is worse than any of the
+ * treatments looking better than another.
+ *
+ * It cannot displace a real photograph by accident, because it is null until an
+ * approval writes it and it is cleared whenever the photograph it was made from
+ * is replaced — the same rule the cutout is held to. Generated art is never what
+ * a fighter gets for sending a picture and saying nothing.
+ */
+export function portraitOf(fighter: Pick<Fighter, "cutout" | "photo" | "stylised">): Portrait {
+  if (fighter.stylised) return { kind: "stylised", src: fighter.stylised };
   if (fighter.cutout) return { kind: "cutout", src: fighter.cutout };
   if (fighter.photo) return { kind: "photo", src: fighter.photo };
   return { kind: "plate" };
@@ -46,6 +68,9 @@ export function portraitOf(fighter: Pick<Fighter, "cutout" | "photo">): Portrait
 export const PARALLAX_TRAVEL: Record<Portrait["kind"], number> = {
   cutout: 1,
   photo: 0.34,
+  // Poster art comes back as a rectangle with a background of its own, so it is
+  // a plane in the frame exactly as a photograph is and travels the same way.
+  stylised: 0.34,
   plate: 1,
 };
 
@@ -69,6 +94,48 @@ export function cutoutSurvives(
   nextPhoto: string | null | undefined,
 ): boolean {
   return (previousPhoto ?? null) === (nextPhoto ?? null);
+}
+
+/**
+ * The bucket key behind a stored portrait path, or null for anything else.
+ *
+ * Only `/media/...` is ours to delete. The seeded card's photographs are static
+ * assets committed under public/, and an absolute URL or a blob: from a preview
+ * is not an object at all, so both come back null and nothing is deleted for
+ * them. The same character rule as parseMediaKey, so a path this accepts is a
+ * path that route would have served.
+ */
+export function mediaKeyOf(path: string | null | undefined): string | null {
+  if (!path || !path.startsWith("/media/")) return null;
+  const key = path.slice("/media/".length);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(key) || key.includes("..")) return null;
+  return key;
+}
+
+/** Where a stylised portrait lives. Its own prefix, so /media can have a rule for it. */
+export const STYLISED_PREFIX = "portraits";
+
+/** The key for one, with the random suffix that stops a replacement being cached. */
+export function stylisedKey(fighterId: string, suffix: string, extension: string): string {
+  return `${STYLISED_PREFIX}/${fighterId}-${suffix}.${extension}`;
+}
+
+/**
+ * Whether a path names a stylised portrait of this fighter.
+ *
+ * The approve action takes the path back from the browser, so it has to be
+ * checked rather than believed: without this, a fighter holding one invite could
+ * approve any object in the prefix onto their own card, including one drawn from
+ * somebody else's photograph. Fighter ids are hyphenated, so the id is matched
+ * as a prefix and the remainder has to be the suffix and extension this file
+ * writes rather than anything else containing a hyphen.
+ */
+export function stylisedBelongsTo(path: string, fighterId: string): boolean {
+  const key = mediaKeyOf(path);
+  if (!key || !key.startsWith(`${STYLISED_PREFIX}/`)) return false;
+  const name = key.slice(STYLISED_PREFIX.length + 1);
+  if (!name.startsWith(`${fighterId}-`)) return false;
+  return /^[A-Za-z0-9]{4,32}\.[a-z]{3,4}$/.test(name.slice(fighterId.length + 1));
 }
 
 /**

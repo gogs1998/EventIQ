@@ -26,6 +26,11 @@ RENDER_KEY=local-development-only-not-a-real-render-key
 # its argument without a live card. In deployment it is a var in wrangler.jsonc
 # rather than a secret, because it names something public.
 SHOWCASE_SLUG=cage-county-12
+# Whether the opt-in stylised portrait is offered. Off unless this says on, true,
+# yes or 1, because it sends a fighter's photograph to Workers AI and that is a
+# decision rather than a default. It does nothing under `next dev` either way:
+# there is no AI binding there, and the action says so rather than failing.
+STYLISED_PORTRAITS=off
 
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.

@@ -68,6 +68,13 @@ const SHOTS = [
       // An empty card is honest but it is not the thing being sold, so the
       // fields that change the picture get filled in. Nothing is saved: /f/demo
       // runs the form with no write path behind it.
+      //
+      // The fields are behind the consent notice now, and the preview shows a
+      // promoter exactly what their fighters get, so the capture passes the same
+      // gate rather than being handed a way around it.
+      await type(page, "#consent-age", "24");
+      await page.evaluate(() => document.querySelector("#consent")?.click());
+      await sleep(600);
       await type(page, 'input[placeholder="The Welsh Dragon"]', "The Welsh Dragon");
       await sleep(400);
       await type(page, 'input[placeholder="Wrexham"]', "Wrexham");
