@@ -1,0 +1,47 @@
+# Copy to .dev.vars for local development. Never commit the copy.
+#
+# SESSION_SECRET signs the promoter's login cookie. Any long random string will
+# do locally; generate a real one for deployment with:
+#   openssl rand -base64 48
+SESSION_SECRET=local-development-only-not-a-real-secret
+
+# RENDER_KEY is what the mp4 renderer presents to reach /render/[slug]/[bout],
+# which has to serve a card before it is published and so cannot go behind the
+# publish check. Without it that page refuses everybody who is not the signed-in
+# promoter who owns the show, and `npm run render` stops working. Both the dev
+# server and scripts/render-tape.mjs read it from this file.
+#
+# This one secret reads every promoter's cards, published or not, which is why
+# keys now live in the render_keys table instead — `npm run render-key -- mint`.
+# The renderer still presents whatever is in RENDER_KEY here, so a minted key
+# goes in this same line; the secret below is the migration path and goes once
+# every runner holds a minted one. See DEPLOY.md.
+RENDER_KEY=local-development-only-not-a-real-render-key
+
+# SHOWCASE_SLUG names the one published show the shop window runs on: the pitch
+# page, the sitemap, /f/demo and the bare /qr redirect. It was whichever show had
+# the furthest-out date, which with a second promoter on the instance swings
+# EventIQ's own front page onto their card the moment their date is the later
+# one. Unset, or naming a show that is not published, means the pitch page makes
+# its argument without a live card. In deployment it is a var in wrangler.jsonc
+# rather than a secret, because it names something public.
+SHOWCASE_SLUG=cage-county-12
+# Whether the opt-in stylised portrait is offered. Off unless this says on, true,
+# yes or 1, because it sends a fighter's photograph to Workers AI and that is a
+# decision rather than a default. It does nothing under `next dev` either way:
+# there is no AI binding there, and the action says so rather than failing.
+STYLISED_PORTRAITS=off
+# INVITE_KEY signs the digest an invite is found by and encrypts the token the
+# dashboard shows back. Leave it out locally and SESSION_SECRET stands in; a
+# deployed Worker without it refuses to serve an invite rather than falling back
+# to something guessable. Rotating it makes every link already sent out stop
+# working, so it goes in the password manager beside the other two.
+#   openssl rand -base64 48
+INVITE_KEY=local-development-only-not-a-real-invite-key
+
+# The password the seed script sets on the seeded promoter. Change it before
+# seeding anything that is reachable from the internet.
+SEED_PROMOTER_PASSWORD=letmein
+
+# Loads .env files as development rather than production.
+NEXTJS_ENV=development

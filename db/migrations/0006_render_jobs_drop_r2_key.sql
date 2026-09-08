@@ -1,0 +1,1 @@
+ALTER TABLE `render_jobs` DROP COLUMN `r2_key`;

@@ -1,0 +1,357 @@
+import { describe, expect, it } from "vitest";
+import { event, fighters, sponsors } from "@/data/event";
+import type { Card } from "@/lib/card";
+import { GYM_TO_CONFIRM } from "@/lib/copy";
+import {
+  DONE_AT,
+  boutReadiness,
+  chaseList,
+  daysUntilShow,
+  eventProgress,
+  inviteStatus,
+  linkState,
+  nudgeMessage,
+  sentNote,
+  sponsorInventory,
+  type Invites,
+} from "@/lib/promoter";
+import { seedInviteFor } from "@/lib/seed";
+import type { Invite } from "@/lib/types";
+
+/**
+ * The fixture is the seed, so testing the derivations against it is testing them
+ * against what really goes into the database. Loading from D1 is covered
+ * separately; what matters here is the logic on top.
+ */
+const card: Card = { event, fighters, sponsors };
+
+const NOW = Date.UTC(2026, 9, 31);
+
+const invites: Invites = Object.fromEntries(
+  Object.values(fighters).map((fighter): [string, Invite] => {
+    const seeded = seedInviteFor(fighter, NOW);
+    return [
+      fighter.id,
+      {
+        fighterId: fighter.id,
+        token: `token-${fighter.id}`,
+        sentAt: seeded.sentAt,
+        lastOpenedAt: seeded.lastOpenedAt,
+        submittedAt: seeded.submittedAt,
+      },
+    ];
+  }),
+);
+
+describe("daysUntilShow", () => {
+  it("counts from the real clock rather than a pinned date", () => {
+    expect(daysUntilShow(event.date, new Date("2026-10-31T09:00:00Z"))).toBe(14);
+    expect(daysUntilShow(event.date, new Date("2026-11-14T23:00:00Z"))).toBe(0);
+  });
+});
+
+describe("inviteStatus", () => {
+  it("reads the timestamps rather than guessing from the profile", () => {
+    expect(inviteStatus(undefined)).toBe("not-sent");
+    expect(inviteStatus({ fighterId: "f", token: "t" })).toBe("not-sent");
+    expect(inviteStatus({ fighterId: "f", token: "t", sentAt: 1 })).toBe("sent");
+    expect(inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2 })).toBe("opened");
+    expect(
+      inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2, submittedAt: 3 }),
+    ).toBe("submitted");
+  });
+
+  it("does not call a fighter finished just because they looked", () => {
+    expect(inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2 })).not.toBe(
+      "submitted",
+    );
+  });
+});
+
+describe("seedInviteFor", () => {
+  it("does not read a promoter-supplied record as the fighter opening the link", () => {
+    // Dominic Rees has a record and nothing else. That came off the entry form.
+    const seeded = seedInviteFor(fighters["dominic-rees"], NOW);
+    expect(seeded.status).toBe("sent");
+    expect(seeded.lastOpenedAt).toBeUndefined();
+  });
+
+  it("reads a field only the fighter could have given as them opening it", () => {
+    // Haider Ali's Instagram handle is not on anybody's entry form.
+    expect(seedInviteFor(fighters["haider-ali"], NOW).status).toBe("opened");
+  });
+
+  it("marks a finished profile submitted", () => {
+    expect(seedInviteFor(fighters["callum-reeves"], NOW).status).toBe("submitted");
+  });
+
+  it("keeps the promoter's own overrides", () => {
+    expect(seedInviteFor(fighters["sam-whitlock"], NOW).status).toBe("not-sent");
+    expect(seedInviteFor(fighters["chloe-baines"], NOW).status).toBe("opened");
+  });
+
+  it("leaves most of an untouched undercard unopened, or the list means nothing", () => {
+    const statuses = chaseList(card, invites).map((row) => row.status);
+    expect(statuses.filter((s) => s === "sent").length).toBeGreaterThan(
+      statuses.filter((s) => s === "opened").length,
+    );
+  });
+});
+
+describe("chaseList", () => {
+  const rows = chaseList(card, invites);
+
+  it("only lists fighters who are not finished", () => {
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.score < DONE_AT)).toBe(true);
+  });
+
+  it("leads with the top of the card, because a hole there costs most", () => {
+    const numbers = rows.map((row) => row.bout.number);
+    expect(numbers).toEqual([...numbers].sort((a, b) => b - a));
+  });
+
+  it("gives every row the opponent, so the promoter can see the mismatch", () => {
+    for (const row of rows) {
+      expect(row.opponent.id).not.toBe(row.fighter.id);
+    }
+  });
+});
+
+describe("eventProgress", () => {
+  it("counts both corners of every bout", () => {
+    expect(eventProgress(card, invites).total).toBe(30);
+  });
+
+  it("reports a partly finished card rather than a finished one", () => {
+    const { percent, done, total } = eventProgress(card, invites);
+    expect(done).toBeGreaterThan(0);
+    expect(done).toBeLessThan(total);
+    expect(percent).toBeGreaterThan(0);
+    expect(percent).toBeLessThan(100);
+  });
+});
+
+describe("boutReadiness", () => {
+  const bouts = boutReadiness(card, invites);
+
+  it("covers every bout, main event first", () => {
+    expect(bouts).toHaveLength(15);
+    expect(bouts[0].bout.number).toBe(15);
+  });
+
+  it("flags the bout where only one fighter answered", () => {
+    // Bout 11 is Farrukh, who filled it in, against Baines, who sent nothing.
+    expect(bouts.find((b) => b.bout.number === 11)?.state).toBe("lopsided");
+  });
+
+  it("marks the main event ready", () => {
+    expect(bouts.find((b) => b.bout.number === 15)?.state).toBe("ready");
+  });
+
+  it("marks an untouched opener empty", () => {
+    expect(bouts.find((b) => b.bout.number === 1)?.state).toBe("empty");
+  });
+});
+
+describe("sponsorInventory", () => {
+  it("splits sold from unsold bout slots", () => {
+    const { sold, unsold } = sponsorInventory(card);
+    expect(sold.length + unsold.length).toBe(15);
+    expect(sold.length).toBeGreaterThan(0);
+    expect(unsold.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A withdrawal is not a hole in the card.
+ *
+ * The dashboard exists to say who is still to send their details in, and two
+ * fighters who are no longer fighting have nothing left to send. Counted, they
+ * would sit at the top of the chase list — the list leads on the highest bout
+ * number — and the show would read as less ready the more honest the promoter
+ * had been about it.
+ */
+describe("a bout that is off", () => {
+  const withdrawn = event.bouts.find((bout) => bout.number === 11)!;
+
+  const off: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: event.bouts.map((bout) =>
+        bout.number === 11 ? { ...bout, cancelled: true, cancelledNote: "Withdrew" } : bout,
+      ),
+    },
+  };
+
+  it("takes both corners off the chase list", () => {
+    const chased = chaseList(off, invites).map((row) => row.fighter.id);
+    expect(chaseList(card, invites).map((row) => row.fighter.id)).toContain(withdrawn.blueId);
+    expect(chased).not.toContain(withdrawn.redId);
+    expect(chased).not.toContain(withdrawn.blueId);
+  });
+
+  it("is not one of the bouts that could be ready", () => {
+    const bouts = boutReadiness(off, invites);
+    expect(bouts).toHaveLength(14);
+    expect(bouts.map(({ bout }) => bout.number)).not.toContain(11);
+  });
+
+  it("does not drag the card's progress down with it", () => {
+    expect(eventProgress(off, invites).total).toBe(eventProgress(card, invites).total - 2);
+  });
+
+  /** The placement was sold and it is still on the programme, so it still counts. */
+  it("keeps its sponsor slot in the inventory", () => {
+    const { sold, unsold } = sponsorInventory(off);
+    expect(sold.length + unsold.length).toBe(15);
+  });
+});
+
+describe("a bout missing a corner", () => {
+  const dangling: Card = {
+    ...card,
+    event: {
+      ...event,
+      bouts: [...event.bouts, { ...event.bouts[0], number: 16, redId: "nobody-at-all" }],
+    },
+  };
+
+  it("leaves a gap in the chase list rather than taking the dashboard down", () => {
+    expect(chaseList(dangling, invites)).toEqual(chaseList(card, invites));
+    expect(eventProgress(dangling, invites)).toEqual(eventProgress(card, invites));
+    expect(boutReadiness(dangling, invites).length).toBe(event.bouts.length);
+  });
+});
+
+describe("nudgeMessage", () => {
+  const rows = chaseList(card, invites);
+
+  it("names the opponent and links to that fighter's own invite", () => {
+    const row = rows[0];
+    const message = nudgeMessage(row, event, "https://eventiq.win");
+    expect(message).toContain(row.opponent.name);
+    expect(message).toContain(`https://eventiq.win/f/${row.invite!.token}`);
+  });
+
+  it("only claims the opponent has sent theirs when that is true", () => {
+    for (const row of rows) {
+      const message = nudgeMessage(row, event, "https://eventiq.win");
+      if (row.behind.length < 2) {
+        expect(message).not.toContain("has already sent");
+      }
+    }
+  });
+
+  it("never guesses at the opponent's gender", () => {
+    for (const row of rows) {
+      expect(nudgeMessage(row, event, "https://eventiq.win")).not.toMatch(/\b(his|her|he|she)\b/i);
+    }
+  });
+
+  it("uses the competitive line where the opponent really is ahead", () => {
+    const ahead = rows.find((row) => row.behind.length >= 2);
+    expect(ahead).toBeDefined();
+    expect(nudgeMessage(ahead!, event, "https://x")).toContain("has already sent");
+  });
+
+  /**
+   * The competitive fact is what gets the form filled in, so it stays. What is
+   * not allowed is framing it as a telling-off: the fighter is offered a place
+   * alongside their opponent, not handed a list of what they have failed to do.
+   */
+  it("invites the fighter on rather than listing what they have not done", () => {
+    for (const row of rows) {
+      expect(nudgeMessage(row, event, "https://eventiq.win")).not.toMatch(
+        /you haven'?t|hasn'?t|you have not|failed|still light/i,
+      );
+    }
+  });
+
+  /**
+   * The gym a promoter has not filled in yet is a placeholder, and a message
+   * reading "against Chloe Baines out of Gym to confirm" says the promoter has
+   * not finished rather than saying anything about the bout.
+   */
+  it("names the opponent's gym only when there is one", () => {
+    const row = rows[0];
+    const placeheld = { ...row, opponent: { ...row.opponent, gym: GYM_TO_CONFIRM } };
+    const message = nudgeMessage(placeheld, event, "https://eventiq.win");
+
+    expect(message).not.toContain(GYM_TO_CONFIRM);
+    expect(message).toContain(placeheld.opponent.name);
+    expect(message).not.toContain("out of");
+  });
+
+  it("promises no time to complete, because that is not ours to promise", () => {
+    for (const row of rows) {
+      expect(nudgeMessage(row, event, "https://eventiq.win")).not.toMatch(
+        /\b(seconds?|minutes?|hours?)\b/i,
+      );
+    }
+  });
+});
+
+/**
+ * What the chase list reads, and the two things bug 9 says it must not do:
+ * report anything that was not observed, and lose the distinction between a link
+ * that never went out and one that went out and was ignored.
+ */
+describe("sentNote", () => {
+  const now = Date.UTC(2026, 9, 31);
+  const day = 86_400_000;
+  const base: Invite = { fighterId: "x" };
+
+  it("says nothing about a link that has not gone out", () => {
+    expect(sentNote(base, now)).toBeUndefined();
+    expect(sentNote(undefined, now)).toBeUndefined();
+  });
+
+  it("says when, in the words a promoter would use", () => {
+    expect(sentNote({ ...base, sentAt: now }, now)).toBe("Sent today");
+    expect(sentNote({ ...base, sentAt: now - day }, now)).toBe("Sent yesterday");
+    expect(sentNote({ ...base, sentAt: now - 4 * day }, now)).toBe("Sent 4 days ago");
+  });
+
+  it("says how, where the promoter's own control recorded it", () => {
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "whatsapp" }, now)).toBe(
+      "Sent today on WhatsApp",
+    );
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "sms" }, now)).toBe("Sent today by text");
+  });
+
+  /**
+   * A copied link goes somewhere we cannot see. Naming a channel for it would be
+   * the dashboard reporting something nobody observed, which is bug 9 again.
+   */
+  it("does not invent a channel for a link that was only copied", () => {
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "copied" }, now)).toBe("Sent today");
+  });
+
+  it("never guesses at anybody's gender", () => {
+    for (const channel of ["whatsapp", "sms", "copied"] as const) {
+      expect(sentNote({ ...base, sentAt: now, sentChannel: channel }, now)).not.toMatch(
+        /(his|her|he|she)/i,
+      );
+    }
+  });
+});
+
+describe("linkState", () => {
+  const now = Date.UTC(2026, 9, 31);
+  const base: Invite = { fighterId: "x" };
+
+  it("is live until it lapses", () => {
+    expect(linkState({ ...base, expiresAt: now + 1 }, now)).toBe("live");
+    expect(linkState({ ...base, expiresAt: now - 1 }, now)).toBe("expired");
+  });
+
+  it("reports a withdrawal as a withdrawal, whatever the expiry says", () => {
+    expect(linkState({ ...base, expiresAt: now + 1, revokedAt: now - 1 }, now)).toBe("revoked");
+  });
+
+  it("treats a row from before expiry existed as live", () => {
+    expect(linkState(base, now)).toBe("live");
+  });
+});

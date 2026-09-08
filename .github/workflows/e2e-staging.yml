@@ -1,0 +1,112 @@
+# Walks the whole product through a real browser against the staging Worker.
+#
+# **This must never be pointed at production, and there is no input that lets
+# it be.** The suite writes as it goes — it adds a bout and removes it, fills in
+# a fighter's profile, uploads a photograph and leaves it in the bucket — so
+# running it against eventiq.win edits the card the pitch depends on and the
+# card a promoter is using. The URL comes from a repository secret rather than
+# from a box somebody types in, the job refuses a URL that looks like
+# production, and it asks `/api/health` which environment answered before it
+# opens a browser. Three checks for one mistake, because the mistake is
+# expensive and the checks are free.
+#
+# It is workflow_dispatch only. Running it on every push would mean a browser
+# and a live database on every commit, and the branch under test is not
+# necessarily what is deployed to staging — deploying is
+# `node scripts/deploy.mjs --env staging`, which is a decision somebody takes.
+name: End-to-end (staging)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reseed:
+        description: Put the demo card back afterwards (the suite writes as it goes)
+        type: boolean
+        default: true
+
+# One at a time. Two runs against one database would each be undoing the
+# other's bout while asserting on the count.
+concurrency:
+  group: e2e-staging
+  cancel-in-progress: false
+
+jobs:
+  walk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE: ${{ secrets.STAGING_URL }}
+      SEED_PROMOTER_PASSWORD: ${{ secrets.STAGING_PROMOTER_PASSWORD }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Refuse anything that is not staging
+        run: |
+          if [ -z "$BASE" ] || [ -z "$SEED_PROMOTER_PASSWORD" ]; then
+            echo "STAGING_URL and STAGING_PROMOTER_PASSWORD have to be set. See DEPLOY.md." >&2
+            exit 1
+          fi
+          case "$BASE" in
+            https://eventiq.win*|https://www.eventiq.win*)
+              echo "That is production. This suite writes; it does not go there." >&2
+              exit 1
+              ;;
+          esac
+          # The Worker's own answer, not the URL's shape: a staging hostname
+          # pointed at the production Worker would pass every check above.
+          environment="$(curl -fsS "$BASE/api/health" | node -e '
+            let s = "";
+            process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              process.stdout.write(String(JSON.parse(s).env ?? ""));
+            })')"
+          if [ "$environment" != "staging" ]; then
+            echo "$BASE/api/health says it is \"$environment\", not staging. Refusing." >&2
+            exit 1
+          fi
+          echo "$BASE is the staging Worker."
+
+      # The runner image carries both, and neither is promised by anything we
+      # control. The suite makes its test photograph with ffmpeg.
+      - name: Find Chrome and ffmpeg
+        run: |
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -z "$chrome" ]; then
+            echo "No Chrome on this runner image." >&2
+            exit 1
+          fi
+          echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"
+          command -v ffmpeg >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          }
+
+      - name: Walk the product
+        run: npm run e2e -- --base "$BASE" --password "$SEED_PROMOTER_PASSWORD" --shots /tmp/e2e
+
+      # The screenshots are the only readable record of a failure, so they are
+      # kept whether or not the run passed.
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-staging-screenshots
+          path: /tmp/e2e
+          if-no-files-found: ignore
+
+      # The suite finishes with a fighter submitted and photographed, and the
+      # demo card is only worth looking at while it is uneven. This does not
+      # clear the bucket — see DEPLOY.md for the object it leaves behind.
+      - name: Put the demo card back
+        if: always() && inputs.reseed
+        run: |
+          npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production

@@ -1,0 +1,106 @@
+import type { Ai, R2Bucket } from "@cloudflare/workers-types";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
+import * as schema from "@/db/schema";
+import { inviteSecretFrom } from "@/lib/invite-token";
+
+/**
+ * Access to the bindings.
+ *
+ * The async form of getCloudflareContext is used everywhere rather than the
+ * synchronous one, because the synchronous form is only valid inside a request
+ * and this code also runs while Next.js is prerendering. Getting that wrong
+ * fails at build time on a page that works perfectly in development, which is a
+ * miserable thing to debug.
+ *
+ * Drizzle rather than Prisma. Prisma's D1 driver adapter works, but it still
+ * ships a query engine into the bundle, and on Workers the thing that hurts is
+ * bundle size and cold start rather than developer ergonomics. Drizzle compiles
+ * to plain SQL with no runtime engine at all, and this schema is small enough
+ * that Prisma's modelling advantages never come into play.
+ */
+
+export type Db = DrizzleD1Database<typeof schema>;
+
+export async function getDb(): Promise<Db> {
+  const { env } = await getCloudflareContext({ async: true });
+  return drizzle(env.DB, { schema });
+}
+
+export async function getMedia(): Promise<R2Bucket> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.MEDIA;
+}
+
+/**
+ * Workers AI, or undefined where there is none.
+ *
+ * Undefined rather than a throw, because `next dev` has no AI binding and the
+ * whole local questionnaire would otherwise be a page that breaks on a feature
+ * nobody switched on. The caller says "not available here" and the fighter keeps
+ * the photograph they sent.
+ */
+export async function getAi(): Promise<Ai | undefined> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.AI;
+}
+
+/** Every secret the Worker reads. Set with `wrangler secret put`. See DEPLOY.md. */
+export type SecretName = "SESSION_SECRET" | "RENDER_KEY" | "INVITE_KEY";
+
+/**
+ * Every plain variable the Worker reads. In `vars` in wrangler.jsonc and in
+ * .dev.vars locally, rather than in `wrangler secret put`, because a variable
+ * names something public — which show the shop window is pointed at — and
+ * putting it in the config is what makes a deploy able to change it.
+ */
+export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS";
+
+/** Undefined where the secret is not set. Never an empty string. */
+export async function readSecret(name: SecretName): Promise<string | undefined> {
+  return readEnv(name);
+}
+
+/** Undefined where the variable is not set. Never an empty string. */
+export async function readVar(name: VarName): Promise<string | undefined> {
+  return readEnv(name);
+}
+
+async function readEnv(name: string): Promise<string | undefined> {
+  const { env } = await getCloudflareContext({ async: true });
+  return (env as unknown as Record<string, string | undefined>)[name] || undefined;
+}
+
+/**
+ * Secrets, read through one place so a missing one fails loudly at the point of
+ * use rather than silently disabling a check. An unset session secret must never
+ * fall back to a default, because a known signing key is the same as no login.
+ *
+ * Use this where absence should be an error. Where absence should be a refusal —
+ * the render key, which gates a route that answers 404 to anyone without it —
+ * use `readSecret` and let the comparison fail.
+ */
+export async function requireSecret(name: SecretName): Promise<string> {
+  const value = await readSecret(name);
+  if (!value) throw new Error(`${name} is not set. See DEPLOY.md.`);
+  return value;
+}
+
+/**
+ * The secret invite tokens are sealed under.
+ *
+ * The rule about which one it is, and about production refusing to invent one,
+ * is `inviteSecretFrom` in lib/invite-token.ts. It lives there because it is
+ * worth a test and this file is not testable; it is called from here because
+ * this is the only file that reads bindings.
+ */
+export async function inviteSecret(): Promise<string> {
+  const [inviteKey, sessionSecret] = await Promise.all([
+    readSecret("INVITE_KEY"),
+    readSecret("SESSION_SECRET"),
+  ]);
+  return inviteSecretFrom(
+    { INVITE_KEY: inviteKey, SESSION_SECRET: sessionSecret },
+    process.env.NODE_ENV !== "production",
+  );
+}

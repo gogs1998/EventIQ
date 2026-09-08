@@ -1,0 +1,1205 @@
+# EventIQ — handover
+
+Written so this can be picked up in a fresh session with no prior context. Covers what exists, why it is the way it is, what was tried and rejected, what is still open, and what to do next.
+
+Companion to the [README](README.md), which covers how to run things, and to [CLAUDE.md](CLAUDE.md), which is the short version for somebody about to change something: the rules that are load-bearing, the traps in the environment, the copy and tone the originator asked for, and how the conversation that produced this went. This document covers *why*, at length.
+
+---
+
+## 1. The idea, in the originator's words
+
+> I go to amateur MMA events and it's great, but paper programmes on the table with the fighter's name, gym and weight class. My idea is a digital programme for each event — spectators scan a QR code, taken to a web page with a full digital programme. People want a reason to root for someone, so we send out questionnaires to all fighters: bio, stats, record, photo etc. They fill it in and we create a tale of the tape for every fight, expandable in the app. We can add their sponsors and Instagram too so they are motivated to fill it in. Also the promoters get a pro looking [programme] and can feature their sponsors.
+
+Two refinements came later in the same conversation and both changed the build materially:
+
+- **"I like the idea of video generation of the still photos for the TOTT like UFC."** This became the centrepiece, not a garnish.
+- **"It's just an idea, but we need it to look spectacular to sell it to promoters."** This reframed the first version from *system* to *pitch artifact*. Operational completeness was traded away for visual impact, deliberately and repeatedly.
+
+A third input was a **photograph of a real programme** from an actual event (BUDO 79, Grangemouth Town Hall). It is not in the repo, but what it taught us is in section 5. It is the single most valuable piece of input received and it is worth getting more like it.
+
+Then, when the pitch demo was shown back:
+
+> you are the fucking developer, make it real, i didnt ask you for a fancy demo, i asked you to build it
+
+That is what section 2 onwards now describes. The demo was a facade with five holes in it, all of which are now filled.
+
+---
+
+## 2. Current state
+
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 564 unit tests and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+
+It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
+
+An independent audit after that found three more, all fixed: **the capture page the video renderer screenshots was serving unpublished shows to anybody who could guess a slug** (bug 27, section 6c — it is the one that mattered), the copy around an empty card still read as a fault even after the crash behind it was fixed (bug 28), and the local dev server had started redirecting every one of its own requests to a port with no https on it (bug 29).
+
+**The photograph a fighter uploads now reaches their video**, which until recently it did not: nothing generated a cutout on upload and the sequence showed the initialled plate to anyone without one, so the centrepiece only worked on artwork prepared by hand in advance. The renderer makes the cutouts, and the sequence falls back to the photograph itself in the meantime. Section 4, and bugs 30 and 31.
+
+**It is a working application, not a demo of one.** The five things that were faked are real:
+
+| Was | Is now |
+| --- | --- |
+| No database — a fixture at `data/event.ts` | D1, with migrations. The fixture is the seed |
+| The questionnaire saved nothing | Autosaves to D1, photographs to R2, resumable |
+| `/promoter` was public | Password login, signed cookie, per-promoter ownership checks |
+| Record import returned hardcoded data | Fetches and parses a real Sherdog page, cached in D1 |
+| "Last show" figures were invented | Counted in D1, or shown as zero. The invented ones are deleted |
+
+**Still not real, and honestly labelled:** video rendering runs outside Cloudflare (section 11), there is no email or SMS so invites are copied and pasted by the promoter, there is no self-service promoter signup, and the demo card's fighters and sponsors are invented apart from the three real brands in section 7.
+
+**It is live at https://eventiq.win**, on Workers, with D1 and R2 behind it. The whole product has been walked end to end against production, not just against local bindings: signing in, adding and removing a bout, opening a real invite link, autosaving, uploading a photograph to R2, submitting, and watching the counts move on the dashboard. See section 12 and [DEPLOY.md](DEPLOY.md).
+
+### Routes
+
+| Route | What it is | Auth |
+| --- | --- | --- |
+| `/` | Pitch page and shop window: the recorded walkthrough, the main event video, a screenshot gallery | public |
+| `/e/[slug]` | The programme. Flagship screen | public if published |
+| `/e/[slug]/f/[fighter]` | Fighter profile, deep-linkable for an Instagram bio | public if published |
+| `/e/[slug]/qr` | Printable table card | public if published |
+| `/qr` | Redirects to the current show's table card | public |
+| `/f/[token]` | The fighter's questionnaire | the token is the credential |
+| `/f/demo` | The questionnaire as a walkthrough, saving nothing | public |
+| `/promoter` | Shows list, or straight to the dashboard if there is one | password |
+| `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
+| `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
+| `/promoter/login` | Sign in | public |
+| `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
+| `/media/[...key]` | Serves R2 objects | public |
+| `/api/track` | Records one interaction | public, write-only |
+| `/api/import-record` | Fetches and parses one record page | public |
+| `/about-the-importer` | What the importer bot does, linked from its user agent | public |
+
+---
+
+## 3. Stack and the reasoning behind each choice
+
+- **Next.js 16.3 App Router, TypeScript, Tailwind 4.** Single app at repo root.
+- **Cloudflare Workers via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare).** `@cloudflare/next-on-pages` is deprecated and Pages is the wrong product for an app with server actions and a database.
+- **D1** for data, **R2** for photographs and rendered video.
+- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is 267 lines of TypeScript that generates its own migrations.
+- **No auth dependency.** Web Crypto, which is in the Workers runtime, in Node and in the test environment, so the same code runs everywhere. Section 6.
+- **`devIndicators: false`** in [next.config.ts](next.config.ts). Not cosmetic — the video exporter screenshots the running dev server, and the Next.js dev badge was being burned into every frame.
+- **`images: { unoptimized: true }`** — all imagery is pre-optimised and the Workers image loader would be a cost for no gain.
+
+**`output: "export"` is gone.** It was load-bearing for the demo and it is exactly what made a backend impossible. That was the first thing removed.
+
+Fonts are Anton (display), Oswald (body), Roboto Mono (labels), loaded via `next/font`. Design tokens are in [app/globals.css](app/globals.css) under `@theme`.
+
+**Design direction: broadcast graphics, not a website.** Near-black ground, hard red-corner/blue-corner colour coding, condensed uppercase display type, tabular numerals (so stat counters do not reflow while ticking), film grain overlay. Full sentences are set in Oswald, never in Anton — an early version set hook lines in the condensed display face and they were unreadable and collided.
+
+### The mark
+
+The logo is the red corner / blue corner split with a white play triangle straddling the seam, the same seam the two fighters square up across in the head-to-head. It was chosen because a tab strip contains no other icon that is half red and half blue, so the product's own colour coding is doing the identifying.
+
+It is hand-authored vector, 332 bytes, and every coordinate lives in `GEOMETRY` in [scripts/make-icons.mjs](scripts/make-icons.mjs), which emits both `app/icon.svg` and every raster from that one definition — so the maskable Android icon cannot drift away from what the favicon shows. Run `npm run icons` after changing it.
+
+Three things about it are load-bearing and easy to undo by accident:
+
+- **It is designed on a 16-unit grid and 16x16 is the binding size.** The triangle's base sits at x=6 and its tip at x=12, both whole numbers, so at 16px they land on whole pixels and stay sharp. Moving them to fractional coordinates blurs the mark in a tab and the damage is invisible at any larger size.
+- **The seam carries no line of its own.** A near-black seam disappears into a dark tab strip and a white one disappears into a light one; either way the icon reads as two detached blocks instead of one square. Red meeting blue directly is the only treatment that survives both.
+- **The red half is drawn half a unit past the seam and the blue half is painted over it.** Abutting shapes are antialiased independently, so without that hidden overlap the seam pixel gets two half-covered edges and comes out translucent at any size where the centre line does not fall on a whole pixel.
+
+The triangle's centroid, not its bounding box, is centred on the seam, which is why the shape looks balanced rather than parked on the red side.
+
+The sponsor-strip emblem at `public/sponsors/sponsor-mark-eventiq.webp` is **deliberately left alone**. It is one of ten monoline white marks that read as a set, and a solid two-tone block would have EventIQ shouting over the sponsors it sits beside, which is backwards for the one logo in that row that is not paying. The two share the play triangle, which is enough to relate them without asking one drawing to work both at 320px in a strip and at 16px in a tab.
+
+---
+
+## 4. The tale of the tape — the important part
+
+This is the centrepiece and the bit most likely to be broken by a careless change.
+
+### The sequence
+
+16 seconds, 480 frames at 30fps, 1080x1920 vertical. Scene boundaries live in [components/sequence/timeline.ts](components/sequence/timeline.ts):
+
+| Scene | Frames | Content |
+| --- | --- | --- |
+| `billing` | 0–70 | Promoter mark, "MAIN EVENT", title, class line |
+| `red` | 62–178 | Red corner reveal: cutout, name slam, nickname, gym, record ticking |
+| `blue` | 170–286 | Same, mirrored |
+| `headToHead` | 278–410 | Both fighters across a centre seam, stat rows staggering in and counting up |
+| `close` | 402–480 | Hook lines, bout sponsor, event lockup |
+
+Scenes overlap by 8 frames to crossfade.
+
+### The two ideas that make it work
+
+**Depth from a flat photograph.** Every portrait is background-removed into a transparent cutout. In the sequence the cutout and the backdrop move at *different rates*, which reads as parallax rather than a photo sliding around. Plus a slow camera push, a light sweep and drifting embers. No AI video model, no per-clip cost, works for every fighter automatically.
+
+### How a photograph reaches a video
+
+Three states, in order of preference, decided by [lib/portrait.ts](lib/portrait.ts) and nowhere else:
+
+1. **Cutout.** Full parallax travel, drop shadow, no mask. What the curated demo card has.
+2. **The photograph itself.** A soft-edged mask on both axes, a vignette pulling the photograph's own background towards the ground colour of the composition, a slightly tighter crop, and about a third of the parallax travel — a rectangle moving at cutout speed is what gives it away. This is the ordinary state of a fighter between submitting their form and the next render.
+3. **An initialled plate.** Only for a fighter who has sent no photograph at all.
+
+The same order is used by the reveals, the head-to-head and the questionnaire's own preview, so a fighter sees in the preview what the video will show.
+
+**Background removal happens in the renderer and only in the renderer.** [scripts/cutouts.mjs](scripts/cutouts.mjs) runs before any bout is rendered, finds every fighter on the card with a photograph and no cutout, removes the background, puts the WebP in R2 and records the key in D1. It is not in any request path: the model is ONNX and about three and a half seconds of CPU per image, so in the upload it would hold a fighter's form open on a phone — and Workers cannot run it at all. It is idempotent (`--refresh-cutouts` to force), and a photograph it cannot handle leaves the cutout null, logs the reason and lets the video fall back to state 2. It never fails a render. It is also runnable alone as `npm run cutouts`.
+
+The upload path therefore stores a photograph and nothing else. `app/f/[token]/actions.ts` clears the cutout when the photograph changes, so a stale cutout of a previous picture cannot survive; the next render makes the new one. Both the photograph and the cutout are named in the `--stale` fingerprint, so a cutout appearing is enough to make a bout need re-rendering.
+
+**One composition, two outputs.** [components/sequence/TaleOfTheTape.tsx](components/sequence/TaleOfTheTape.tsx) is a **pure function of a frame number**. No CSS animations, no timers, no state. All motion is interpolated in JS from `frame` using [lib/anim.ts](lib/anim.ts). Even the embers are seeded from their index so they are identical on every render of a given frame.
+
+> **Do not add CSS animations, transitions or timers to this component.** Doing so silently breaks the mp4 exporter, because captured frames would no longer be deterministic and the video would stutter or judder rather than fail loudly.
+
+That constraint buys both playback modes:
+
+- **In the page:** `requestAnimationFrame` advances `frame`.
+- **As mp4:** [scripts/render-tape.mjs](scripts/render-tape.mjs) opens `/render/[slug]/[bout]` **once** in headless Chrome, then drives `window.__setFrame(n)` and screenshots the viewport 480 times, streaming JPEGs into ffmpeg.
+
+The component now takes a `card` prop as well as `frame`, because the data comes from the database rather than from a module-level import. That is a widening of its inputs, not a loosening of the rule: it is still a pure function of its props.
+
+### Why not Remotion
+
+Remotion does exactly this and does it better. It was rejected on licensing, not technical grounds. It is free for individuals and organisations of up to three people; beyond that, **both** an automated render pipeline **and** embedding its Player fall under "Remotion for Automators" at $0.01 per render with a $100/month minimum. That is an affordable cost but a poor dependency to place directly on the core feature of a product with no customers yet. With ffmpeg and Chrome already present the capture loop is about 150 lines.
+
+Because the composition is frame-driven either way, **adopting Remotion later swaps the render harness rather than requiring a rewrite.**
+
+---
+
+## 5. What the real programme photo taught us
+
+A photo of an actual amateur card (BUDO 79) changed the data model partway through. Worth internalising, because it means the mental model of "an MMA show" was wrong:
+
+- **These are mixed cards.** C-class Muay Thai, semi-pro boxing and amateur MMA on the same bill. So `discipline` and `classLabel` are **per bout**, not properties of the event. Weights are in **kg**, and promoters use round catchweights (57, 61, 66, 70, 77, 84) rather than named divisions.
+- **They run to 15 bouts.** The photo was "page 2 of 2" starting at bout 10. An eight-bout demo was unrealistically short.
+- **Every individual bout carries its own sponsor.** Each small bout card on the paper programme had a sponsor logo in its corner (JTM, Moore Equipment Hire, AP Nutrition). This is a revenue line promoters *already sell*, and it was missed entirely until the photo arrived. It is now the strongest commercial argument in the pitch: on paper a bout sponsor gets a logo the size of a stamp; here they get the bout and they close out its video.
+- **Structure and vocabulary:** "RUNNING ORDER" as the header, numbered bouts, `CO MAIN` and `MAIN EVENT` as full-width cards with the title on the line, sanctioning body in the header, "SHOW SPONSORS" strip at the foot. All mirrored in the app.
+- **It confirmed the premise exactly.** Name, gym, weight class. No records, no photos, no nicknames.
+
+**Action: get more of these photos.** Every one is likely to contain another detail like the per-bout sponsors.
+
+---
+
+## 6. The data layer
+
+### The schema
+
+[db/schema.ts](db/schema.ts) is the single description of the database; [db/migrations](db/migrations) is generated from it with `npm run db:generate` and applied with `npm run db:migrate`.
+
+| Table | Holds | Notes |
+| --- | --- | --- |
+| `promoters` | One operator | `password_hash` is a PBKDF2 verifier, never a password |
+| `events` | One show | `published` gates public visibility |
+| `bouts` | The running order | Unique on (event, number). Carries its own sponsor |
+| `fighters` | People | **Not** owned by an event. Section below |
+| `sponsors` | A promoter's book | Resolved for show, bout and fighter placements alike |
+| `event_sponsors`, `fighter_sponsors` | Placements | Ordered, because the order was sold |
+| `invites` | A fighter's way in | A digest and a ciphertext of the token, never the token; three timestamps and the consent on it. Sections 6a and 6g |
+| `render_jobs` | The interface to the renderer | Section 11 |
+| `analytics_events` | One row per interaction | Section 9 |
+| `import_cache` | Fetched record pages | Section 8 |
+
+Two decisions shape it more than anything else.
+
+**Almost every column describing a fighter is nullable.** On a real amateur card most of them are missing for most of the bill. That is the central design constraint of the product rather than an edge case, so the database is as relaxed about absence as the UI is. Nothing has a default that could be mistaken for an answer. A record is all three of win/loss/draw or none of them, because a partly stored record read back as `0-0-0` would put a veteran on screen as a debutant.
+
+**Fighters are their own table, not rows hanging off a bout.** The same person comes back for the promoter's next show and should get "confirm your details" rather than a blank form. That is the biggest retention hook in the idea and it only works if identity survives the event. It is also why the seed deletes fighters by explicit id rather than by promoter: if a seeded fighter is on somebody else's card the foreign key refuses, and a failed command is far better than a re-seed of the demo quietly rewriting a real fighter's profile.
+
+Timestamps are Unix milliseconds, because SQLite has no date type and a number avoids a class of string-comparison bug that is very hard to see. Dates that are calendar facts rather than instants — the day of the show — stay as ISO `YYYY-MM-DD` text, because that is what they are.
+
+### The seam between rows and pages
+
+[lib/db/queries.ts](lib/db/queries.ts) is the only file that knows what the tables look like, and it knows nothing about pages. It maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the demo used, which is what let the derivation layer keep every one of its tests.
+
+`loadCard()` fetches a whole show in **two `db.batch` round trips** regardless of how many bouts are on it. D1 charges per row read and a fifteen-bout card touches thirty fighters, so the difference between this and the obvious per-fighter loop is the difference between a page that is cheap and one that is not — and the difference between six statements and two batches is six waits from the edge to the database against two, which was most of what the promoter's dashboard was spending.
+
+It cannot be one batch. The first fetches the event and its running order together, by joining the bouts onto the same condition; everything in the second is keyed on the show's id or on the fighter ids that running order names, and neither is known until the first has answered.
+
+`loadCardById()` is the same card addressed by row id, for the callers that hold an event id and no slug. A card read twice through two code paths is two code paths that can come to disagree about what a bout is made of, which is what `loadBoutFingerprints()` used to be: a second reading of the same bouts, fighters and sponsors whose only job was to agree with the first. It is now that function plus `boutFingerprints(card)`, and the dashboard, which already has the card, calls the second one and asks for nothing.
+
+The result is a [`Card`](lib/card.ts): the event, every fighter on it, every sponsor the promoter has. Everything downstream is a pure function of that object. `lib/tape.ts` and `lib/promoter.ts` never see a database. The one thing on a `LoadedCard` that is not a `Card` and is not an id is `fighterUpdatedAt`, a map of row timestamps — nothing a page draws depends on it, and the render fingerprint does, so carrying it is what lets the staleness of every video be worked out without a second read.
+
+### The seed
+
+[lib/seed.ts](lib/seed.ts) turns `data/event.ts` into SQL. Cage County 12 survives as **seeded data** rather than as a hardcoded special case, because its unevenness is the argument for the product and reproducing that by hand in SQL would guarantee it drifts from the fixture the tests use.
+
+The SQL is generated at seed time and **never committed**. Invite tokens are the only thing standing between a stranger and a fighter's profile, so a file of known ones in a public repository would be a way of shipping a vulnerability that looks like a convenience. `db/seed.sql` is gitignored for the same reason.
+
+---
+
+## 6a. Authentication
+
+Three kinds of caller, and none of them justifies an identity provider. The
+promoter and the fighter are here; the third is the mp4 renderer, which is a
+machine holding one shared key, and it gets section 6c.
+
+**The promoter** signs in with a password. It is verified against a PBKDF2-SHA256 hash at **100,000 iterations**, and the session is a **signed cookie**, not a row: `{promoterId, version, expiresAt}` HMAC-SHA256'd with `SESSION_SECRET`, httpOnly, secure, `sameSite=lax`, fourteen days. Both the expiry and the version are inside the signature so the holder cannot edit either. Comparison is constant-time. Off localhost the cookie is named `__Host-eventiq_session`: the prefix is a rule the *browser* enforces, refusing to store one that is not secure, path `/` and domain-less, and refusing to let any other host on the zone — or plain http on our own — set one. The attributes already satisfied it, so the name was the only part missing.
+
+That iteration count is **imposed by the runtime, not chosen**, and it is below OWASP's floor of 600,000 because the deployed Workers runtime will not go above 100,000 — it throws `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`. Do not raise it back. The full account, including a measured table of what each environment enforces, is in [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it); the short version is that Node and the local `wrangler dev` both accept any count, so only the real edge or `wrangler dev --remote` can see the limit at all. Two consequences worth carrying in your head:
+
+- Verification reads the iteration count **out of the stored hash**, not out of the constant, so a wrong constant does not break an existing login. It breaks the *next* one that gets minted. This is precisely how the repository and production came to disagree without anyone noticing.
+- The unknown-promoter path derives against a decoy hash, which depends on nothing stored, so it fails on its own. It is now built from the same constant rather than written out separately, because writing it out is what let the two drift apart.
+
+**Revocation is one integer.** `promoters.session_version` is carried in the cookie and compared against the row on every request, so bumping the column ends every session that account has open. Changing a password bumps it, and so do `set-password` and `reset-link` in the operator script. This used to say there was deliberately no revocation at all, on the reasoning that with one operator it was ceremony and that rotating `SESSION_SECRET` handled the whole threat model in one command. That reasoning stopped holding the moment a second promoter existed: rotating the secret signs out *everybody*, including the promoter with a show on Saturday who has done nothing wrong. The stateless design is otherwise untouched — the row is read on every request anyway, so the check is free — and rotating the secret is still there as the blunt instrument.
+
+The cheapest way to see the whole of it: a promoter changes their password on their laptop, and the browser doing the changing is handed a cookie naming the new generation while every other one is a generation behind and fails on its next request. The phone in someone else's hand is signed out; the laptop in front of them is not.
+
+**Promoter accounts are created by an operator, not by signing up.** [scripts/promoter.mjs](scripts/promoter.mjs) — `npm run promoter -- create|set-password|reset-link|list`, `--local` by default and `--remote` for the live database — is the whole of onboarding, and [DEPLOY.md](DEPLOY.md) section 5a is how to run it. A promoter who has forgotten their password cannot start a reset themselves, because there is no email or SMS to send one through; an operator mints a link that lasts half an hour, works once, and is stored only as a digest. That is a deliberate trade for now rather than a missing feature, and the thing that would change it is email, not a form.
+
+[proxy.ts](proxy.ts) redirects cookieless requests to the login form. **That is not the authorisation check** and must never be mistaken for one: it runs before the database is reachable. The real check is `currentPromoter()` in every page and `requirePromoter()` in every action, and every promoter action re-reads the event and confirms the signed-in promoter owns it. A forged cookie gets past the proxy and fails there.
+
+The same file also sends plain http to https. That is there because the zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, and it is a stopgap rather than the fix: files under `public/` and `_next/` are served by the assets binding without the Worker running, so they stay reachable over plain http no matter what the middleware does. Because the redirect has to see every request, the matcher is now everything except `_next/`, and the promoter gate that used to *be* the matcher is a pattern inside the function covering the same paths.
+
+Asking for a show that belongs to somebody else returns the same 404 as asking for one that does not exist, so the promoter area cannot be used to find out who runs what.
+
+**The fighter** has no account at all. The token in their URL is the credential: 32 bytes from the CSPRNG, never derived from anything about the fighter, because a token built from a name and an event would be guessable by anybody holding the printed card. Every action re-reads the invite from the database rather than trusting a form field, and nothing takes a fighter id from the caller. A fighter holding a link can edit exactly one profile: theirs.
+
+This is a real trade-off and it should be stated plainly: anyone who gets hold of the link can edit that fighter's entry. It is the price of a form that gets filled in by people who will not create an account for a programme entry, and `New link` on the dashboard invalidates the old one.
+
+**The token is not stored, and it cannot be hashed either.** A copy of the database used to be a copy of every fighter's way in — a backup, an export, a `wrangler d1 execute` in the wrong terminal. The usual answer is a hash, and it is not available here: the dashboard has to be able to show a promoter the link on demand, which is the entire chase workflow. So the row keeps two derivations instead, both from `INVITE_KEY` and both in [lib/invite-token.ts](lib/invite-token.ts): an **HMAC digest**, unique and indexed, which is what every lookup matches on, and an **AES-GCM ciphertext**, which only the dashboard reads and only to put the link back on screen. The two keys come out of one secret through HKDF under different `info` strings, so neither is the secret and the lookup key cannot decrypt anything. Development falls back to `SESSION_SECRET`; production without `INVITE_KEY` refuses to serve an invite, because a default would be a deployment sealing every link under a value that is in this repository.
+
+Rotating that secret is the one irreversible thing in the deployment. It stops every link already sent out *and* leaves the dashboard unable to say what the old ones were. [DEPLOY.md](DEPLOY.md#4-set-the-secrets) says so beside the command.
+
+**Links lapse and can be pulled.** `expires_at` is ninety days, pushed back to ninety on every open, so a fighter halfway through the form is never shut out by the clock while an abandoned link still dies on its own. `revoked_at` is the promoter's "Revoke link", which answers a different question from "New link": one stops a link that has gone somewhere it should not have, the other replaces a link that went to the wrong number. An expired or revoked link answers exactly the same 404 as one nobody ever issued, because "that link has been cancelled" tells a stranger they have found a real fighter. The same rule gates `/media`, or a revoked token would go on opening the photographs it can no longer open the form for.
+
+**Sending is a deep link, not a send.** There is no SMS or email provider and adding one would be the wrong trade: a fighter answers a message from the promoter they know and ignores one from a service they have never heard of. So the dashboard hands the promoter's own WhatsApp or messages app the finished nudge with the link in it, and records which one was used — `sent_at` and `sent_channel`. That recording is the only reason the chase list can tell "never went out" from "went out and was ignored", and it is written from the control the promoter pressed rather than inferred, for the same reason as bug 9. A link that was only copied says when and stops there, because where it went afterwards is not something we can see.
+
+---
+
+## 6b. What gets uploaded, and what `/media` will serve
+
+**Validate the bytes, never the declaration.** This is the one lesson in this document most likely to be undone by somebody being helpful, so it gets its own section.
+
+The questionnaire's photo upload used to accept anything whose `file.type` began with `image/`, put it in R2 under that same client-supplied content type, and `/media/[...key]` handed it back verbatim. `image/svg+xml` satisfies every one of those steps. An SVG is a document, not a picture: it can carry `<script>`, and a browser fetching it from `https://eventiq.win/media/...` runs that script **at our own origin**, with our cookies in scope. Anyone holding an invite link — a bearer token that gets printed, forwarded and pasted into group chats — could have put one there.
+
+Three things about how that went wrong are worth carrying forward:
+
+- **The browser's re-encode was mistaken for a control.** The questionnaire downscales the photograph to 1000px and re-encodes it as JPEG before uploading, which is why the payload is small enough to send from a car park. It is not a check. `uploadPhoto` is a server action, so it is reachable directly, and the canvas is on the far side of the trust boundary. Anything a client does to a payload is a convenience for honest callers and nothing at all to a hostile one. The proof of this was written by patching `HTMLCanvasElement.prototype.toBlob` in a real browser — twenty lines, and the re-encode was gone.
+- **`file.type` is a claim the caller writes.** It is a string in a multipart header. It is not derived from the file.
+- **A content type is an instruction, not a label.** Storing one on an R2 object decides what the browser will *do* with the bytes later. Getting it from the caller means letting the caller choose how their upload is executed.
+
+So [lib/image-type.ts](lib/image-type.ts) reads the first few bytes and decides for itself: `FF D8 FF` is a JPEG, `89 50 4E 47 0D 0A 1A 0A` a PNG, `RIFF....WEBP` a WebP, and anything else is refused outright. The detected type is what gets stored, what names the file extension, and what `/media` sets — `file.type` is never read at all.
+
+There are two upload paths through this now, not one. The fighter's photograph is the first; **a sponsor's emblem, uploaded by the promoter from the card editor, is the second**, capped at a megabyte and sniffed by the same function. It was worth adding precisely because it is the case the rule above was written for: a second format-accepting endpoint, added later, by somebody who could reasonably have trusted the file picker's `accept` attribute.
+
+`/media/[...key]` is hardened as well, because the bucket already contained objects written under the old rule and a second line is cheap:
+
+- **Only the types we serve are served as themselves.** JPEG, PNG, WebP and mp4 go out with their own content type; anything else, including an SVG already in the bucket, comes out as `application/octet-stream`.
+- **`Content-Disposition`** is `inline` for those and `attachment` for everything else, so an unexpected object downloads rather than renders.
+- **`Content-Security-Policy: default-src 'none'; sandbox`** and **`X-Content-Type-Options: nosniff`** on every response. So even a document that reached the bucket and got past the disposition has no origin to act in and cannot fetch anything.
+
+Proved rather than reasoned about: an SVG carrying `alert(document.domain)` was pushed at the live server action twice, once declared `image/jpeg` and once declared `image/svg+xml`, and refused both times with nothing written to R2; a real photograph still uploads and comes back `image/jpeg`, `inline`; and an SVG planted directly in the bucket is served `application/octet-stream` as an attachment.
+
+All of that decided what an object would be served **as**. What it did not decide is whether it should be served at all, and for a while the answer was "to anybody who can name the key". That is 6d.
+
+---
+
+## 6c. The render key, and why the renderer could not use the publish check
+
+`/render/[slug]/[bout]` is the page headless Chrome screenshots 480 times. It has to serve a card **before** it is published, because a promoter renders the videos while they are still filling the card in — that is what rendering a card is for. So it could not go behind `loadVisibleCard`, and for a while that meant it went behind nothing.
+
+An audit probed an isolated unpublished show on production and got this, which is the whole argument in four lines:
+
+| Route | Then | Now |
+| --- | --- | --- |
+| `/e/probe-gate-2` | 404 | 404 |
+| `/e/probe-gate-2/qr` | 404 | 404 |
+| `/e/probe-gate-2/f/probe-red-fighter` | 404 | 404 |
+| `/render/probe-gate-2/1` | **200** — event name, venue, city, date, both fighters, gym | 404 |
+
+**The route was protected by being unlisted, and a slug is the promoter's own show name.** Anybody who knows a promoter has a show coming can type it. `robots.txt` disallows `/render/`, which keeps it out of a search index and is not a control.
+
+The fix is a credential of its own rather than the publish check. Either of two things gets in:
+
+- **`RENDER_KEY` in an `x-eventiq-render-key` header.** This is what the renderer holds. Set with `wrangler secret put`, compared by digesting both sides and comparing the digests, so the comparison neither returns early nor leaks a length.
+- **A promoter session that owns the show**, so a promoter can open the capture page in their own browser and see what the video will look like.
+
+Four decisions in it worth keeping:
+
+- **An unset secret denies.** No default, no empty-string shortcut. A deployment that forgot `wrangler secret put` refuses everybody rather than accepting anybody, and it would have looked exactly like a working deployment until somebody probed it. `secretMatches` returns false the moment either side is missing and there is a test for each way round.
+- **404, not 401 or 403.** The other draft routes answer 404, so a wrong key and a slug that does not exist are indistinguishable. The cost is that a wrong key looks like a wrong slug to whoever is running the renderer, so `scripts/render-tape.mjs` checks the response status and says which it probably is — otherwise the symptom is a two-minute wait for `window.__ready` that never arrives.
+- **The same rule for a published show as for a draft.** A quieter second way to read a published card is worth nothing to a spectator, and one rule is one thing to get right. `/render/cage-county-12/15` is 404 to a stranger too.
+- **The rule lives in [lib/visibility.ts](lib/visibility.ts) beside the publish check**, not in the route. That file is now the only place that decides who may see a card, which is the lesson from bug 23 applied to the route that had to be the exception.
+
+`scripts/render-tape.mjs` sends the header with `page.setExtraHTTPHeaders`, so every request the capture page makes carries it, and reads the key from the shell first and `.dev.vars` second — the same file the local server reads, so nothing has to be exported to render locally. The header name is written out in that script rather than imported, because it is plain Node and cannot import a TypeScript module; the status check is what stops that duplication turning into a silent 480-frame capture of a 404 page.
+
+Proved against production after deploying: anonymous request 404 and nothing leaked, wrong key 404, empty key 404, correct key 200, owning promoter's session 200 — and then bout 15 rendered end to end at 1080x1920, 480 frames, 16.000 seconds, 1.6MB. Closing a hole by breaking the video pipeline would have been a bad trade, so the pipeline was run rather than assumed.
+
+### The key is a row now, and it is scoped to a promoter
+
+Everything above still holds. What has changed is that **one shared secret that reads every card on the instance is the right size of credential for one promoter and a cross-tenant read for two**, which section 20 had already written down as a thing to settle before promoter number two rather than as they arrive. It got sharper when the renderer moved onto a GitHub runner: the key lives in repository secrets now, so the set of people who can read any draft on the instance is the set of people who can push a workflow.
+
+So a key is a row in `render_keys` (migration `0008`): an id, a nullable `promoter_id`, the digest, a label, and `created_at`, `expires_at`, `revoked_at`. [scripts/render-key.mjs](scripts/render-key.mjs) is the only thing that writes it — `npm run render-key -- mint | revoke | list`, local by default and `--remote` for the live database, talking to D1 through wrangler for the same reason the renderer does.
+
+- **`promoter_id NULL` means every promoter.** That is the runner's key and it has to be, because the hourly workflow renders whatever is queued and cannot know in advance whose show it will be. It is exactly as wide as the old secret; what is narrow about it is who holds it.
+- **A scoped key reaches one promoter's shows and answers 404 on everybody else's**, indistinguishably from a stranger. That is what a promoter renders their own drafts with, and what anybody rendering from a laptop should be given.
+- **Only the digest is stored** — SHA-256, base64url — so a copy of the database is not a set of working keys and nothing can print an existing key back. Losing one costs a mint and a revoke. PBKDF2 would be the wrong tool and `secretDigest` says why: the key is 32 bytes of CSPRNG output, so there is no dictionary it is in, and this is asked on every object `/media` serves.
+- **Expiry and revocation are timestamps rather than a delete**, so "what could read this card, and when did it stop" stays answerable afterwards. The instant of expiry counts as expired.
+- **The comparison is over digests and does not break out of the loop.** `digestsMatch` in [lib/auth.ts](lib/auth.ts) is the same constant-time compare `secretMatches` uses, and the presented key is put against every candidate row rather than against the first one that happens to match.
+- **`RENDER_KEY` is still accepted, and that is the migration path.** A Worker, a workflow and whoever renders by hand do not all have to change in the same breath. The branch in `renderKeyMatches` says so and says what removes it: mint a key for the runner, put it in the repository secret, then `wrangler secret delete RENDER_KEY`. [DEPLOY.md](DEPLOY.md#video-rendering) has the order.
+- **How the runner presents it has not changed.** The header, on the capture page's own document request and nothing else. `scripts/render-tape.mjs` reads `RENDER_KEY` from the shell first and `.dev.vars` second exactly as before; what goes in that variable is a minted key rather than the Worker's secret.
+
+`/media` asks the same function, so a key that opens a draft card and a key that opens that draft's mp4 cannot come apart — they were two calls to one comparison before and they are two calls to one function now.
+
+Proved locally against a second promoter inserted by hand, each promoter with an unpublished show: no key 404, cage-county's key 200 on its own draft and 404 on the other promoter's, budo's key the other way round, the unscoped runner key 200 on both, an expired key 404, a revoked key 404, a wrong key 404, and the `RENDER_KEY` secret still 200.
+
+### Four ways to a card, and no fifth
+
+`loadCard` fetches a show and asks nobody whether the caller may see it, so **nothing under app/ may import it**. There is an eslint rule saying exactly that, in [eslint.config.mjs](eslint.config.mjs), scoped to `app/**`. A route gets a card one of four ways, all of them in [lib/visibility.ts](lib/visibility.ts):
+
+| Function | For | The credential |
+| --- | --- | --- |
+| `loadVisibleCard` | the public programme, its fighter pages, the table card | published, or the promoter's own session |
+| `loadRenderableCard` | the capture page | a render key, or the promoter's own session |
+| `loadOwnedCard` | the promoter's dashboard and card editor, and `ownedEvent` in all three actions files | the promoter's own session, and the show is theirs |
+| `loadInvitedCard` | the fighter's questionnaire | the invite token, already spent by `loadInviteByToken` |
+
+`loadOwnedCard` is the one that arrived last and it replaced five copies of the same rule: `card.promoterId !== promoter.id` written inline in two promoter pages, and a where clause written out three times in three `"use server"` files — which could not share a helper, because everything a server module exports is an endpoint reachable from the internet. lib/visibility.ts is not a server module, so one function serves all five. It costs the whole card rather than the one row a where clause fetched, which is deliberate: nearly every caller goes on to ask for a render and loads the same card again, and none of them is on a spectator's path.
+
+`loadInvitedCard` looks like it does nothing, and that is the point. The token is the whole authorisation and the lookup has already spent it, so there is no check left to make — which is exactly the shape of the capture page's argument in this section, and **"this one is different" is where the next hole will be**. It also takes the show off the invite row rather than out of the address, so a fighter cannot be shown a card their link was not issued for.
+
+**The return types are branded**, and that is the half the lint rule cannot do. `loadVisibleCard` returns a `VisibleCard` and `loadOwnedCard` an `OwnedCard`; neither can be made anywhere but those two functions, because the cast that makes one lives beside them and nowhere else. So a card that came from somewhere unchecked cannot be passed where a checked one is wanted — the lint rule stops the import, the brand stops the value.
+
+There are tests for all four against a real database with two promoters, a draft and a published show, in [tests/db/visibility.test.ts](tests/db/visibility.test.ts), and a table-driven one in [tests/db/promoter-actions.test.ts](tests/db/promoter-actions.test.ts) that puts **every** promoter action against another promoter's show and asserts both the refusal and that nothing on the show moved. The list every action has to be in is the part that catches the action somebody adds next.
+
+---
+
+## 6d. The gate on `/media`, and the three limiters
+
+**`/media/[...key]` served the whole bucket to anybody who could name a key.** The hardening in 6b decided what an object would be served *as*; nothing decided *whether*. The keys carry a random suffix, so nothing was enumerable — which is precisely the argument that left the capture page open in 6c, and it is no better the second time. A draft show's rendered mp4 is the draft show: the event name, both fighters, their gyms and records, sixteen seconds of it.
+
+So the same rule applies, and it lives in the same file. `mediaVisibleTo` in [lib/visibility.ts](lib/visibility.ts) is pure and sits beside `visibleTo`, and the route asks it before it touches R2. A refused object is the same 404 as a missing one.
+
+Working out which show an object belongs to is the only interesting part, and the two prefixes answer it differently:
+
+- **`renders/<slug>/…`** carries the slug, so it is one narrow query on `events`.
+- **`fighters/…` and `cutouts/…`** cannot be read back for a fighter id — ids are hyphenated slugs, so `fighters/owen-pryce-ab12.jpg` cannot be split into the two parts it was built from. They are looked up by the path the fighter row stores, joined through `bouts` to every show the fighter is on, and migration `0002` indexes `fighters.photo` and `fighters.cutout` for it. One published show is enough: the photograph is already on a page anybody can open. A key of any other shape has no rule attached to it, so it is refused rather than served.
+- **`sponsors/<promoterId>/…`** is a sponsor emblem the promoter uploaded, and it names its promoter in the key. It goes behind that promoter's shows — one published show and the emblem is public, because it is already on the strip of a card anybody can open. It also carries an `ownerId`, which the other two prefixes do not need: an emblem exists from the moment it is uploaded, which can be before the promoter has published anything at all, and without it the promoter could not see the artwork they had just sent. This is the worked example of the rule above — a new prefix comes here and says who may read it, rather than inheriting an accident.
+
+Three credentials get past a draft, and the third is the one worth explaining. The render key and the owning promoter's session are the same two as 6c. The third is **the fighter's own invite token, taken from the referrer** of the image request. A fighter is shown their photograph back in the questionnaire, and on a card that is not published they hold neither of the other two: there is no fighter account, and the token that is their whole authorisation is in the address of the page rather than in the request the `<img>` makes. It is not a new way in — anybody who can write that header at will already holds the token, and the token has to belong to the fighter the object is of.
+
+That token reaches a **sponsor's emblem** as well as a portrait, and only those two. The questionnaire draws the sponsors the fighter can pick and a preview of their own card, both with the emblems on them, so on a draft show the emblem was the one thing on that page nobody but the promoter could fetch — and a promoter checking the preview through a fighter's link saw a gap where the artwork they had just uploaded should be. `inviteMayReach` in [lib/visibility.ts](lib/visibility.ts) is where that list lives, tested per shape, and it deliberately does **not** cover `renders/`: a questionnaire has no reason to fetch a bout's mp4, and a credential that reaches further than the page it was sent for is how both of the holes in this section were made. The emblem is matched on the promoter, which is what the key names, because every one of that promoter's sponsors is already on the picker in front of every fighter they have invited.
+
+One consequence to keep in mind: the answer now depends on who asked, so an object only the promoter may see goes out `private` rather than `public`. The one-year immutable cache is unchanged for everything on a published card, which is the case that matters in a hall with poor signal.
+
+Proved locally against a draft card: stranger 404 on both a photograph and an mp4, wrong render key 404, correct render key 200 `private`, the fighter's own invite in the referrer 200 `private`, another fighter's invite 404 — and every one of them 200 `public` again once the show was published.
+
+**The limiters.** `ratelimits` in wrangler.jsonc, one binding each, counted at the edge for the reason in [lib/rate-limit.ts](lib/rate-limit.ts): a counter in D1 answers a flood with a database write per request, which is the shape of the problem rather than the fix.
+
+| Binding | Bounds | Allowance |
+| --- | --- | --- |
+| `IMPORT_LOOKUPS` | `/api/import-record`, open by design, and the card editor's own paste box | 10 a minute per caller, or per promoter where there is a session to key on |
+| `LOGIN_ATTEMPTS` | the login form, asked before the password is checked | 10 a minute per caller |
+| `TRACK_WRITES` | `/api/track`, which writes a row per interaction | 60 a minute per caller |
+
+A missing binding refuses in production and allows in development, where a limiter that is not there would otherwise take the login form with it. Locally the binding does exist and does count: a burst of 90 posts at `/api/track` put 59 rows in the table and lost the rest.
+
+The per-caller limiter is **not** the bound that matters most on the login form, because there is one promoter and one password, so a patient guess from a thousand addresses is a thousand callers each well inside their allowance. [lib/lockout.ts](lib/lockout.ts) is the other half: ten failures within fifteen minutes and the account takes no password at all until the window closes. The window does **not** extend while the door is shut, deliberately — a lockout an attacker can keep renewing is a way of keeping a promoter out of their own dashboard on show night, and there is nobody to ring for a reset. Failures are counted on the promoter row (`failed_logins`, `first_failed_login_at`, migration `0003`) and cleared by a sign-in that works. A locked account gives the same message and takes the same time as a wrong password, because a lockout that announces itself tells an attacker that the guessing is working.
+
+---
+
+## 6e. The shop window runs on a named show
+
+EventIQ's own front page, its sitemap, `/f/demo` and the bare `/qr` redirect all run on one real card out of the database, which is the right decision and is what keeps the sales copy from drifting away from what a promoter sees when they click through.
+
+**Which card was the problem.** `loadShowcase` took the published show with the furthest-out date. With one promoter that is a fair guess at the card being sold. With two it is a leak that needs nobody to do anything wrong: the second promoter publishes a show dated later than the demo, and EventIQ's front page, its sitemap, its printable table card and the questionnaire preview all swing onto their event, their venue, their fighters and their sponsors — including submitting every fighter profile page on their card to search engines. Nothing on the page would say it had happened.
+
+So the demo is named rather than inferred. `SHOWCASE_SLUG` is a var in [wrangler.jsonc](wrangler.jsonc) — a var and not a secret, because it names something public and changing which show is on display should be a deploy with a diff rather than a `wrangler secret put` nobody can read back. `loadShowcase` loads that slug and only that slug, **published only**: this is a shop window with no viewer to ask about, so a draft named here must not become a public page by being named.
+
+Unset, unknown or unpublished all mean no showcase. The pitch page then makes its whole argument — how it runs, the recording, the gallery, who it is for, the sponsor case — and replaces only the links into the card with `NO_SHOWCASE` from [lib/copy.ts](lib/copy.ts), where the tone tests can reach it. The sitemap lists `/` alone, `/qr` answers 404 and `/f/demo` says there is nothing to preview. A fresh instance is in that state anyway, so it is ordinary rather than exceptional.
+
+One side effect worth having: the pitch page stopped loading every invite row for the show. It wanted one number — who is still outstanding — and `cardCompleteness` already measures the same completeness against the same threshold over the same fighters, so the remainder is the answer and no invite ever took part in it.
+
+---
+
+## 6f. Slugs are global, and the oracle that comes with it
+
+`events.slug` is unique across the whole instance, so `createEvent` answers "There is already a show at that address" for a name that collides with **another promoter's** show. That is a membership oracle: a promoter can find out whether a rival has a show called Cage County 13 in the diary by trying to create one, and every other refusal on that path is deliberately written so a show that is not yours and a show that does not exist read alike.
+
+**They have to stay global, and the reason is the address.** A programme lives at `/e/<slug>`, on a QR code printed on the tables, and that path has no promoter segment in it. Making slugs unique per promoter means either `/e/<promoter>/<slug>`, which changes every printed code, every link already sent, the Open Graph cards, the sitemap and the demo recording, or a hidden disambiguator that makes the address unpredictable from the name — and the name is how a promoter finds their own show. The uniqueness is not a modelling accident; it is the public URL.
+
+**The mitigation is suffixing, and it belongs in the slug rather than in the message.** A collision returns `cage-county-13-2` — the same thing every publishing system does with a title that is already taken — so the promoter gets a show and an address rather than a refusal with a fact in it. A slug is derived, and a derived value that collides is disambiguated, not rejected.
+
+Done. `uniqueSlug(db, name, promoterId)` is in [lib/db/queries.ts](lib/db/queries.ts): it slugifies, asks once for the rows at that address or a numbered form of it, and hands back the first free one. `createEvent` calls it and the clash query is gone. The arithmetic is `nextFreeSlug` in [lib/slug.ts](lib/slug.ts), which is pure and has its own tests; the query is one `LIKE`, safe against the base without escaping because a slug is only ever lower-case letters, digits and hyphens and so carries no `%` or `_` to be read as a wildcard.
+
+**`ACTION_ERRORS.addressTaken` stays, for one case: the promoter's own show.** A promoter typing the name of a show they already have is about to create it twice, and handing them a second `cage-county-13-2` is two shows with one name and no way to tell which is which. That refusal discloses nothing, because it is about a row they are looking at — the wording changed from "There is already a show at that address" to **"You already have a show at that address"**, which is both the honest sentence and the one that cannot be true of somebody else. `sameAddress` in lib/slug.ts is what keeps it to the numbered forms, so a promoter with a "Cage County 13 Rematch" in the diary is still allowed a "Cage County 13".
+
+So the oracle is closed. What is left is the race between the check and the insert, which the unique index still catches as a fault rather than a refusal; it was there before and is one row in a hundred thousand.
+
+## 6g. Consent, removal and retention
+
+The questionnaire publishes photographs, ages and hometowns of real amateur fighters, on a page a promoter sells sponsorship against, reachable by an unguessable link with no account behind it. Until this existed, nothing asked, nothing explained, nothing deleted and there was no notice. It was the blocker on the first real show (section 19 item 2), and it is designed into the form rather than bolted on the front of it.
+
+**The wording lives in [lib/consent.ts](lib/consent.ts) with a version stamp.** `CONSENT_VERSION` is the date the text last changed, and it is stored on the invite beside the timestamp. The point of that pairing is a question that gets asked once and has to be answerable: *what exactly did this fighter agree to?* A notice typed into JSX is a notice nobody can produce six months later, and a timestamp with no version is a consent whose text has since moved. **Bump the version whenever `CONSENT_TEXT` changes** — a fighter whose stored version no longer matches is shown the notice again and asked to tick it again, which is the whole reason the pair is stored.
+
+**The order on the form is the argument.** Notice, then age, then the tick, then everything else. Nothing else is on the page until the box is on.
+
+- **Age first, and eighteen is the floor.** Amateur cards do run junior bouts, and this form is not the place for one: a published profile with sponsorship beside it is not something a child agrees to on a phone. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and **collects nothing further, including the age itself** — `consentGate` checks age before it checks the tick, because a gate that stored the age and refused afterwards would have kept the one field it should never have taken.
+- **The tick is the only thing a save may carry before there is a consent.** `saveDraft` answers `consentOnly` for that save and writes the consent alone; the browser then sends the same draft again, now that there is a consent for the answers to sit under. `uploadPhoto` refuses outright without one, because it is reachable without the form and a photograph is the most exposed thing here.
+- **The gate is in the action, not only in the UI.** Every one of these is a server action anybody holding a link can call directly. The component hides the fields; `lib/consent.ts` is what actually decides.
+
+**Removal is a control on the fighter's own form**, in [app/f/[token]/consent-actions.ts](app/f/[token]/consent-actions.ts), behind a second press. A consent that cannot be withdrawn is not a consent, and it must not require writing to the promoter — who may be the person the fighter no longer wants to talk to. It clears every column the questionnaire collects, deletes their sponsor choices, deletes the photograph, cutout and stylised portrait out of R2, revokes the invite and asks for the bout's video again. The database write is one batch and goes first, so a bucket that will not answer cannot leave a profile half-cleared; the objects go afterwards, best effort, by which point no row points at them and `/media` refuses an object nothing points at.
+
+**Taking a bout off the card pulls the links and keeps the profiles.** `removeBout` used to delete the bout and leave both fighters' invites open, so somebody taken off a show could go on filling in a profile for a card they were not on for the ninety days the expiry gives it, and nothing on the dashboard said so — every screen there is derived from the running order the bout had just left. A corner the removal leaves on no other bout of that show now has their invite revoked in the same batch as the delete, because the link is the whole of the authorisation and revoking it is what taking somebody off the card means. **The profile is deliberately untouched.** Withdrawals and mistakes are the same click on an amateur card, and a bout removed in error must not destroy the photograph, the record and the answers a fighter sent: put back on the following morning they are re-invited with a new link and everything they typed is still there. What clears a profile nobody is putting on a card any more is the retention sweep below, which dates a fighter by their last connection to any show and therefore picks up an orphaned one on the ordinary schedule — and the fighter's own removal control, which is theirs to press. Nothing is rendered for the bout either; the fingerprints are built from the running order.
+
+**The name and the gym stay, and the copy says so.** They came off the promoter's matchmaking sheet rather than out of this form, and they are the running order: clearing them leaves a hole on a published card where somebody is still walking out. A fighter told "everything" who then finds their name on the programme has been told something untrue, so `REMOVAL.stays` says which two fields remain and where to take that.
+
+**A revoked link answers with what happened to it.** Everywhere else a made-up token and a regenerated one answer alike; this is the single exception and it has its own rule in `inviteWasRevoked`. It tells nobody anything they did not already hold, and the alternative is a fighter left wondering whether their request went through — which is also what the browser would land on, because a server action re-renders the page it was called from.
+
+**Retention is 180 days after the last show, and one constant.** `RETENTION_DAYS` in lib/consent.ts is read by the consent text, by [/privacy](app/privacy/page.tsx) and by [scripts/retention.mjs](scripts/retention.mjs), so a fighter cannot be told one figure and swept at another. The sweep takes a fighter whose latest connection to any show — through a bout, or through an invite issued to them — is older than the cutoff, which means a fighter still on a card for a show that has not happened is never taken however old their other shows are, and a fighter orphaned by a removed bout is still dated by their invite. It does exactly what the removal control does. **Dry run by default**; `--apply` is the only thing that changes anything, because this is the one script here that destroys data on purpose.
+
+```bash
+npm run retention                       # local, says who it would take
+npm run retention -- --apply
+npm run retention -- --remote --apply   # the live database
+```
+
+**The same sweep now takes two other things**, because they want the same schedule and the same default: `analytics_events` rows the fold has already summed into `analytics_daily` (never a show-day it has not — section 9), and `import_cache` rows over thirty days old, which the importer prunes on its way past and therefore prunes only when somebody is importing. And the bucket has a sweep of its own, `npm run r2:orphans`, for objects no row points at — a photograph a fighter replaced, a cutout the renderer superseded, a stylised portrait nobody approved. It never takes a current render and never takes anything written in the last day, because a portrait waiting to be approved is unreferenced on purpose.
+
+**The privacy notice is [/privacy](app/privacy/page.tsx), and it is a draft.** The position it states — the promoter is the controller, EventIQ the processor — is in a comment at the top of that file rather than on the page, in those words, for the owner to put in front of a lawyer. Two things sit awkwardly with it and want raising at the same time: the `fighters` table is global rather than owned by a promoter (section 19 item 11), and **the lawful basis for publishing is still not stated anywhere**. Consent is what the questionnaire takes; whether consent or legitimate interests is the right basis for a public programme is exactly the question to ask. The page claims no legal review and a test fails if it starts to.
+
+**The copy is tested.** [lib/copy.test.ts](lib/copy.test.ts) and [lib/consent.test.ts](lib/consent.test.ts) hold all of it to the tone rules plus two of its own: nothing may suggest that asking for your details back is a failing, and nothing may present generated artwork as a picture of anybody.
+
+---
+
+## 6h. The opt-in stylised portrait
+
+A fighter can ask for their photograph to be redrawn as fight-poster artwork. It is **off unless a deployment turns it on** (`STYLISED_PORTRAITS`, and the `AI` binding in wrangler.jsonc), and three rules run through all of it.
+
+**A real photograph is the default.** Nothing happens unless the fighter asks, and nothing reaches the programme until they have seen what came back and pressed approve. A fighter who sends a picture and says nothing gets their picture, exactly as before. The object is written to R2 at the moment it is drawn but **no row points at it**, so `/media` will not serve it and the preview comes back inline instead — which is what makes approve-or-discard real rather than decorative.
+
+**It is never presented as a likeness.** The prompt asks for poster artwork and the negative prompt forbids lettering. The lettering matters twice: models misspell text, and a sponsor's name is set in the app's own typography precisely so a real business can never be misspelled by generated artwork (section 20). The copy says drawing rather than photograph throughout, and a test enforces it.
+
+**The bytes decide what came back.** The model's output is sniffed with `lib/image-type.ts` before it is stored, for the same reason an upload is (section 6b). Anything from outside is bytes, and this object is served from our own origin.
+
+The model is **`@cf/runwayml/stable-diffusion-v1-5-img2img`**, which is the image-to-image model Workers AI hosts, at strength 0.55 — low enough that the pose and framing are still the fighter's, high enough that nobody could mistake the result for a photograph of them. Actions are in [app/f/[token]/portrait-actions.ts](app/f/[token]/portrait-actions.ts); the pure parts (the key shape, and the ownership check that stops an approved path naming somebody else's portrait) are in lib/portrait.ts and are what the tests cover.
+
+**Precedence, in [lib/portrait.ts](lib/portrait.ts): stylised, then cutout, then photograph, then plate.** The stylised one goes above the cutout for a consent reason rather than a picture-quality one — a cutout is something we made without asking, and a stylised portrait is the only one of the four that answers a question the fighter was actually asked. It cannot displace a photograph by accident: it is null until an approval writes it, and it is cleared whenever the photograph it was drawn from is replaced, exactly as the cutout is. It travels through the sequence like a photograph, because it is a rectangle with a background of its own.
+
+**Every surface asks that function, and one did not.** `FighterPortrait` — the fighter's own profile page and the bout card on the running order — read `fighter.photo` itself, so a fighter who asked for a portrait, waited for it and pressed approve saw it in the preview and in their video and found the photograph underneath it still on their page. That is the worst version of getting this wrong: the one treatment they were actually asked about is the one the product ignored. There is a test that renders the component and holds what it draws to what `portraitOf` answers, because the rule was never the thing that broke — a caller ignoring it was, and only rendering can see that.
+
+**Two things worth knowing before touching it.** Approving one bumps `updated_at`, which is already in the render fingerprint, so the portrait reaches the video without a new field in the hash. And `next dev` has no AI binding at all: `remoteBindings` is off in next.config.ts because the moment an `ai` binding exists the dev server tries to open a remote proxy session, and without a `CLOUDFLARE_API_TOKEN` that fails and takes D1 and R2 down with it — every page reading the database answering 500. So the action answers "not available here" locally, and **this has not been run against the real model**.
+
+---
+
+## 7. Where the content lives
+
+`data/event.ts` holds three exports: `sponsors`, `fighters`, `event`. Types in [lib/types.ts](lib/types.ts). It is now **only** the seed; nothing at runtime reads it.
+
+### The demo card
+
+**Cage County 12**, Winter Gardens Blackpool. Promoter: Cage County Promotions. 15 bouts, 30 fighters.
+
+The date is **not** the one in the fixture. The seed dates the show a fortnight after it runs, snapped to the nearest Saturday, because the dashboard only argues for itself while the show is close — see bug 18 in section 14. So the demo ages, and re-seeding is what resets it.
+
+Completeness is **deliberately uneven**, and this is a feature of the pitch rather than unfinished work:
+
+- **Main event, co-main, bouts 12 and 13** — fully filled in, with photos. This is what it looks like when fighters send their details.
+- **Bouts 10 and 11** — one fighter complete, the other sent nothing. Bout 11 is the showcase for it: Nadia Farrukh has a photograph and a full column, Chloe Baines is a row of dashes. She has opened her link and done nothing since, which makes her the warmest name on the chase list and the single clearest illustration of what the dashboard is for.
+- **Bouts 1–9** — a name and a gym, exactly like the paper programme.
+
+**The gap between the top and bottom of the card is the pitch.** Do not "fix" it by filling everyone in — and in particular, if you have just run the end-to-end suite against production, put Chloe Baines back. See bug 19.
+
+### Real vs invented
+
+Everything is invented **except** three real sponsors, which lead the show-sponsor strip and the table card:
+
+- **Mouthguards.pro** — strapline "Custom fitted". Sponsors Reeves and the co-main.
+- **FightIQ.win** — **no strapline, because nobody has said what it does.** See open questions.
+- **EventIQ** — strapline "Digital programmes", links to `/`. Bout sponsor of the main event, so it closes out the flagship video.
+
+All three appear *inside* the main event video, which is where the value is.
+
+Sponsor logos are **emblems only**, with names set in the app's own typography. This is deliberate: image generators misspell text, and a sponsor's name must never be wrong.
+
+The curated marks under `public/sponsors` are produced by `scripts/prepare-assets.mjs` from `assets-src/`, which is gitignored — so from a clean clone they cannot be regenerated, and a sponsor a promoter adds themselves had no artwork available to it at all. **The sponsor form takes an emblem now**, stored in the media bucket under `sponsors/<promoterId>/…` and resolved by `sponsorMark` in [lib/renders.ts](lib/renders.ts), which prefers the upload and falls back to the curated file. It is in that file rather than in the row mapper because the render fingerprint has to agree with the picture: the tape draws the resolved mark, so hashing the raw column would leave every video that sponsor appears in reading as current with the old artwork on it. The name is still never in the image, and the form says so.
+
+**An emblem can be replaced and taken off after the fact**, in [app/promoter/sponsor-actions.ts](app/promoter/sponsor-actions.ts) — its own file, because an emblem is bytes from outside served from our own origin, an object something has to delete when nothing points at it any more, and an input to the render fingerprint, and those three rules belong together. It could only be set as a sponsor was created, so the only way back from the wrong file was deleting the sponsor, which takes the bout placements sold against it. The new object goes in before the column moves and the superseded one is dropped after, the same order the renderer publishes in and for the same reason; removing clears `mark_key` only, so a seeded sponsor keeps the curated artwork it came with; and both ask for the whole card to be rendered again, because the emblem is on screen in every video that sponsor appears in and nothing else would say so.
+
+---
+
+## 8. The derivation layer
+
+[lib/tape.ts](lib/tape.ts) turns fields into a story. Both the static card and the video read from it, so they cannot disagree. Unit tested in [lib/tape.test.ts](lib/tape.test.ts).
+
+Key functions:
+
+- **`buildTape(red, blue)`** — the side-by-side rows. A row survives if **either** corner can fill it and is dropped only when neither can. Half-filled rows show an em dash and no leader. Contested rows (record, height, reach, finishes) get a `leader` and an `edge` like `+11cm`. Age is deliberately *not* contested — younger is not better.
+- **`buildHooks(bout, red, blue)`** — up to three story lines, weighted and sorted: belt on the line, two debutants, nobody has lost, reach advantage, gym clash, hometown derby, experience gap, finish rate, southpaw vs orthodox. Returns `[]` rather than inventing something from an empty pair.
+- **`completeness(fighter)`** — weighted score out of 100 plus the list of what is missing. Photo is worth 30, because it is what carries the card.
+- **`tapeGapsBehind(mine, theirs)`** — lines the *opponent* answered and this fighter did not. Powers the questionnaire's competitive prompt.
+
+These all take fighters and bouts as arguments. During the rewrite they were changed from importing the fixture to being handed a `Card`, which is why they are still testable and why the 49 original tests survived the move to a database intact.
+
+### The bug worth never reintroducing
+
+`isDebut()` requires an **explicit** `0-0-0` record. A test caught the naive version, which treated a *missing* record as a debut — meaning anyone who ignored the questionnaire would be advertised as making their debut. That would eventually put an eight-fight veteran on screen as a debutant in front of a room that knows better. **Silence is not a debut.** The database enforces the same thing: record columns are all-or-nothing.
+
+---
+
+## 8a. Importing a record
+
+Idea from the originator: *"they could just send their Sherdog link and autopopulate."* Now real, in [lib/record-import](lib/record-import) behind [`/api/import-record`](app/api/import-record/route.ts).
+
+### What works and what does not
+
+- **Sherdog works.** `/fighter/Name-ID` returns fully-rendered HTML with `itemprop` microdata intact and does not trip a bot challenge. [lib/record-import/sherdog.ts](lib/record-import/sherdog.ts) parses name, nickname, gym, height, age and the win/loss/draw record. There is a **separate amateur fight table** and it is preferred over the professional one when it exists, because that is the record that matters on these cards. Tested against a committed HTML fixture so the parser can be changed without hitting the site.
+- **Tapology does not work and cannot be made to.** It sits behind Cloudflare's bot protection, which a Worker's outbound fetch cannot pass and should not try to. The earlier research saying Tapology has better UK amateur coverage is still true, and that makes this a genuine loss rather than a shrug — but the honest answer is a message saying we cannot read it and offering Sherdog or the boxes below. Pretending to be a browser to get past a block would be both dishonest and a declaration that we know we are unwelcome.
+- **Sherdog has no public API.** Verified: no `/api/`, no autocomplete, no JSON endpoints, `/search/results` 404s. Do not waste time probing for one.
+- **Smoothcomp** is a competition platform rather than a record database, so it is no use for records. But it is where a UK amateur promoter's roster already lives, which makes importing a whole card from it far more valuable than importing fighters one at a time. Worth investigating as a partnership.
+
+### How it behaves
+
+- **It fetches one page, on a person's instruction, at human rate.** Nothing crawls, nothing follows links, nothing runs on a schedule. The bot identifies itself as `EventIQBot/1.0` and links to [/about-the-importer](app/about-the-importer/page.tsx), which exists and says what it does — a user agent pointing at a 404 is the same as not identifying yourself.
+- **Results are cached in D1 for a week, failures included.** Caching is not an optimisation here, it is what keeps this defensible: one fighter's link costs the source site one request no matter how many times the form is reopened. Caching failures matters more than caching successes, because the person whose page will not parse is the one most likely to press the button again.
+- **The cache key carries the parser version.** What is stored is what `parseSherdog` made of a page, not the page, so fixing the parser used to fix nothing for a week for anybody already in the table — and the person most likely to press the button again is the one whose page did not read properly. `PARSER_VERSION` in [lib/record-import](lib/record-import/index.ts) goes on the end of the key, so a parser change is a different row. **Bump it whenever the parser changes what it returns.**
+- **A write prunes anything older than a month on its way past.** Nothing else ever deleted from this table — the seed leaves it alone, because it is not scoped to a promoter — so it only grew, fastest from the failures. Best effort: a tidy-up that could not run is not a reason to tell somebody their link did not work.
+- **Imported values are suggestions, not facts.** Every imported field is badged with its source and has to be confirmed. Amateur records go stale. Same principle as `isDebut`: never publish a claim about a fighter we cannot stand behind.
+- **It only fills blanks.** Anything the fighter already typed wins. Touching a field clears its source badge.
+- **The error path does not dead-end.** Most amateurs have no record page at all, so a bad link says what a good one looks like *and* "no record online? Just fill the boxes in below."
+- **Placement is inside section 03, not at the top.** Leading with "paste your Sherdog link" would lose the flattering opening and exclude the majority who have no page.
+- **URL parsing is strict.** [lib/fighter-import.test.ts](lib/fighter-import.test.ts) covers lookalike domains — `sherdog.com.evil.test` must not match — plus missing scheme, missing `www`, query strings, and right-site-wrong-page.
+
+Sherdog's `robots.txt` permits crawling, but robots.txt is not a licence. Check terms of service before relying on this commercially.
+
+### What stops it being a proxy for anybody who finds it
+
+The endpoint takes no token, and that is deliberate: the valuable half of the importer is the promoter filling in the fighters who never reply (below), and an invite would remove it. So it has to be bounded some other way, and the security review found the bounds were not as tight as they looked.
+
+Four things hold it, and each answers something the others do not:
+
+1. **A strict host and path allowlist.** Two hosts, one path shape each, so the reachable set is Sherdog and Tapology fighter pages and nothing else. Lookalike domains are covered by test: `sherdog.com.evil.test` must not match.
+2. **One canonical address per fighter.** `parseProfileUrl` used to keep the pasted string, and the endpoint writes a cache row per distinct URL — so `?bust=1`, `?bust=2` and onwards were an unbounded number of D1 rows and an unbounded number of requests to somebody else's website, from one fighter's page. The URL is now **rebuilt** from the allowlisted host and the matched slug, so the query string, the fragment and any trailing path are gone before anything is looked up, and the cache key is that lowercased. Fourteen decorated variants of one link now produce one row and one outbound fetch; before, fourteen of each.
+3. **A per-address rate limit**, ten a minute, on Cloudflare's own limiting binding rather than a counter of ours — because the counter is the thing being protected, and answering an unauthenticated flood with a database write per request is the shape of the problem rather than the fix. It **fails closed**: no limiter to ask means no.
+4. **An hourly ceiling on fetches, per promoter and per show.** A hundred and twenty an hour, counted off `import_cache` itself and only consulted on the way to a fetch, so a cached lookup never meets it. It used to be counted across everybody, which made it a way for one busy promoter to pause every other promoter's lookups — and the promoter working down an undercard is the person this feature is for. `import_cache.scope` records who caused each fetch (`promoter:<id>` from the card editor, `event:<id>` from a fighter's questionnaire, one shared bucket for anything that cannot say), and the count is per scope.
+
+**How to test the rate limit, because getting this wrong wasted an afternoon.** Bursting the live endpoint from a script that opens a fresh connection per request produced **no refusals at all**, through two hundred requests. That reads as a limiter that is not wired up, and it is not: Cloudflare's egress NAT hands a new connection a different source address, and the limiter's counters are per location, so no key and no colo ever saw more than a request or two. Send the same burst down **one kept-alive connection** and it is unambiguous — thirty requests, eleven through, nineteen refused with a 429:
+
+```
+sequence: ...........XXXXXXXXXXXXXXXXXXX
+```
+
+That is the shape a real caller has, since browsers keep connections alive, so the per-address bound does hold for the thing it is there for. **Test it over one connection, not one request at a time.**
+
+**Why the fourth bound exists anyway.** Two reasons the third cannot cover:
+
+- **The counters are per location and documented as best-effort.** A caller genuinely spread across colos — a proxy pool, a botnet, or just a client that reconnects — gets a multiple of ten a minute rather than ten. The local `wrangler dev` enforces at exactly ten because there is only one of it, so a passing local test says nothing about the global number.
+- **The allowlist bounds the shape of a URL, not how many there are.** `/fighter/anything` matches the pattern, and a page that 404s is cached like any other, so the reachable slug space is unbounded even with the allowlist and the canonical key both in place.
+
+The ceiling is the only one of the four that does not depend on being able to tell callers apart. Two full fifteen-bout cards an hour is far more than a promoter working down an undercard needs, and far less than anything that reads as a scrape from the other end. When it is reached, everybody gets the same calm message and the boxes below — which is the right failure, because the alternative is a bill and a blocked user agent.
+
+One operational note: **the seed does not clear `import_cache`**, since it is not scoped to a promoter. If you have been exercising the ceiling, clear it before running the end-to-end suite or the Sherdog step will be refused and it looks like a broken parser.
+
+### The bigger prize: the promoter does it
+
+The most valuable version is not the fighter pasting their own link, it is **the promoter pasting links for the fighters who never reply**. That flips the failure mode: instead of a blank card you get real stats and merely no photo or story. It lets a promoter unilaterally raise the floor on the whole undercard.
+
+**Done.** Every corner of every bout in the card editor has a paste box, in `RecordImport.tsx`, and it does not go through `/api/import-record`. It is a pair of server actions with the promoter's session on them — `lookupFighterRecord` reads and writes nothing, `applyFighterRecord` writes — so it is counted against the promoter rather than against whatever address they are on, which is the better answer to "who is asking" when there is a session to read. It fills five boxes: the name, the record, how those wins finished, the age and the town. The finishes arrived late — the first version wrote four and dropped the knockout and submission counts the parser had already read, so a fighter whose record had just been filled in from a page kept an empty Finishes row on the tape and no finish-rate hook, off a page carrying both numbers.
+
+Two properties are worth keeping if this is ever changed:
+
+- **Nothing is written on the way back.** The promoter is shown what the card says, what the page says and which of the two would win, and it waits. Same principle as the fighter's own badge: an imported value is a suggestion. "Where empty" is decided again at the moment of the write rather than when the panel was drawn, because a fighter can fill their own form in between the two — and if they have, theirs wins. The page is read a second time as well, from cache, so what lands on the card is what the source said rather than what came back through a browser.
+- **One fighter at a time, deliberately.** A whole card on one press is the obvious next thing and it is not built. Sherdog's robots.txt permits crawling and that is not a licence; the terms question below is not settled; and thirty pages on one button press is exactly what turns "one page, on a person's instruction, at human rate" into a posture that would have to be defended. That is a decision for the originator, not for the code.
+
+---
+
+## 9. Counting
+
+[app/api/track/route.ts](app/api/track/route.ts) writes one row per interaction into `analytics_events`: `programme_open`, `bout_expand`, `tape_play`, `sponsor_tap`, `profile_view`. The client sends them with `sendBeacon` where it can, so a tap that navigates away still lands.
+
+**There is no user identifier and none is wanted.** `sessionId` is a random value held for the length of one visit, so opens can be counted per spectator rather than per reload, and it is stored nowhere else.
+
+The table is append-only and unaggregated, because the value to a promoter is a report they can hand a sponsor and the questions a sponsor asks are not known in advance. That is the right shape for one show and the wrong one for a promoter's third season, so **the fold now stands in front of it**. `analytics_daily` (migration 0013) holds the same grouping columns summed by UTC day, and [scripts/rollup-analytics.mjs](scripts/rollup-analytics.mjs) sums everything older than 48 hours into it and deletes what it summed. Nothing a sponsor asks stops being answerable — taps per sponsor, expands per bout, views per fighter all survive; what goes is the hour and the session id, and the session id is the one value in this table that was never meant to outlive the visit it was made for.
+
+**The numbers do not move when the fold runs**, which is the property the whole design is arranged around. `analyticsStatements` reads the folded days *plus everything still in `analytics_events`*, whole, with no time boundary on either side, and `analyticsFrom` adds them — so a row changing tables changes no total. There is a test on that combining function and a before-and-after reading of the seeded card's dashboard through a real browser.
+
+Three things about the fold are worth carrying forward.
+
+- **Whole days only.** The cutoff is midnight UTC at the start of the day containing "48 hours ago", never part way through a day. A day half in each table would contribute its distinct sessions twice for one evening's spectators.
+- **It is not one transaction, and cannot be.** D1 runs each statement of a file in its own transaction — the same thing the restore rehearsal found out about `PRAGMA defer_foreign_keys`. So the sum goes in before the delete, because a day counted twice is visible and fixable where a day gone is neither, and a run interrupted between the two is *detected* rather than repeated: a day that is both summed and still live refuses and says what to remove.
+- **"Spectators" is now the only approximate figure on the page**, and only just. It is distinct sessions within a day, summed across days, so the way to be counted twice is to leave a tab open across midnight UTC. A session is a sessionStorage value that lasts one visit.
+
+`analytics_events(event_id, created_at)` was indexed by migration 0012 for exactly this, before there was a table with a season of counting in it.
+
+[scripts/retention.mjs](scripts/retention.mjs) sweeps what is left, and it will **not** remove counting for a show-day that has never been folded, whatever its age: until the fold has run, those rows are the only copy of those numbers. The cron lines for both are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps), and nobody has installed them.
+
+The dashboard shows the counts twice: **This show so far**, live, and **Last show**, which is the shape of the post-event sponsor report. Both render from the same function so they cannot end up meaning different things — `analyticsFor()`. It is four statements now rather than two: one query cannot group by kind and by sponsor at once, and each of those has to ask the folded table as well as the live one. It is still one round trip, because they are handed back unrun and go in the same `db.batch` as everything else the dashboard needs.
+
+**The invented "last show" figures are gone.** They were the most dangerous thing in the demo: plausible numbers that would have been repeated to a sponsor. The panel now shows real counts or explicit zeroes, and says in the footer that nothing on the page is estimated.
+
+Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Five things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), **whether the caller looks like a person reading a programme at all**, the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme.
+
+**The crawler check falls the opposite way from the one on invite links**, and that is the whole reason [lib/bots.ts](lib/bots.ts) now holds two lists. An unrecognised unfurler marking a fighter's link as opened costs a promoter one wasted phone call, so `isLinkPreviewBot` guesses towards recording; an unrecognised crawler counted as a spectator goes into the report a sponsor is handed, so `countableRequest` guesses towards dropping. Between them they take the unfurlers, the search and model crawlers, headless browsers and scripted clients by name, a request with no user agent at all, a POST carrying none of the `Sec-Fetch-*` headers every browser sends with a beacon, and one posted `cross-site` or with no page behind it. The walkthrough is the case that made the split necessary: it is real Chrome, it opens invite links for real, and its taps are a test run rather than an audience.
+
+The cost of that is under-counting, which is the error this product is allowed to make. Safari before 16.4 sent no `Sec-Fetch-*` headers, so those spectators go uncounted rather than miscounted.
+
+None of that changes what is stored. There is still no address, no cookie and nothing identifying a person; `sessionId` is bounded rather than parsed, and the user agent and `Sec-Fetch-*` headers the check reads are read and thrown away.
+
+---
+
+## 10. The promoter's view
+
+`/promoter/e/[slug]` is the other half of the same rows: the things a promoter knows that a spectator does not. Everything is derived in [lib/promoter.ts](lib/promoter.ts) from the same `Card` the programme reads, so the dashboard and the card cannot disagree.
+
+- **The chase list.** Ordered by position on the card rather than by how empty a profile is, because a hole in the main event costs more than a hole in bout two, and that is the order a promoter already thinks in. Each row carries the fighter's real invite link, decrypted for the occasion, and the four things a promoter does with it: send it (a WhatsApp or an SMS deep link with the nudge already written, which records `sent_at` and `sent_channel` on the way past), copy it, replace it with `New link`, or stop it with `Revoke link`. The state beside it reads not sent, sent — with when and how — opened, or done.
+- **Bout readiness.** Ready, one side missing, or nothing in. "One side missing" is called out hardest, because a bout with one finished fighter and one blank looks worse on the night than two blanks, which at least looks consistent.
+- **Sponsor inventory.** How many of the fifteen bout slots are sold.
+- **The counts**, section 9.
+
+**It used to take a second and a half of database waits before it drew anything.** Eighteen statements, one after another, each waiting for the last: the card in six, the invites, the jobs, the videos, the fingerprints in six more, four separate aggregations of the counting table, and the previous show. Every one of them was independent of most of the others and none of them said so. It is four waits now — the card's two batches, then one batch for the invites, the jobs and the previous show alongside one for the counting, then the last show's counts, which cannot be asked for until the previous show has been named. The fingerprints cost nothing at all, because they are worked out from the card that has already been loaded. Measured warm on the seeded fifteen-bout card against the local D1: about 1,850ms of application time before, about 700ms after.
+
+Two things about that are worth keeping rather than the numbers. `db.batch` is only correct for statements that do not need each other's answers, and the page reads top to bottom in the order the waits actually happen, so the two places where something genuinely depends on something else are visible rather than hidden in a helper. And the session and the card are fetched together with `Promise.all`, which means a card is loaded for a request that turns out not to be signed in — `proxy.ts` has already turned away anybody without a cookie, so that only happens for a session that has expired or been forged.
+
+The card editor at `/promoter/e/[slug]/card` writes: event details, add and edit and remove bouts, fighter names and gyms, add sponsors with an emblem, take a bout off and put it back on, and fill a fighter in from their record page. Creating a bout creates both fighters and both invites in the same action, because a bout with no way to contact either corner is not a useful thing to have made.
+
+**A bout that is off keeps everything it had.** `setBoutOff` sets a flag rather than deleting the row, so the bout keeps its number, its place in the running order and its sponsor, and the programme prints it struck through with "Withdrawn" and whatever reason the promoter gave. Deleting it would destroy a placement somebody paid for and orphan the analytics rows keyed on that number. It stops counting everywhere that measures how ready the card is — `boutsRunning` in [lib/card.ts](lib/card.ts) is the list the chase list, readiness, completeness and the featured bout all work from — and nothing is rendered for it, which `loadBoutFingerprints` enforces once for the queue, the dashboard and the hourly `--stale` run at the same time. The videos panel is the one place it is still **listed**, because it keeps its number on the programme and a bout that simply vanished from that list would read as a video gone missing; it says the bout is off and offers no request. Neither does a bout that is queued or being made: asking again would queue a bout that is already queued and report nothing new.
+
+**Removing a bout renumbers the rest only while the event is unpublished.** Once it is published the numbers are in circulation — on a poster, in a message, in the analytics table — so a deleted bout leaves a gap. That mirrors what happens on a real card when somebody pulls out.
+
+### The bug worth not reintroducing
+
+Invite status was originally derived from `completeness()`: score of zero meant "not opened", anything above meant "opened, unfinished". That read as sensible and was wrong, because a record, an age and a hometown come off the **promoter's own entry form**. The result was twenty-one fighters who had never touched the link all reporting as "opened, unfinished", which erases the only distinction the page exists to draw — the difference between "he looked and bailed" and "he never looked" is the difference between a nudge and a phone call.
+
+`inviteStatus()` now reads the three timestamps on the invite row and nothing else. `lastOpenedAt` is written when the fighter's page actually loads. **Absence is not evidence.** It is worth assuming this class of bug is present anywhere a derived score stands in for a fact.
+
+The nudge message also said "has already sent **his**", on a card with four women's bouts on it. It now says "theirs", and there is a test that fails on any gendered pronoun.
+
+---
+
+## 11. Video rendering: the one thing that is not serverless
+
+Headless Chrome and ffmpeg cannot run on Workers. This is not a limitation to work around, it is a fact to design for, and pretending otherwise would produce a feature that fails on the night.
+
+So rendering is an **out-of-band job** run from a machine that has both, and `render_jobs` is the entire interface between it and the app. The app never produces a video; it queues one and reads back what a runner finished.
+
+```bash
+npm run render -- --slug cage-county-12 --list
+npm run render -- --slug cage-county-12 --bout 15 --publish
+npm run render -- --slug cage-county-12 --stale --publish --remote
+```
+
+[scripts/render-tape.mjs](scripts/render-tape.mjs) reads the running order out of D1, captures 480 frames per bout, streams them into ffmpeg, puts the mp4 in R2 and writes the key into `render_jobs`. It talks to D1 and R2 through wrangler rather than through an API of our own, because anyone who can run it already holds the Cloudflare credentials and a write endpoint on the public site would be a way in for no gain.
+
+**It needs `RENDER_KEY` as well as `CLOUDFLARE_API_TOKEN`.** The capture page it screenshots is not public — section 6c, and [DEPLOY.md](DEPLOY.md#video-rendering) for the operational half. Without the key the script says so before it launches Chrome, along with ffmpeg being absent and Chrome being somewhere other than where it looked. The key now goes out on the capture page's own request and on nothing else: it used to be set with `setExtraHTTPHeaders`, which put a secret that can read any card on the instance, published or not, onto every photograph, font and chunk the page fetched — including anything hosted somewhere that is not ours.
+
+### The row holds two things, and they have to stay apart
+
+`status`, `error`, `attempts` and `lease_until` are the **job** — what a runner is doing about this bout. `current_r2_key` and `current_hash` are the **video** — what the programme plays. Nothing but a successful publish touches the second pair.
+
+That split closes a real hole. One column used to hold both: `loadRenders` returned a key only where the job said `done`, and the script wrote `running` over the row before it opened Chrome. So a promoter re-rendering a bout on the morning of the show blanked it on the live programme until the render finished, and a render that failed blanked it until somebody noticed. **A running or failed job must never take a working video off a card people are reading at a venue.**
+
+### Fingerprints, and the key the video is published under
+
+Each bout carries a hash of everything that ends up on screen, which is what makes a re-run cheap: a fifteen-bout card is about a quarter of an hour of compute and most of the time one fighter has sent one photograph.
+
+The field list is in [lib/renders.ts](lib/renders.ts), and it is imported by **both** the app and the renderer — Node strips the types on the way into a plain `.mjs` script. That is deliberate. The dashboard's "worth remaking" and the renderer's `--stale` are the same question, and two implementations of it would eventually give two answers. `renderFingerprint` refuses an input object that is missing a field or carrying a spare one, so a column added on one side and forgotten on the other fails on the next render rather than leaving every video reading as current forever.
+
+It names the show's name, date, venue, city and backdrop, the promoter's name and mark, the bout, both fighters by `updated_at` plus photograph and cutout, and every sponsor lockup the composition draws. Two of those are worth saying out loud:
+
+- **The photograph and the cutout are named rather than left to `updated_at`**, because a cutout appearing is the most visible change a bout can undergo and it happens inside the renderer's own run, minutes after the row was last touched.
+- **The show's own sponsor strip is deliberately not in it.** `TaleOfTheTape` never reads `showSponsorIds` — the strip belongs to the programme page — so hashing it would make every bout on the card stale for a change that appears in no video. Before this, none of the show, the promoter's mark or the bout's sponsor was hashed at all, so a venue corrected the day before doors left fifteen videos naming the old one and nothing anywhere reported it.
+
+The published key carries the fingerprint: `renders/<slug>/bout-<n>-<hash8>.mp4`. `/media` answers with a year of immutable caching, so a re-render written over a fixed key left every phone that had already played the bout holding last week's video with no way of finding out — the exact state the staleness machinery exists to get out of. The superseded object is deleted after the new one is in, never before, and never for the five renders committed under `public/`.
+
+### Two runners, one bout
+
+There is an hourly job now as well as whoever runs the script, so a bout is taken with a single `INSERT … ON CONFLICT DO UPDATE … WHERE … RETURNING id` that writes `lease_until = now + 15 minutes`. Whichever statement lands second sees the lease and changes nothing. A runner that dies releases its bouts by running out of time rather than by tidying up after itself, which is the only cleanup a killed CI job can be relied on to do.
+
+`RETURNING` rather than `meta.changes`, because **the local Miniflare D1 reports only a duration where the remote one reports counts** — a claim decided on `changes` is won on production and silently lost on every developer's machine.
+
+Two attempts. The failures worth retrying are the transient ones; a bout that fails twice is failing for a reason a third attempt will not fix, and it then sits on the dashboard with what went wrong rather than being retried every hour forever. Asking for it again resets the count.
+
+`enqueueRender` in [lib/db/render-jobs.ts](lib/db/render-jobs.ts) is the app's way in, and the "Render again" button on the dashboard is its only caller so far. **It is not yet wired into the write paths** — the two actions files it belongs in are being rewritten on another branch — and the four places it should be called from are written down in the function's own comment: publishing a show, a questionnaire submission, a bout edit, and an event or sponsor edit.
+
+### It runs on its own now
+
+[.github/workflows/render.yml](.github/workflows/render.yml) renders on the hour against `https://eventiq.win`, for every published show dated within the last two days or later, and can be pointed at one show by hand or by a `repository_dispatch` of type `render`. It needs `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `RENDER_KEY` as repository secrets, which turns section 19's "decide where `RENDER_KEY` lives" from a question about one person's laptop into a question about who can read repository secrets.
+
+[.github/workflows/golden-frames.yml](.github/workflows/golden-frames.yml) captures six frames of the demo main event against a local dev server and compares them with signatures committed under `scripts/goldens/`. The unit suite structurally cannot catch a picture regression: the composition is a pure function of a frame number and every test of it tests the numbers going in, so a stray transition, a font that stopped loading or a layer that now paints behind another one leaves all of them green and the video wrong.
+
+**That comparison is perceptual rather than exact**, and it is not a compromise made to get it passing. FreeType and DirectWrite hint the same glyph at the same size to different pixels, so byte-identical frames across two operating systems were never on offer; signatures generated on a laptop would fail every CI run and the check would be switched off inside a week. Each frame is reduced to a 32x32 grey thumbnail and compared by mean absolute difference, which is blind to a glyph edge moving by a pixel and not at all blind to a scene that has stopped drawing. Two runs on one machine differ by 0.00 and the threshold is 8 of 255. It will not catch a one-pixel regression. It is a smoke test for the picture and it says so.
+
+**No silent audio track.** Some uploaders are said to reject a video with no audio stream; nobody here has confirmed which, and adding a stream on a rumour is how a file grows a property no one can explain. `-shortest -f lavfi -i anullsrc -c:a aac` is one line in `renderBout` if a real upload ever refuses one, and finding out which platform actually does is worth more than the line.
+
+**Before it renders anything it makes the missing cutouts**, via [scripts/cutouts.mjs](scripts/cutouts.mjs). Background removal happens here and nowhere else in the product; section 4 has the reasoning and the fallback that covers the gap between a photograph arriving and the next render. `--no-cutouts` skips the step, `--refresh-cutouts` remakes them all, and `npm run cutouts` runs the step alone.
+
+**Cloudflare Browser Rendering does not solve this.** It can drive a browser; it cannot run ffmpeg. Do not go round that loop again.
+
+**Cloudflare Containers is the likely answer**, and it is a different product. Browser Rendering remains the wrong tool; Containers run arbitrary Docker images, including native ffmpeg binaries. They have been generally available since April 2026, and custom instance types opened to all users in January 2026. One container holding Chrome, ffmpeg and the ONNX background-removal model would put the whole of [scripts/render-tape.mjs](scripts/render-tape.mjs) and [scripts/cutouts.mjs](scripts/cutouts.mjs) on Cloudflare and take the operator's laptop out of the pipeline.
+
+| Instance type | vCPU | Memory | Disk |
+| --- | --- | --- | --- |
+| `lite` | 1/16 | 256 MiB | 2 GB |
+| `basic` | 1/4 | 1 GiB | 4 GB |
+| `standard-1` | 1/2 | 4 GiB | 8 GB |
+| `standard-2` | 1 | 6 GiB | 12 GB |
+| `standard-3` | 2 | 8 GiB | 16 GB |
+| `standard-4` | 4 | 12 GiB | 20 GB |
+
+Custom types have a floor of 1 vCPU and 3 GiB of memory per vCPU, and a ceiling of 4 vCPU / 12 GiB / 20 GB of disk — the same envelope as `standard-4`, which is ample for Chrome at 1080x1920 plus ffmpeg.
+
+It is not a config change. It is a Dockerfile, an image built as part of the deploy, and a queue or Durable Object that invokes it. A few things about that work are load-bearing rather than incidental:
+
+- **Containers need the Workers Paid plan** ($5/month), which includes 375 vCPU-minutes, 25 GiB-hours of memory and 200 GB-hours of disk. CPU is billed on active use only; memory and disk on what you provision. A fifteen-bout card is roughly fifteen minutes of wall time today, so the included allowance plausibly covers a handful of full cards a month. That looks cheap at this volume. The arithmetic wants doing before anyone relies on it; do not treat the included allowance as a measured cost.
+- **A container is not a Worker.** The renderer talks to D1 and R2 through the wrangler CLI, deliberately: anyone who can run it already holds the Cloudflare credentials, and a write endpoint on the public site would be a way in for no gain. A container is a plain HTTP server inside a Linux image. It does not receive D1 and R2 bindings the way a Worker does. The documented path is an outbound handler on the invoking Worker: the container makes a plain HTTP request to a virtual hostname, and the Worker translates it into a binding call. The other option is the D1 and R2 REST APIs with a scoped token. Either way the renderer stops being a script that already holds the keys, and that decision is the substance of the work rather than a detail of it.
+- **The invoking Worker must keep the container alive after it has answered.** The widely reported failure is returning from `fetch` and having Cloudflare terminate the container mid-encode. The Durable Object container API's `monitor()` returns a promise that resolves when the container exits; `ctx.waitUntil(container.monitor())` is what holds the invocation open. For work that will not finish inside a request — a fifteen-bout card will not — the documented pattern is a Queue triggering the container, which reads from R2 and writes back to R2.
+- **This swaps the harness, not the composition.** Section 4 already makes the same point about Remotion. `TaleOfTheTape` stays a pure function of a frame number; Chrome still screenshots `/render/[slug]/[bout]`; ffmpeg still encodes. The thing that moves is where those two binaries run.
+
+Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. What has changed is only that the machine is a GitHub runner on an hourly schedule rather than somebody's laptop when they remember, which removes the operator from the loop without moving the pipeline anywhere. Section 19.
+
+The five mp4s committed under `public/renders/` predate the bucket. The seed records them as finished jobs pointing at those static paths, so they still play — **with the fingerprint of the card being seeded alongside them**, worked out by `boutFingerprints` rather than by a field list of the seed's own. They went in with no `current_hash` at all, which was defensible when nothing could say what they were made from and stopped being so once the seed and the renders were built from the same fixture in the same command: the demo dashboard opened on "Worth remaking" against the five videos the whole pitch is built on. The other ten read as not made yet, because they are not.
+
+---
+
+## 12. Deployment: done
+
+`https://eventiq.win` is a Worker, bound to the D1 database `eventiq` and the R2 bucket `eventiq-media`, with the custom domain attached. `node scripts/deploy.mjs --check` probes each permission the deploy needs and now reports all four present.
+
+The build was held up for a while on **Account · D1 · Edit** being missing from the token, which is worth knowing about because the failure is unhelpful: D1 answers **401**, not 403, so it reads like a bad token rather than a token that is fine but scoped for something else. `--check` exists to say which of the four it actually is. The full permission list is in [DEPLOY.md](DEPLOY.md).
+
+Five things that bit, and will bite again on a fresh account:
+
+1. **Migrations are part of the deploy now.** `npm run deploy` builds, applies any pending D1 migrations and then uploads, in that order, and stops if the migration fails — the Worker going up expects the schema that ships with it, so uploading first means every request in between hits the old tables. It used to be two commands in DEPLOY.md typed in the right order by somebody who remembered.
+2. **The database id has to go into `wrangler.jsonc` and be committed.** `--provision` writes it. It is not a secret — it names a database only this account's tokens can open — but a deploy from a clean checkout binds nothing without it.
+3. **`SESSION_SECRET` and `RENDER_KEY` have to exist before the first deploy.** Without the first the promoter area refuses to serve; without the second nothing can render a video. Neither has a fallback, deliberately, and the second one fails quietly from the outside — the render route just carries on answering 404. `npx wrangler secret list` is the check.
+4. **Reprint the table card now it is live.** The QR reads the origin it is served from, which is deliberate so it works off a laptop in a meeting, but a card printed from localhost is useless at a venue.
+5. **The deployed runtime is not the runtime you tested against.** PBKDF2 above 100,000 iterations works under Node and under the local `wrangler dev` and throws on the edge; that cost this project a 500 in production that no local check could reproduce. When something works everywhere except live, reach for `wrangler dev --remote` before reaching for the logs. Section 6a and [DEPLOY.md](DEPLOY.md#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it).
+
+`npm run e2e` runs the whole walk, and it is honest about what it does to the data — it adds a bout, removes it again, fills in a fighter's profile and uploads a photograph. **It goes at staging** (section 12b). Pointed at production it needs everything it touched putting back afterwards, with a re-seed **and** a delete of the photograph it pushed to R2, which the seed does not clear, and running it against a card a promoter is actually using would be rude.
+
+---
+
+
+## 12a. Reading the logs
+
+Nothing phoned home for the whole of this project's first life. The PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to sign in, and the risk register said so out loud in section 20. What follows is the cheap half of section 19's item 3: every failure now goes through one function, in one shape, to somewhere it can be searched.
+
+**Where it is written.** [lib/log.ts](lib/log.ts) is the only thing in the codebase that reports a failure. It hands `console.error` an object rather than a formatted string, because Workers Logs indexes the top-level keys of a structured log and cannot search inside a sentence:
+
+```
+{ level: "error", event: "addBout", route: "/promoter/e/cage-county-12/card",
+  promoterId: "pr_…", message: "D1_ERROR: …", stack: "…", at: "2026-…" }
+```
+
+`event` is the field to filter on and is named after the action or the boundary that wrote it. The error boundaries write `event: "render"` with the route and the **digest** — in production Next.js replaces a server error's message with a digest before it reaches the browser, so logging the digest from both ends is the only thing that joins the page the promoter was looking at to the server log with the stack in it. It is on the screen too, in small type, so a promoter on the phone can read it out.
+
+**Where to read it.** Cloudflare dashboard → Workers & Pages → **eventiq** → **Logs**. The live tail is that tab with nothing else set; the stored ones are **Workers Logs**, queryable for whatever retention the plan gives. Useful filters, in the order they are usually wanted:
+
+- `$metadata.level = error` — everything this app has reported.
+- `event = createEvent`, and so on — one action, across every promoter.
+- `promoterId = pr_…` — one promoter's afternoon.
+- The **Invocations** view for status codes and CPU time, which is where a 500 that never reached our code shows up. That is what `invocation_logs` in the observability block buys.
+
+From a terminal, `npx wrangler tail eventiq --format pretty` is the same stream and is the fastest way to watch a deploy. `--status error` narrows it.
+
+**What the settings mean.** `head_sampling_rate` is 1 rather than the Cloudflare default. Sampling exists for Workers taking millions of requests; this one takes a few hundred spectators for ninety minutes on the night and one promoter the rest of the time, so sampling would save nothing worth having and would lose the single request that went wrong. Revisit it once a real show has put load through this, not before.
+
+**`/api/health`** answers `{ok, d1, r2}` — 200 when both bindings answer, 503 naming the one that did not — and is deliberately the two cheapest calls that prove anything, because an uptime checker hits it every minute. It says nothing else on purpose: it is unauthenticated by definition, so it must not become a way of finding out what is in the database.
+
+**What this still is not.** Logs are a place to look after somebody has noticed. Nothing pages anyone, and nothing keeps a history beyond the retention window. Two ways out of that, neither taken yet and neither needing a change to a single call site, because everything already goes through `logError`:
+
+- **A Tail Worker.** A second Worker named in a `tail_consumers` binding on this one, handed every log event as an array and free to forward it anywhere — a webhook, a queue, an Analytics Engine dataset for a longer history. It runs outside the request, so nothing it does can slow a page down, and it is the Cloudflare-native answer. One new Worker and four lines of `wrangler.jsonc`; no dependency.
+- **Sentry.** `@sentry/cloudflare` with the DSN as a secret, initialised once in the Worker entry, and `Sentry.captureException` inside `logError`. That buys grouping, release tracking and an alert that reaches a phone, at the cost of a dependency in the bundle and a third party holding stack traces. **Not added now**, and not only for bundle size: an error report can carry a fighter's invite token in a URL, and this project has an open item on consent and a privacy notice (section 19 item 2) that wants settling before stack traces leave the account.
+
+Whichever is chosen, the shape above is the interface. Keep `event` stable — it is what any filter, alert or grouping rule will be written against.
+
+---
+
+## 12b. Staging
+
+`eventiq-staging` is a second Worker with its own D1 database, its own R2 bucket
+and its own secrets, declared as `env.staging` in
+[wrangler.jsonc](wrangler.jsonc). Nothing it does is visible from eventiq.win.
+
+**It exists because the browser suite writes.** For the whole of this project's
+first life the only place to run twenty-five steps of adding bouts and
+submitting fighters was the card the entire pitch is built on, and the mitigation
+was a ritual in DEPLOY.md that somebody had to remember afterwards. A check you
+have to tidy up after is a check that stops being run. It is also where a
+migration or a deploy goes before a promoter's show is behind it.
+
+Three things about the shape of it are deliberate:
+
+- **Every script takes the same `--env`, and without it means production.** The
+  names live in [scripts/environments.mjs](scripts/environments.mjs) rather than
+  as `const DATABASE = "eventiq"` at the top of five files. A flag that has to be
+  passed in order to *reach* production is a flag somebody eventually forgets in
+  the other direction, so the default is the thing that has always been the
+  default.
+- **`scripts/deploy.mjs` refuses to deploy production from a side branch.**
+  Everything is built on branches merged into the working one, often several at
+  once in separate worktrees. It reads the branch, and `--force` is how you say
+  you mean it. Migrations here are additive with no down path, so a production
+  deploy from the wrong worktree is not a rollback away.
+- **`/api/health` says which environment answered**, from a var rather than from
+  the hostname, and the end-to-end workflow asks it before it opens a browser. A
+  staging hostname pointed at the production Worker would pass every check made
+  on a URL.
+
+`.github/workflows/e2e-staging.yml` is `workflow_dispatch` only, takes the
+address from a repository secret, refuses anything under `eventiq.win`, and
+re-seeds staging afterwards. There is deliberately no input that could point it
+at production. Standing the environment up is six commands and is in
+[DEPLOY.md](DEPLOY.md#standing-it-up), and it was stood up on 8 September 2026:
+database, bucket, all fourteen migrations, its own `SESSION_SECRET`,
+`INVITE_KEY` and `RENDER_KEY`, a deploy at
+`https://eventiq-staging.gordonshepherd1.workers.dev` whose `/api/health`
+answers `staging`, and the demo card seeded into it. The first attempt failed,
+because the deploy script's D1 migration calls carried no `--env` and were
+reaching for production's database — the sibling of bug 43, and both are in
+DEPLOY.md's rollout log.
+
+---
+
+## 13. Local development
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, the seed password
+npm run db:reset                   # migrate + seed the local D1
+npm run dev                        # http://localhost:3000
+```
+
+`next dev` gets real local D1 and R2 through `initOpenNextCloudflareForDev()`, so server actions, uploads and counting all work without deploying anything. State lives under `.wrangler/`, which is gitignored.
+
+**`tsc` alone does not typecheck this app.** `PageProps` and `LayoutProps` are globals Next.js writes into `.next/types` during `next typegen`, which `next build` runs for you — so on a clean checkout `tsc --noEmit` reports eight `Cannot find name 'PageProps'` errors in files nobody has touched. That reads as a broken repository and is a missing build step. `npm run typecheck` runs typegen first for exactly this reason; use the script rather than `tsc`.
+
+To exercise the actual Workers runtime rather than Node:
+
+```bash
+npx opennextjs-cloudflare build
+npx wrangler dev --port 8788 --local
+```
+
+**Do not run both at once.** They open the same Miniflare SQLite file and the second writer takes the first one down mid-request, which presents as an unexplained connection refused. That cost half an hour.
+
+**`wrangler d1 execute --local` is a second writer too, and it loses.** Setting up a state to test against — unpublishing a show, planting rows — while `wrangler dev` is running appears to work: the statement reports success and the next read agrees with it. Then the running server flushes its own view of the table back over the top, and the row is as it was. What this looks like from the outside is a page that has started ignoring the database, or worse, a promoter action that silently republished a draft. Stop the server, make the change, start it again. The same goes for `wrangler r2 object put --local`.
+
+`.dev.vars` is the source of truth for local secrets and **wrangler ignores the shell**, so anything outside the Worker that reads the same names has to read that file the same way. [scripts/dev-vars.mjs](scripts/dev-vars.mjs) exists because Node's `process.loadEnvFile` is the wrong way round — it leaves an already-exported variable in place — so with `SEED_PROMOTER_PASSWORD` exported in the shell the seed set one password and the login page expected another. That presents as "the password is wrong" and is not fun to diagnose.
+
+### The database-backed suite
+
+```bash
+npm run test:db
+```
+
+`npm test` is two vitest projects now. The pure one is the derivation layer and runs in two seconds; the second runs the queries, [lib/visibility.ts](lib/visibility.ts) and the promoter's server actions against a **real local D1**, and it exists because three of the worst bugs in section 14 were invisible to a pure test by construction.
+
+**What it can see that nothing else could.** A where clause that reads correctly and selects one row too many — which on an instance with one promoter is every instance this has ever run on. The hundred-parameter cap on a D1 statement, which is why a fighter's submission on the full fifteen-bout card queued no video and said so only in the log. A foreign key that turns out to be the thing actually enforcing an invariant the code merely assumes. And the migration chain applied to a database that already has a show in it, which is the one rehearsal `npm run db:migrate` on a fresh checkout can never be.
+
+**How it is wired.** [tests/db/platform.ts](tests/db/platform.ts) calls `getPlatformProxy()` — wrangler's own Node API — with this project's wrangler.jsonc, `persist: false` and `remoteBindings: false`, and applies `db/migrations` to the database it hands back. `persist: false` is not optional: the default is `.wrangler/state`, which is the development database, and a second writer on that file is the trap this section already warns about twice. Four modules that only exist inside a request are aliased to doubles in tests/db — `lib/db` for the bindings, and `next/headers`, `next/cache`, `next/navigation` — and nothing else is swapped, so signing a promoter in during a test goes through `signIn()` and a real signed cookie.
+
+**Not `@cloudflare/vitest-pool-workers`**, which runs the tests themselves inside workerd. That is the more faithful arrangement and it is also a second runtime to keep working on Windows, a second resolver for the `@/` alias, and an isolate with a workerd behind it per test file. The proxy gives a real D1 and real R2 for one workerd and ordinary Node tests.
+
+**One measurement worth carrying.** A write through the D1 binding costs about forty milliseconds and batching does not help — twenty inserts in one `batch()` cost forty each. The same twenty through `exec()` cost forty for the lot. So the fixtures build their SQL with drizzle and then send it through `exec` with the parameters written in, which is the difference between a suite that runs in ten seconds and one nobody runs.
+
+### The browser walkthrough
+
+```bash
+npm run e2e -- --base http://localhost:8788
+```
+
+[scripts/e2e.mjs](scripts/e2e.mjs) drives 28 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, be refused by a made-up token, sign out.
+
+The unit tests cover the derivation layer, which is pure and therefore easy. This covers the half that is not, and it is the only thing that would catch a form posting to the wrong action or a cookie that never gets set.
+
+Two things it taught, both worth knowing before writing another one: the design sets labels in CSS uppercase, so `innerText` shouts and the source does not; and React ignores a value written straight onto an input, so the test has to go through the prototype setter and fire the event React is listening for.
+
+---
+
+## 14. Bugs found and fixed — do not reintroduce
+
+1. **Live player skipped to the end after ~4 seconds.** It derived the frame from wall-clock time, so when painting a 1080x1920 canvas of masked, shadowed layers fell behind, the frame number ran away instead of playback slowing. **Fix:** where a rendered mp4 exists the page plays that (hardware decoded, identical picture since it came from the same component); the live path caps catch-up at three frames per tick, so a slow device gets slow motion rather than a skip.
+2. **Missing record read as a debut.** Section 8.
+3. **Typing in the questionnaire felt like wading** — every keystroke repainted the whole preview. Fixed with `useDeferredValue`.
+4. **QR card content overflowed on a phone** — the card was locked to the A5 print aspect ratio on screen. Now it grows naturally and A5 is a print stylesheet.
+5. **Raw URL printed under the QR** looked like a debug view. Moved to the page around the card, which is print-hidden.
+6. **Next.js dev badge burned into every video frame.** `devIndicators: false`.
+7. **Names clipped at the frame edges** in the head-to-head, because they were inside overflow-hidden portrait containers. Now rendered at scene level.
+8. **Hook sentences set in Anton** collided and were unreadable. Sentences use Oswald.
+9. **Invite status derived from a score that included promoter-entered fields.** Section 10.
+10. **The chase message assumed a male opponent.** Section 10.
+11. **The chase list was unusable on a phone.** Four elements sharing one wrapping flex row.
+12. **Sponsor names truncated in the dashboard's card list**, so "EventIQ / Digital programmes" read as "DIGITAL PROGRAM…".
+13. **Seeding twice in a row failed** on a primary key collision and left the database half rebuilt. The seed cleared everything scoped to the promoter but not the fighters, because a fighter is not owned by one. There is now a test asserting that every table the seed writes to is cleared first, and cleared in an order the foreign keys allow — the specific row will not be the one that breaks next time.
+14. **The seed and the login page disagreed about the password.** Section 13.
+15. **The importer's user agent linked to a page that did not exist.** It does now.
+16. **Signing in as a promoter who does not exist returned a 500 in production.** To keep an unknown promoter from being distinguishable by timing, the login derives against a decoy hash — and the decoy asked for 600,000 PBKDF2 iterations, which the deployed runtime refuses. So the work meant to hide an unknown promoter was the one thing that announced one. It survived because no local environment enforces the cap: Node does not, and neither does the local `wrangler dev`. The decoy is now generated from `PBKDF2_ITERATIONS` instead of being written out, and the test asserts the number, which is all a Node test can do about a limit Node does not have. Section 6a.
+17. **The repository and production disagreed about the iteration count.** The constant said 600,000, the stored hash said 100,000, and because verification reads the count out of the hash, sign-in worked and the mismatch was invisible. The next re-seed would have minted a hash nothing could verify and locked the owner out of the live site. Whenever `PBKDF2_ITERATIONS` changes, **re-seed**, or the account is left holding a hash from the old regime.
+18. **The demo dashboard lost its urgency.** `daysUntilShow()` had been pinned to a fixed date, which had to go once the database held real shows — but that left the demo card reading "80 DAYS TO GO", and a chase list for a show eighty days out is filing rather than urgency. Fixed by moving the show rather than the clock: the seed dates the demo event a fortnight ahead of seed time. Do not reintroduce a pinned clock; real events must always be measured against the real one.
+19. **An end-to-end run against production left the demo card filled in.** The suite finishes with Chloe Baines submitted and photographed, and she is meant to be the fighter who opened the link and did nothing — that is the case the chase list exists to make. Re-seed after any production run, and delete the photograph it uploaded, which the seed does not touch. See DEPLOY.md.
+20. **Removing a bout orphans its fighters.** A fighter is not owned by a bout, so deleting the bout leaves the two rows behind, and the seed only clears fighters that are on the card — which means the suite's `Test Redcorner` and `Test Bluecorner` survive a re-seed. Nothing displays them, because every screen derives from the running order, so this is untidiness rather than a visible bug. It is listed here because "invisible in the app" and "not in the database" are different states and only one of them is true. The clean-up query, and the count that detects it, are in [DEPLOY.md](DEPLOY.md).
+
+### From the code review and the security review
+
+Six more, found by reviewing the finished thing rather than by using it. Worth reading as a set, because five of the six are the same mistake in different clothes: a check that existed in one place and was assumed to exist everywhere.
+
+21. **An SVG upload was stored cross-site scripting at our own origin.** The upload accepted any declared `image/*`, stored the object under the client's own content type, and `/media` served it back verbatim. Section 6b, which is the fullest account of anything here, because "validate the bytes, not the declaration" is exactly the kind of rule that gets quietly relaxed by somebody adding a format.
+22. **Publishing a show before entering its running order took the front door down for everybody.** The pitch page read `boutsTopDown(card)[0]` and handed it to `TapePlayer`, which reads `bout.number` off it; `/f/demo` reduced the list of corners with no initial value. Both 500ed. Creating a show and publishing it are two clicks apart and typing fifteen bouts in is an afternoon, so this was ordinary use rather than an edge case. **The lesson is not "add a null check".** Both pages now degrade the way the rest of the product does for missing data: the pitch page leaves the video section out entirely, because an empty player next to the argument for one is worse than neither, and the preview says which show it is and that it has no bouts yet. `loadShowcase` also prefers a published show that has bouts, since a promoter entering next month's card gives it the furthest-out date by definition — it stays a preference and not a filter, because if the only published show is empty then that is still the show.
+23. **The printable table card had no publish check at all.** `/e/[slug]/qr` carries the show's name, date, venue and a code straight into it, and anybody holding the slug could print an unpublished one. Both `generateMetadata` functions were worse in a quieter way: they built titles and descriptions off any card that loaded, so a crawler or a link unfurler was handed draft event and fighter names even where the body correctly answered 404. The gate is now one function — [lib/visibility.ts](lib/visibility.ts), `loadVisibleCard` — and getting a card that way is the only way a public page gets one, so the next route cannot leave the check out by omission. **A rule written inline in the one place somebody thought of is a rule three other places are free to forget.**
+24. **A save could leave a fighter with no sponsors.** `saveDraft` deleted the join rows and inserted the new set as two separate statements, and it passed the requested ids straight through. A payload naming a sponsor that does not exist therefore deleted the fighter's real sponsors, failed the foreign key on the insert, and left the profile saved and the sponsor row empty — and the order those placements appear in is the order they were sold in. It is one `db.batch()` now, which D1 runs as a single transaction, and the ids are checked against the promoter's own book first. Letting the foreign key do the checking is what turned an impossible payload into a half-written profile instead of into nothing happening.
+25. **A promoter could blank a fighter's name.** `updateFighter` wrote whatever was in the box, so clearing the field persisted an empty string, which renders as a gap on the public programme and in the video. `updateEvent` had had the answer next to it the whole time — it falls back to the stored value on a blank — which is worth noticing, because the fix was already in the file.
+26. **The open importer could be made to write unbounded rows into D1.** Section 8a, "What stops it being a proxy for anybody who finds it". Two things worth remembering beyond this project: Cloudflare's rate limiting binding counts per location and is documented as best-effort, so a local test cannot show you the live bound; and a burst sent one connection at a time gets a fresh egress address each time and never trips it, which looks exactly like a limiter that was never wired up.
+
+### From the independent audit
+
+Three more, and the first is the most serious thing found in this project so far.
+
+27. **The capture page for the video renderer served unpublished shows to anybody who could guess a slug.** Full account in section 6c. The part worth carrying forward is *why it survived the review that put the publish check in one place*: the route had a legitimate reason not to use the gate — the renderer works on a draft, which is the point of it — and a comment saying so. That comment was true and it was also the end of the thinking. **"This one is different" is where the next hole will be**, so the answer was to give the exception its own rule in the same file as the gate rather than to leave it with none. It is also a reminder that "unlisted" is not a control when the identifier is the promoter's own show name.
+28. **The empty-card copy read as a fault rather than as a state.** Publishing a show before entering its running order stopped crashing (bug 22) but the prose around it was left interpolating the count: "a tale of the tape for all **0 bouts**" on the pitch page, a running order headed "**0 BOUTS**" that still said to tap one, four dashboard figures reading 0/0, and — worst of the lot — a chase list whose empty state congratulated the promoter that "every profile on the card is finished" about a card with nobody on it. **Fixing the crash is not finishing the case.** The count-bearing sentences are in [lib/copy.ts](lib/copy.ts) now, where the zero can be tested, and the programme, the dashboard and the card editor have deliberate empty states in the register `/f/demo` already used. There is a test asserting that no zero-bout string states a count, invites a tap, or breaks the tone rules the nudge message is held to. It also caught a hardcoded "the same fifteen slots you are already selling", which was wrong on every card that is not fifteen bouts long.
+29. **The local dev server redirected every one of its own requests to a port with no https on it.** The http-to-https redirect in [proxy.ts](proxy.ts) keyed on `x-forwarded-proto`, on the reasoning that the header is only present when something is in front of the Worker. `next dev` sets it to `http` on everything it serves, so `npm run dev` answered 308 to `https://localhost:3000` for every page — including the capture page, which is why the renderer could not run against a local dev server either. It is keyed on the hostname now. Worth noticing that this had been true for a while and was invisible, because everything anybody had checked recently was checked against production.
+
+### From closing the photograph-to-video gap
+
+30. **A fighter's photograph never reached their video.** Nothing generated a cutout on upload — background removal existed only in `npm run assets`, run by hand against curated artwork — and the sequence branched on the cutout alone, so a fighter who sent a photograph appeared in the video as though they had sent nothing. The demo looked right only because the cutouts had been prepared in advance. Two fixes, and they are different in kind: the sequence now falls back to the photograph, and the renderer makes the cutouts. Both are in section 4. **What made this survivable for as long as it did is that the seeded card is the one card where every fighter already has a cutout**, so every check of the centrepiece was a check of the one state that was never in question. Anything only ever exercised against the demo data is worth re-checking against a fighter who has just filled the form in.
+31. **The exporter screenshotted before newly mounted images had painted.** Found while proving the above and it had been latent all along: `seek` set the frame and took the picture, which was fine for 480 frames of images that were already in the document and not fine the first time a scene mounted one. The first generated cutout came back correct in R2, served correctly over curl, loaded in a standalone Chrome — and was a blank space in the mp4. It now waits a frame for React to commit, `decode()`s every image in the document, then waits two more frames for the paint. **A pure composition guarantees the same markup per frame; it does not guarantee the pixels are there when you photograph it.**
+
+### From the two waves that followed
+
+Nine more, out of the work that put the renderer on a schedule, the walkthrough on staging, a second promoter in the model and consent in front of the form. As a set they are mostly one shape: something that had only ever been exercised at the size, on the machine, or against the data it was written on.
+
+32. **A fighter's submission queued no videos at all, and said so only in the log.** Anything that changes a bout asks for it to be rendered again, and publishing or editing a card queues the whole running order in one statement. The upsert binds several columns per bout, and **D1 refuses a statement carrying more than 100 bound parameters** — so a fifteen-bout card was over the line and every bout in the batch was rejected together. The fighter saw their profile land on the card exactly as it should; nothing was queued, no screen said so, and the only trace was a line in the Worker log. It queues in tens now. What let it through is that the limit scales with the card and every earlier exercise of that path had been one bout: **a batch that works is not a batch that works at the size a real show is**.
+33. **On Windows, every secret in .dev.vars read as absent.** [scripts/dev-vars.mjs](scripts/dev-vars.mjs) split the file on `\n` and matched each line with a pattern ending in `$` — and in JavaScript, without the `m` flag, `$` asserts the end of the *string*, while `.` will not cross a carriage return. This repository's files are CRLF, so on Windows every line failed to match and the whole file parsed as an empty object. What that looked like was the renderer insisting `RENDER_KEY` was not set with the key sitting in the file it had just named, and the seed quietly ignoring `SEED_PROMOTER_PASSWORD` — the exact confusion that file exists to prevent. It splits on `/\r?\n/` now. **A parser written against one platform's line endings is a parser for one platform.**
+34. **The walkthrough read the address during a redirect, and every step after it had no slug.** A promoter with one show is sent on from `/promoter` to that show, so signing in is two navigations rather than one. The suite waited for the first, read `location`, got `/promoter`, and derived a slug of nothing — after which a dozen steps failed on addresses with `undefined` in them and reported the product broken. It waits for the second hop to land before it reads where it went. **A redirect that exists to be helpful is still a second navigation**, and anything that reads a URL has to say which one it means.
+35. **The config carried two `vars` blocks, and only the last of them would have deployed.** A merge brought a block of variables in beside one that was already there. JSON keeps the last of two identical keys and says nothing about it, wrangler validated the file happily, and everything worked locally because the local server reads .dev.vars instead. It would have gone out as a deploy with half its variables missing. They are one block now. **A duplicated key in a config file is a silent deletion**, and the only reason this one was caught is that somebody read the diff.
+36. **"Copy link" copied nothing, for every fighter on the dashboard.** Invite tokens are kept encrypted (section 6a), so a row has to be decrypted before a link can be built from it. The dashboard was moved onto a batched read to bring eighteen round trips down to four, and the new mapping carried the invite columns across without the decryption the per-row path had been doing. Every token came out empty, so every control that hands a promoter a link handed them an empty string — and copying to a clipboard is the one action in the product with no consequence of its own to look at, so it read exactly like a working button. **A rewrite for speed has to carry the transformations across as well as the columns.**
+37. **The published programme stopped being cacheable everywhere except localhost.** It goes out cacheable only to a reader with no session cookie, so that a promoter's preview of an unpublished show can never be served to a stranger. The rule named the session cookie — and the cookie gains a `__Host-` prefix everywhere that is not localhost, because the prefix requires https. So the check matched in development and matched nothing in production, and signed-in promoters were handed cacheable responses. The name is derived in one place now and the rule asks for it rather than spelling it out. **A cookie whose name changes with the environment is a value, not a literal.**
+38. **The walkthrough typed the values it had typed the run before, and React heard nothing.** The suite fills a fighter's form in and then asserts that the page reported a save. On a second run against the same database every box already held exactly what the suite was about to type, and a controlled input set to the value it already has raises no change — so nothing was saved, nothing was reported, and the step said the form was broken when it was the test that was. One field carries the run's own stamp now. **A test that only passes against a fresh seed is a test somebody will re-seed around**, and the point of this one is that it can be run twice.
+39. **Under memory pressure the dev server answered 500 to everything until it was restarted.** workerd was killed, Miniflare restarted it underneath, and the binding stubs OpenNext had cached went on pointing at the process that had gone — so every D1 and R2 call after that came back from a poisoned stub, on a server that was otherwise up and serving. It presents as the whole product breaking at once with nothing in the diff to explain it, and no amount of reloading recovers it. The fix is a restart; there is nothing to fix in the code. This is **why the dev server must not share a small machine with five others**, and why a page of unexplained 500s is worth checking the server's own log for before the working tree.
+40. **A photograph 404ed in the gap between arriving in the bucket and appearing on a card.** `/media` decides by the card an object hangs off rather than by the key (section 6d), so an object nothing on a card points at is refused, which is the rule doing its job. The upload put the object in the bucket and left the path to the questionnaire's autosave, which lands a second or so later — and in that second the page was showing an image whose address the server would not serve. Closed by having the upload put the path on the fighter itself, beside the object, so the thing that decides what may be read is written first. The shape is worth keeping: **two writes that have to agree are a window in which they do not**, and the one that decides what may be read has to be the one that goes first.
+
+### From making the numbers trustworthy and the bucket tidy
+
+41. **The counting endpoint counted whatever could POST at it.** No credential is possible there, and the shape checks that were in place answer "is this a plausible interaction", not "is this a person". A link unfurled into a group chat, a model crawler reading a public programme and the end-to-end suite filling in a fighter all wrote rows that a promoter would later hand a sponsor. `countableRequest` in lib/track.ts is the other half of the question, and it deliberately guesses the opposite way from `isLinkPreviewBot` — section 9.
+42. **The page that tells a fighter their details were removed could not be reached by anyone whose link had been sealed.** `inviteWasRevoked` matched the plaintext `token` column only, and after the migration in section 6a every row's plaintext is gone: the lookup that opens the form had been taught to match the digest, and the one that explains a revoked link had not. Found by the database-backed tests rather than by anybody using it, which is the argument for them. **Two lookups for the same credential are one rule in two places**; they now match the same way.
+
+### From the production rollout
+
+One, and it is a repeat. Read it beside bug 35, because the interesting part is not the mistake — it is that being caught by somebody reading a diff is not the same as being fixed.
+
+43. **The config carried two `vars` blocks for the second time, and this time it went out.** Same shape as bug 35 exactly: a merge left a second top-level `"vars"` beside the one already there, JSON kept the last of the two and said nothing, and wrangler validated the file without a murmur. What differed is that nobody read the diff. The deploy on 8 September 2026 uploaded a Worker whose only variable was `EVENTIQ_ENV`, so `SHOWCASE_SLUG` was simply absent from production — and an absent showcase slug is a *supported* state (section 6e), which is what made it quiet. Nothing 500ed. The pitch page made its whole argument without a live card, `/qr` answered 404 and the sitemap listed `/` alone, all of which is exactly what the code is meant to do when no show is named, and all of which reads as a design decision rather than as a missing line. It was found by curling `/qr` after the deploy, not by anything that would have said so. A redeploy with one `vars` block put it back. **The fix bug 35 got was a person's attention, and attention is not a fix.** [lib/wrangler-config.test.ts](lib/wrangler-config.test.ts) now parses `wrangler.jsonc` the strict way and fails on a repeated key at any level, which is the thing that could not be forgotten on the third merge. Worth generalising: a config format that silently keeps the last of two keys wants a test, not a convention.
+
+---
+
+## 15. Environment notes
+
+- Node 22, npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
+- Wrangler 4.126.0 and `@opennextjs/cloudflare` 1.20.3, both pinned to exact versions in package.json because they decide what a deploy does. The scripts run the copy in `node_modules` through [scripts/local-bin.mjs](scripts/local-bin.mjs) rather than through `npx`, which on Windows cannot be spawned at all and elsewhere is free to offer a different version.
+- Rendering one bout takes about **60 seconds**. All 15 would be ~15 minutes.
+- `X` display is `:1`, 1920x1200, XFCE, `xdotool` available. Only needed for the sales recording.
+- Videos are encoded at **crf 28**, visually indistinguishable from crf 20 on this material at a third of the size (~1.7MB per 16s clip).
+- **Workers AI is not declared in [wrangler.jsonc](wrangler.jsonc), and that is deliberate.** It is reached by the opt-in stylised portrait (section 6h) and by nothing else. With an `ai` binding in the config, the local dev server's Miniflare re-created its bindings part way through a session and every D1 and R2 call after that came back from a poisoned stub until a restart — bug 39, which took a whole browser walkthrough with it. The action reads `env.AI` and answers "not available here" when it is absent, so nothing else on the site notices. To offer stylised portraits on a deployment, uncomment the binding alongside `STYLISED_PORTRAITS=on` and keep the dev server on a config without it. The same reasoning is written at the binding itself, because that is where somebody about to add it will be looking.
+- `public/` is ~15MB: 2.9MB imagery, five bout mp4s, the 2.8MB walkthrough recording, and ~230KB of gallery screenshots. Watch this. New renders go to R2 now, not into the repository.
+
+## 16. Commands
+
+```bash
+npm run dev                  # next dev, with local D1 and R2
+npm run build                # next build
+npm test                     # 564 unit tests
+npm run lint
+npm run typecheck
+
+npm run db:generate          # migrations from db/schema.ts
+npm run db:migrate           # apply them locally
+npm run db:migrate:remote    # apply them to the live database without a deploy
+npm run db:seed              # the demo card, with fresh invite tokens
+npm run db:reset             # both
+npm run db:migrate-invites   # seal any token still stored in the clear (see DEPLOY.md)
+npm run db:studio -- "select count(*) from fighters"
+
+# The live database. A rewrite rather than an insert, so it wants the flag spelled
+# out and refuses if any promoter but the seeded one is on there.
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
+
+# Promoter accounts. --local by default; --remote for the live database, and
+# neither while a dev server is up. Section 6a, and DEPLOY.md section 5a.
+npm run promoter -- list
+npm run promoter -- create --slug budo --name "BUDO Fight Series" --generate
+npm run promoter -- set-password --slug budo --generate
+npm run promoter -- reset-link --slug budo
+
+npm run db:backup                                   # export the live D1 into R2
+npm run db:restore-rehearsal -- --date 2026-09-07   # load one back and count the rows
+
+npm run preview                          # build for Workers and serve it
+npx opennextjs-cloudflare build
+npx wrangler dev --port 8788 --local     # the real Workers runtime
+npm run e2e -- --base http://localhost:8788
+npm run cf-typegen                       # cloudflare-env.d.ts, when debugging a binding type
+
+npm run assets                                       # curated artwork, from assets-src/
+npm run icons                                        # favicon, apple icon, manifest icons
+
+# Cutouts from fighters' own uploads. Folded into npm run render; alone when you
+# have just collected a run of photographs and want to see which ones worked.
+npm run cutouts -- --slug cage-county-12 --remote
+npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
+
+# The keys the renderer presents. Local by default; --remote for the live
+# database. A key is printed once and stored as a digest. Section 6c.
+npm run render-key -- list
+npm run render-key -- mint --promoter cage-county --label "Ross's laptop" --days 90
+npm run render-key -- mint --label "the hourly runner"    # unscoped: every promoter
+npm run render-key -- revoke --id rk_...
+
+# The retention sweep: fighters past the policy, counting the fold has already
+# summed, and cached record pages over a month old. Dry run unless --apply,
+# because it is the one script here that destroys data on purpose. Section 6g.
+npm run retention
+npm run retention -- --apply
+npm run retention -- --days 90 --remote --apply
+
+# Folding the counting table into a row a day, and removing what it folded. The
+# dashboard's numbers do not move when it runs. Dry run unless --apply. Section 9.
+npm run analytics:rollup
+npm run analytics:rollup -- --apply
+npm run analytics:rollup -- --remote --apply
+
+# Objects in the bucket that no row points at. Never a current render, never
+# anything written in the last day. Dry run unless --apply; --remote wants an R2
+# read token, DEPLOY.md.
+npm run r2:orphans
+npm run r2:orphans -- --remote --apply
+
+# Rendering needs RENDER_KEY: from .dev.vars locally, exported against the
+# deployed site. Whatever is in it — a minted key, or the old secret. Section 6c.
+npm run render -- --slug cage-county-12 --list
+npm run render -- --slug cage-county-12 --bout 15 --still 300   # one PNG, fastest iteration
+npm run render -- --slug cage-county-12 --stale --publish
+
+npm run shots                            # gallery screenshots + the Open Graph card
+node scripts/deploy.mjs --check          # what the token can and cannot do
+npm run deploy -- --dry-run              # that, plus pending migrations and the plan
+npx wrangler secret list                 # SESSION_SECRET and RENDER_KEY, both required
+npm run deploy                           # build, migrate, push the Worker
+npm run e2e -- --base https://eventiq.win --password '...'
+```
+
+---
+
+## 17. The sales recording
+
+Promoter pitches happen over WhatsApp more than in person, so a recording of the flow is a deliverable in its own right. Current cut: **65 seconds, 454x984, 2.5MB**, committed at `public/demo/eventiq-demo.mp4` and playing on the pitch page.
+
+Produced by [scripts/tour.mjs](scripts/tour.mjs) — a scripted walkthrough, not a human clicking around:
+
+```bash
+DISPLAY=:1 node scripts/tour.mjs setup     # chrome-less phone-shaped window
+# start screen recording here
+DISPLAY=:1 node scripts/tour.mjs tour      # ~72s
+# stop recording here
+DISPLAY=:1 node scripts/tour.mjs teardown
+```
+
+Chrome runs in `--app` mode, which removes the tab strip and address bar — the difference between looking like a product and looking like somebody's localhost.
+
+**Hard-won details, all of which cost a re-record:**
+
+- Crop the capture to the window afterwards. Last run: `crop=454:985:719:106`. Re-measure with `xdotool getwindowgeometry`.
+- The VM desktop is XFCE. **Plank (the dock) respawns when killed**, so crop it out rather than fighting it.
+- Minimise any other Chrome window first, or it appears behind.
+- **Park the mouse pointer off screen before playing the video.** In the first attempt the cursor sat over the fighters' faces for sixteen seconds.
+- Click **in-page** (`el.click()` via `page.evaluate`) rather than through puppeteer, which scrolls the element and ruins the framing.
+- Reset the window to a neutral page before recording, or the previous run's final state appears in the opening seconds.
+
+**Verify recordings by watching them.** A browser-driving agent reported the first take as flawless; review found the embedded video skipped after four seconds, developer tools were visible in the opening frame, and the cursor sat over the picture throughout.
+
+The recording predates the rewrite and still shows the demo. **It needs re-recording**, because the flow it shows no longer includes the parts that are now the strongest thing to show: a fighter's entry appearing on the card, and the counts going up.
+
+---
+
+## 18. Open questions for the originator
+
+1. **What does FightIQ.win do?** It is currently a bare wordmark because inventing a description of a real business seemed worse than leaving it blank. A strapline would also even up the sponsor strip.
+2. **Real fighter photographs.** The generated portraits are fine for demonstrating the idea, but a promoter who recognises nobody will notice. A handful of real photos from one local gym would make a named pitch far stronger. Needs the fighters' permission.
+3. **Who else needs a login?** There is one promoter account, created by the seed, and no signup. If a second promoter is coming, several things that are the right size for one operator become cross-tenant problems, and they want deciding before the second account exists rather than as it is created. Section 19.
+4. **Consent wording — the mechanism is built, the decisions are not.** The questionnaire now asks before it collects anything, records what was agreed to and when, refuses under-eighteens, offers removal, sweeps on a retention policy and links a privacy notice. Section 6g. What still needs the originator rather than a commit: **read the wording** in [lib/consent.ts](lib/consent.ts) and the notice at [/privacy](app/privacy/page.tsx) and say whether they are what you want said; **confirm the controller/processor position** drafted in the comment at the top of that page with a lawyer; **decide the lawful basis** for publishing, which is nowhere stated yet; and **confirm 180 days** is the retention you want, since that number is now in front of fighters. Nothing here claims legal review and nothing should start to. Section 19, section 20.
+5. **Music.** Videos are silent by design — no licensing exposure, and Instagram plays muted anyway.
+6. **Commercial model.** Not decided. Candidates: a per-event fee to the promoter; a share of bout sponsorship; or free programme with the post-event sponsor report as the paid upsell. It still shapes what is worth charging for; it no longer decides the first next step, which is a real show (section 19).
+
+---
+
+## 19. What to build next
+
+The previous list was ordered by guessed value per unit of work, and every one of those values is a guess until one real promoter runs one real show through it. **The first item is therefore not a feature.** It is the thing that converts a guessed ordering into a real one, and it cannot be discovered by building. The rest stay ordered roughly by value per unit of work, with the size of the work named where it would otherwise be mistaken for a weekend or for a rewrite.
+
+Deploy is done (section 12) and is no longer on this list.
+
+1. **Get a single real show onto the platform.** Not code. Free if necessary. Until that has happened, every subsequent item is a bet about what a promoter will actually need on the night, and the demo cannot teach it — the demo is invented people, invented gyms, invented sponsors except the three real brands in section 7. A real card will contain the next thing like per-bout sponsors (section 5): a detail that is obvious once you see it and invisible until you do. This is also the one item that cannot be picked up in a fresh session and built. It needs the originator to bring a promoter, and it is blocked by the next item rather than running in parallel with it.
+
+2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** Mostly built, and the rest is not code. The questionnaire asks before it collects anything, stores what was agreed to and at which version, refuses a fighter under eighteen, carries a removal control that clears the profile and the objects behind it, and there is a privacy notice at `/privacy` and a retention sweep at `npm run retention`. Section 6g has all of it. **What is left needs the originator, not a commit**: reading the wording and saying whether it is what you want said, confirming the controller/processor position with a lawyer, deciding the lawful basis for publishing — which is still stated nowhere — and confirming that 180 days is the retention you want, because fighters are now being told that number. Section 18 item 4. Item 1 is no longer blocked on somebody writing the code for this; it is blocked on somebody reading it.
+
+3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. The backup half of this item is now done: `npm run db:backup` exports D1 to a file in R2 and `npm run db:restore-rehearsal` proves one restores, both described in [DEPLOY.md](DEPLOY.md#backups), with the schedule as a cron line rather than a workflow. What is left of this item is the error reporting.
+
+4. ~~**A `cancelled` flag on a published bout.**~~ Done. `bouts.cancelled` and `bouts.cancelled_note`, a "Bout off" control in the card editor, and a struck-through bout on the programme carrying "Withdrawn" and the promoter's reason. It keeps its number, its place in the running order and its sponsor, because deleting it destroys a placement somebody paid for and orphans the analytics rows keyed on that number; and it stops counting in everything that measures how ready the card is, and is never rendered. Section 10. Item 18 below is still the larger product and is still deferred; this was not a foot in that door.
+
+5. ~~**Give the promoter the record importer.**~~ Done. A paste box on each corner of each bout in the card editor, through server actions with the promoter's session rather than through the open endpoint, showing what it would change before it changes anything. One fighter at a time, deliberately: bulk import waits on the terms question, which is still open. Section 8a, and the risk register below.
+
+6. **Make the fighter's share loop deliberate.** Small. [components/sequence/TapePlayer.tsx](components/sequence/TapePlayer.tsx) already has a `DownloadLink` that renders "Download for Instagram" wherever an mp4 exists, so the capability is there and nothing makes the loop happen: no prompt at the moment a fighter submits their form, no promoter handle or event name burned into the video for attribution, and no instrumentation telling anyone whether a single fighter has ever posted one. A fighter posting their own tale of the tape to their followers is how *other* promoters discover the product exists, and the stated motivation for fighters filling the form in at all is sponsors and Instagram. `analytics_events` already records `tape_play`, so measuring a download or a share is a small extension of section 9 rather than new infrastructure.
+
+7. **Re-record the sales demo** against the real thing, including a fighter's entry landing on the card. The committed cut predates the database and no longer shows the strongest thing there is to show. Section 17.
+
+8. **Send the invites.** They are currently copied and pasted. An SMS or WhatsApp integration turns "the promoter chases thirty people by hand" into "the promoter presses a button", and `sentAt` already exists to record it.
+
+9. **An audience scorecard.** A genuine feature — a schema change, a write path that has to resist abuse, and a UI — so it is not small, and it is speculative until item 1 has run. It is also the most promising *new* idea on this list, and it should not sit at the bottom purely for being new.
+
+    It fits what already exists rather than being a new pillar. Spectators are already on the page with their phones out, mid-show, which is the hardest thing to arrange and is already done. The per-visit `sessionId` in `analytics_events` exists to count opens per spectator rather than per reload, and it is the same primitive needed to stop one person scoring a bout fifty times — so the anti-abuse story is largely already there, at the same honest strength. It is a deterrent, not an identity.
+
+    It answers something the tale of the tape structurally cannot. The tape is a reason to care *before* a bout; a scorecard is a reason to look at the page *during* bout four, which is the part of the card the product is weakest on and where a spectator currently has nothing to do.
+
+    It produces the best sponsor-report number the product could have. Section 9 records that the value to a promoter is a report they can hand a sponsor, and taps are a weak proxy for attention. "Eleven hundred scores cast across nine bouts" is a materially better engagement figure than a tap count, and it lands directly in item 10, so the two want sequencing together with the scorecard feeding the report.
+
+    **The risk has to be stated plainly and not buried.** This would be the first feature where the product is *wrong in public*. Every existing failure mode is an absence — a blank profile, a missing photograph, an empty card — and those are handled by degrading gracefully, which is the design principle running through the whole codebase. A crowd scorecard that disagrees with the official decision is a different kind of exposure: it is on a phone, in a room, beside the promoter's own branding and their sponsors' logos, at the moment feelings about a decision are strongest, and amateur decisions are contested routinely.
+
+    The framing is therefore load-bearing rather than cosmetic, and it is a constraint on the work rather than an afterthought: it is the crowd's opinion and it is never a result. Never adjacent to the official outcome in a way that invites comparison, no "the crowd got it right" language anywhere near it, and the promoter should almost certainly be able to switch it off per event — a promoter answerable to a sanctioning body may simply not want it, which is a legitimate position rather than a configuration edge case. This also touches the judgement in item 18. A scorecard is not live judging and needs neither round-by-round timing nor real-time reliability, since a bout can be scored once, after it ends, and that distinction is what keeps it out of the deferred product.
+
+    It is not already here under another name. There is no `votes` or `scores` table. The only spectator write path is [app/api/track/route.ts](app/api/track/route.ts), and its five `kind` values (`programme_open`, `bout_expand`, `tape_play`, `sponsor_tap`, `profile_view`) all record what a spectator did to the page, not an opinion they offered it. The `audiences` array on the pitch page names who benefits; `completeness()` in [lib/tape.ts](lib/tape.ts) measures how much of their profile a fighter has filled in. Neither is a scorecard.
+
+10. **The post-event sponsor report.** The counting is done; what is missing is a one-page thing a promoter can send. Probably the thing promoters would actually pay more for. Item 9 wants to land in this, which is why the two sit together: a report that can quote scores cast is a stronger document than one that can quote taps, and building the report first would mean coming back to it.
+
+11. **The tenancy model, mostly decided.** There is still one promoter account, created by the seed, and no signup. Four things were going to become real problems the moment a second promoter existed; three are now settled and written down where the code is, and this is the design note for the fourth.
+
+    - **The render key is a row, scoped to a promoter.** `render_keys`, migration `0008`, section 6c. The single shared secret that read every card on the instance is still accepted and is now the migration path with an expiry date on it.
+    - **The shop window runs on a named show**, `SHOWCASE_SLUG`, section 6e — rather than on whichever published show has the furthest-out date, which would have put the second promoter's card on EventIQ's front page and in its sitemap with nobody having done anything.
+    - **Slugs stay global, and the collision is suffixed rather than refused.** Section 6f. `cage-county-13-2`, in the slug rather than in the message, so a promoter cannot learn from a refusal that a rival has a show of that name in the diary. The message survives for the one collision that is the promoter's own, where it discloses nothing.
+    - **Fighters stay global.** This is the one that is a decision rather than a change. The `fighters` table is deliberately not owned by an event, because a returning fighter getting "confirm your details" instead of a blank form is the biggest retention hook in the idea (item 12), and a fighter id is a public slug that appears in the address of their profile page and in an Instagram bio. Splitting the table per promoter would break both.
+
+      What makes that safe is that **a fighter row is only ever readable through a card the caller may see**, which is already true and is not a new rule: nothing loads a fighter by id, `loadCard` fetches them for one show, and every public route goes through `loadVisibleCard`. So promoter B holding a fighter id learns nothing from it — the card it hangs off answers 404 for them exactly as it does for a stranger, and there is a test for that in [lib/visibility.test.ts](lib/visibility.test.ts) rather than only a sentence here.
+
+      What is *not* decided, and must not be decided by an implementation detail, is **matching a returning fighter across promoters**. Within one promoter's shows it is a matching problem. Across promoters it is a data-sharing question — does promoter B see the profile promoter A collected, and did the fighter agree to that — and it lands directly on item 2. Until there is consent wording that says so, matching stays within a promoter. Note that the row being global means the plumbing for cross-promoter matching is already there and costs one query to switch on, which is exactly why the decision wants writing down rather than leaving to whoever writes item 12.
+
+    A change-password form is the small piece of code left and is what unblocks a second account; the point that stands is that the form without the decisions above is how a second promoter gets minted into a model that was never designed for them.
+
+12. **Returning fighters.** The schema already keeps fighters across events. What is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. That remains the biggest retention hook in the idea for a single promoter. Matching across promoters waits on item 11, and on the consent in item 2 saying whether a profile may follow a fighter onto somebody else's card.
+
+13. ~~**Cache the public programme for the show window.**~~ Done. `/e/[slug]` and its fighter pages go out with `public, s-maxage=60, stale-while-revalidate=300`, and only for a reader with no session cookie, so a promoter's preview of an unpublished show stays private. `loadCard()` is two round trips rather than six as well. Where that header is set is the interesting part and is written up in [DEPLOY.md](DEPLOY.md#caching-the-programme): a server component cannot set one, middleware's is dropped by the OpenNext adapter, and `next.config.ts` `headers()` works and overrides Next's own `no-cache` — the opposite of what the Next.js documentation promises, which is true on Vercel and not here. What is left is a Cloudflare Cache Rule, because a Worker's own response is not cached by the edge on its own.
+
+14. ~~**An accessibility pass.**~~ Done. axe-core through puppeteer over the pitch page, the programme, a fighter's page, the table card, the questionnaire on both sides of its consent gate, the sign-in, the dashboard and the card editor, plus the source read for the things an automated check cannot see. The palette turned out to be high-contrast where it is loud and not where it is quiet: `--color-ash-dim` carried every hint, placeholder and dashboard caption at 3.36:1 on the ink and 3.06:1 on a panel, and it is 5.11:1 and 4.66:1 now. It is the only token that moved; `--color-ash` was already 7.70:1. The rest is a skip link ahead of a fifteen-bout running order, a focus ring stated once in gold rather than turned off in five input classes, `prefers-reduced-motion` honoured across every animation and transition rather than the two that happened to be named, `aria-expanded` and `aria-controls` on the tale of the tape, a `<main>` on the questionnaire — which had none, so none of a fighter's page sat in a landmark — and record boxes with labels of their own, three of which were announced as "Your record". The one thing that was not merely unlabelled: the control that gets a photograph onto a card was `display: none`, which no keyboard can reach. The video composition needed no exemption, because it carries no CSS motion at all (section 4).
+
+15. ~~**Render on a schedule.**~~ Done: [.github/workflows/render.yml](.github/workflows/render.yml) runs `--stale --publish --remote` on the hour for every published show that has not already happened, and a bout can be queued from the dashboard. A photograph no longer sits unrendered from Thursday to Saturday. It is still Chrome and ffmpeg on a machine that is not Cloudflare — item 17 is what changes that — but the machine is no longer the operator's laptop. Section 11.
+
+16. **Render the remaining ten bouts** rather than five, so no bout in the demo is a dead end.
+
+17. **Put the render pipeline on Cloudflare Containers.** Architectural, not a config change: a Dockerfile, an image built as part of the deploy, and a queue or Durable Object invocation path, plus a decision about how the container talks to D1 and R2. The likely answer to section 11, and the thing that would stop rendering being the one part of the product that is not serverless. Do not confuse it with Browser Rendering, which remains the wrong tool. Because the composition is frame-driven, this swaps the harness and not `TaleOfTheTape` — the same point section 4 already makes about Remotion.
+
+18. **Live on the night** — results as they happen, running order slipping, late replacements. Attractive but a different product with different reliability demands. Do not let it in early. Item 4 is the exception that proves the rule, not a weakening of it: a withdrawn-bout flag is a state on a row that already exists, and it does not require the programme to be correct in the same second as the MC. Item 9 is not this either. A scorecard is scored once, after the bout ends, and needs none of the round-by-round timing or real-time reliability this item would.
+
+### Explicitly out of scope so far
+
+Native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring here means round-by-round judging, not the crowd scorecard in item 9.
+
+---
+
+## 20. Risks worth tracking
+
+- **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
+- **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It now asks first, records what was agreed to and when, refuses under-eighteens, offers removal and sweeps on a retention policy, with a notice at `/privacy` — section 6g. **The lawful basis for publishing is still stated nowhere**, and the controller/processor position is a draft in a source comment that no lawyer has seen. Both are section 19 item 2, and both need the originator rather than a commit. The residual risks are ordinary rather than structural now: a column added to the questionnaire and not added to `clearedFighterColumns` is a field that survives a fighter asking for it to go, and **the retention sweep, the analytics fold and the bucket sweep are three commands nobody has scheduled** — the same shape of gap as the backup below, and the cron lines for all of them are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps).
+- **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
+- **So is the render key, and it is now per promoter.** It used to be one shared secret held by whatever machine rendered the videos, and anybody holding it could read any card on the instance, published or not. Keys are rows in `render_keys` now, scoped to a promoter, expiring and revocable — section 6c. Two things are left of the risk. The runner's key is unscoped by necessity, because the hourly job renders whatever is queued, so it is still a credential that reads every draft on the instance and it lives in repository secrets: anyone who can read those, or push a workflow that echoes them, holds it. And **the `RENDER_KEY` secret is still accepted**, which means the old cross-tenant credential exists until somebody mints a runner key and runs `wrangler secret delete RENDER_KEY`. That is the one piece of this that is a chore rather than a decision, and it is not done. Rotation costs nothing else: nothing but the renderer reads it.
+- **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.
+- **Image rights.** Fighters' photos need permission to publish, including on sponsor-branded video. That permission is now asked for in the consent text, in those terms — the sponsors' line is there because it is the part a fighter is least likely to have guessed. The stylised portrait is a second question with a second tick, and generated art is never what a fighter gets for sending a picture and saying nothing. Sections 6g and 6h.
+- **Sherdog's terms.** `robots.txt` permits crawling, but that is not a licence. Read the terms before this is commercial. The importer is deliberately built to be defensible — one page, on request, cached, identified — but that is a posture, not permission.
+- **Remotion licensing** if the render harness is ever swapped. Section 4.
+- **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
+- **Nothing tells anybody a failure has happened.** Every failure is written in one shape now and is searchable in the Cloudflare dashboard (section 12a), and `/api/health` says whether D1 and R2 are answering. That is the half of section 19's item 3 that needed no decision. The half that is left is the one that matters on show night: nothing pages anyone, so if the promoter's dashboard returns a 500 at first bell it is still true that nobody finds out until somebody looks. Section 14 records this exact class of thing — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. Section 12a has the two routes to alerting and why neither is taken yet.
+- **Backups exist now and are only as good as the schedule nobody has set.** `npm run db:backup` exports D1 to a plain .sql file in R2 and `npm run db:restore-rehearsal` proves one restores — D1's own time travel is 30 days, lives in the same account and cannot be inspected without restoring, which is a recovery mechanism rather than a backup. Two things about this stay risks. The bucket is in the same Cloudflare account as the database, so it covers a bad migration and not a lost account; `--out` on a machine somebody controls is the other half and is a habit rather than a mechanism. And nothing runs it: the cron line is in [DEPLOY.md](DEPLOY.md#scheduling-it), and until somebody installs it the capability is not the same as the backup. Check the bucket, not the schedule.
+- **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
+- **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
+- **The demo card is a live database, not a fixture.** Anything run against production edits the card the pitch depends on. The end-to-end suite was the worst of that and now has staging to do it in (section 12b), which is a mitigation only once somebody has actually stood staging up. Everything else — a `wrangler d1 execute` typed to check something, a re-seed — is still a person and a terminal, and still wants putting back afterwards.
+- **A crowd scorecard that is wrong in public.** Not built yet. Every existing failure mode is an absence and degrades; a score that disagrees with the official decision is a different kind of exposure. Section 19 item 9 is the constraint. Do not ship it without the framing.

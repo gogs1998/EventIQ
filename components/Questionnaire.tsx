@@ -1,0 +1,1303 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Stage } from "@/components/sequence/Stage";
+import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
+import { SCENES } from "@/components/sequence/timeline";
+import { SponsorLockup } from "@/components/SponsorLockup";
+import { TapeTable } from "@/components/TapeTable";
+import type { ActionResult } from "@/lib/action-result";
+import { FPS } from "@/lib/anim";
+import { CONSENT_TEXT, CONSENT_VERSION, oldEnough } from "@/lib/consent";
+import {
+  ACTION_ERRORS,
+  CONSENT_GIVEN,
+  PRIVACY,
+  REMOVAL,
+  STYLISED,
+  UNDER_AGE,
+} from "@/lib/copy";
+import { cx } from "@/lib/cx";
+import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
+import {
+  STANCES,
+  STYLE_OPTIONS,
+  type Draft,
+  draftFromFighter,
+  fighterFromDraft,
+  num,
+} from "@/lib/questionnaire";
+import type { Card } from "@/lib/card";
+import { buildTape, completeness, firstName, lastName, stated, tapeGapsBehind } from "@/lib/tape";
+import type { Bout, Fighter, Stance } from "@/lib/types";
+
+/**
+ * The fighter's side of the product.
+ *
+ * The order of the questions is the argument: the parts that flatter a fighter
+ * come first and the tape measurements come last, because a form that opens with
+ * "reach in centimetres" does not get finished. Everything is saved as it is
+ * typed, so leaving halfway through and coming back a week later picks up where
+ * it stopped, which is how these actually get filled in.
+ */
+
+export type QuestionnaireProps = {
+  /** The show, so the preview card is the real one rather than an approximation. */
+  card: Card;
+  bout: Bout;
+  opponent: Fighter;
+  fighter: Fighter;
+  /**
+   * A preview saves nothing. It exists so a promoter can see exactly what lands
+   * in their fighters' hands without editing a real fighter's profile, and it
+   * says so on the page rather than quietly discarding the typing.
+   */
+  mode: "live" | "preview";
+  /**
+   * Server actions, already bound to the invite token by the page. The token
+   * never reaches this component, so nothing here can be persuaded to write to
+   * a different fighter.
+   */
+  save?: (draft: Draft) => Promise<ActionResult<{ savedAt: number; consentOnly?: boolean }>>;
+  submit?: (draft: Draft) => Promise<ActionResult>;
+  upload?: (form: FormData) => Promise<ActionResult<{ path: string }>>;
+  alreadySubmitted?: boolean;
+  /**
+   * What the invite already says about consent. Absent in a preview, and absent
+   * on a fighter who has not been asked yet, which are the same thing to this
+   * component: it shows the notice and waits.
+   */
+  consent?: { at?: number; version?: string };
+  /** Withdrawing it. Its own action file, because it is the other half of consent. */
+  remove?: () => Promise<ActionResult>;
+  /**
+   * The opt-in stylised portrait, where a deployment offers one. Absent means
+   * the control is not drawn at all, rather than drawn and always refusing.
+   */
+  stylised?: {
+    make: () => Promise<ActionResult<{ path: string; preview: string }>>;
+    approve: (path: string) => Promise<ActionResult>;
+    discard: (path: string) => Promise<ActionResult>;
+  };
+};
+
+/** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
+const AUTOSAVE_DELAY_MS = 1200;
+
+async function downscale(file: File, max = 1000): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  // Done in the browser so a fighter on a phone uploads a few hundred kilobytes
+  // rather than the eight megapixels their camera produced.
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Could not read that image"))),
+      "image/jpeg",
+      0.86,
+    ),
+  );
+}
+
+function Field({
+  label,
+  hint,
+  from,
+  group,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  /** Where an imported value came from, shown until the fighter edits it. */
+  from?: string;
+  /**
+   * Set where the field holds several controls, or none. A `<label>` names one
+   * control and one only, so three record boxes inside a single one told a
+   * screen reader that "Lost" and "Drawn" were both called "Your record", and a
+   * row of style buttons was a label attached to nothing. A group is named
+   * instead, and whatever is inside it carries its own labels.
+   */
+  group?: boolean;
+  children: React.ReactNode;
+}) {
+  const body = (
+    <>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="label">{label}</span>
+        {from ? (
+          <span className="border-gold/40 text-gold whitespace-nowrap border px-1.5 py-0.5 font-mono text-[0.45rem] uppercase tracking-[0.16em]">
+            From {from}
+          </span>
+        ) : null}
+      </span>
+      {hint ? <span className="text-ash-dim mt-1 block text-[0.7rem]">{hint}</span> : null}
+      <div className="mt-1.5">{children}</div>
+    </>
+  );
+
+  if (group) {
+    return (
+      <div role="group" aria-label={label} className="block">
+        {body}
+      </div>
+    );
+  }
+  return <label className="block">{body}</label>;
+}
+
+/** One box inside a Field group, with a name of its own. */
+function Box({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-ash-dim mb-1 block font-mono text-[0.55rem] uppercase tracking-[0.2em]">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputClass =
+  "w-full bg-panel border border-hairline px-3 py-2.5 text-chalk text-sm focus:border-chalk/40 transition-colors placeholder:text-ash-dim";
+
+function Section({
+  step,
+  title,
+  blurb,
+  children,
+}: {
+  step: string;
+  title: string;
+  blurb: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-hairline border-t pt-6">
+      <div className="flex items-baseline gap-3">
+        <span className="display text-ash-dim text-2xl">{step}</span>
+        <h2 className="display text-chalk text-xl">{title}</h2>
+      </div>
+      <p className="text-ash mt-1.5 text-xs leading-relaxed">{blurb}</p>
+      <div className="mt-5 grid gap-5">{children}</div>
+    </section>
+  );
+}
+
+type PreviewMode = "card" | "tape";
+type SaveState = "idle" | "saving" | "saved" | "failed";
+type ImportStatus = "idle" | "loading" | "error" | "done";
+
+/** Which import group each form field belongs to, for clearing the badge. */
+const IMPORT_FIELD_OF: Partial<Record<keyof Draft, string>> = {
+  age: "age",
+  heightCm: "height",
+  hometown: "hometown",
+  w: "record",
+  l: "record",
+  d: "record",
+  ko: "finishes",
+  sub: "finishes",
+};
+
+export function Questionnaire({
+  card,
+  bout,
+  opponent,
+  fighter: base,
+  mode,
+  save,
+  submit,
+  upload,
+  alreadySubmitted = false,
+  consent,
+  remove,
+  stylised,
+}: QuestionnaireProps) {
+  const eventName = card.event.name;
+  const sponsors = Object.values(card.sponsors);
+  // A consent given against wording that has since changed is not a consent to
+  // the wording on the screen, so the box comes back unticked and says why.
+  const consentStale = !!consent?.at && consent.version !== CONSENT_VERSION;
+  const [draft, setDraft] = useState<Draft>(() =>
+    draftFromFighter(base, !!consent?.at && !consentStale),
+  );
+  const [submitted, setSubmitted] = useState(alreadySubmitted);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  // What the action said, where it said anything. Null falls back to the line
+  // about signal, which is the honest answer to a request that never arrived.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("card");
+  const [frame, setFrame] = useState(SCENES.blue.start + 84);
+  const [importUrl, setImportUrl] = useState("");
+  const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
+  const [importOutcome, setImportOutcome] = useState<ImportOutcome | null>(null);
+  const [importedKeys, setImportedKeys] = useState<Set<string>>(new Set());
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const raf = useRef<number | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<Draft | null>(null);
+
+  const [removing, setRemoving] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const [artOptIn, setArtOptIn] = useState(false);
+  const [artPath, setArtPath] = useState<string | null>(base.stylised ?? null);
+  const [artPreview, setArtPreview] = useState<string | null>(null);
+  const [artState, setArtState] = useState<"idle" | "making" | "ready" | "approved">(
+    base.stylised ? "approved" : "idle",
+  );
+  const [artError, setArtError] = useState<string | null>(null);
+
+  // The age is asked before anything else because a fighter under the minimum is
+  // not asked anything else at all, and the tick is what opens the rest of it.
+  const tooYoung = oldEnough(num(draft.age)) === false;
+  const open = draft.consented && !tooYoung;
+
+  const flush = useCallback(async () => {
+    if (!save || !pending.current) return;
+    setSaveState("saving");
+    // Twice at most. The first save of a freshly ticked form writes the consent
+    // on its own and nothing else, so the answers in the same draft go in on the
+    // one straight after it rather than waiting for the next keystroke.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Annotated, because the loop both reads and writes this ref and the
+      // inferred type would otherwise depend on itself.
+      const toSave: Draft | null = pending.current;
+      if (!toSave) return;
+      pending.current = null;
+      try {
+        const result = await save(toSave);
+        if (!result.ok) {
+          // The action answered and refused — a regenerated link is the
+          // likeliest — so it has a sentence of its own worth more than the
+          // general one.
+          setSaveError(result.error);
+          setSaveState("failed");
+          return;
+        }
+        if (result.consentOnly) {
+          pending.current = toSave;
+          continue;
+        }
+        setSaveState("saved");
+        setSaveError(null);
+        return;
+      } catch {
+        // A request that never arrived has no sentence of its own. Either way the
+        // draft stays exactly as it is in the boxes: telling somebody their typing
+        // has not saved is far better than a silent loss they find on the night.
+        setSaveError(null);
+        setSaveState("failed");
+        return;
+      }
+    }
+    setSaveState("saved");
+    setSaveError(null);
+  }, [save]);
+
+  const queueSave = useCallback(
+    (next: Draft) => {
+      if (!save) return;
+      // Nothing at all goes out before the tick, and nothing goes out while the
+      // age on the form is under the minimum — including the age itself. The
+      // server refuses both as well; this is what stops a fighter watching the
+      // form report a failure at every keystroke of a question they have not
+      // been allowed to answer yet.
+      if (!next.consented || oldEnough(num(next.age)) === false) return;
+      pending.current = next;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
+    },
+    [flush, save],
+  );
+
+  // A fighter who fills in one box and closes the tab has still told us
+  // something, so the pending save goes out rather than being dropped.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [flush]);
+
+  const update = useCallback(
+    (change: (current: Draft) => Draft) => {
+      setDraft((current) => {
+        const next = change(current);
+        queueSave(next);
+        return next;
+      });
+    },
+    [queueSave],
+  );
+
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
+    update((current) => ({ ...current, [key]: value }));
+    // Once they touch a field it is theirs, so the import badge comes off.
+    setImportedKeys((keys) => {
+      if (!keys.size) return keys;
+      const next = new Set(keys);
+      next.delete(IMPORT_FIELD_OF[key] ?? "");
+      return next;
+    });
+  };
+
+  const toggle = (key: "styleTags" | "sponsorIds", value: string, limit = 99) =>
+    update((current) => {
+      const list = current[key];
+      if (list.includes(value)) return { ...current, [key]: list.filter((v) => v !== value) };
+      if (list.length >= limit) return current;
+      return { ...current, [key]: [...list, value] };
+    });
+
+  const runImport = async () => {
+    setImportStatus("loading");
+    // The show goes with it so the importer's hourly ceiling is counted per
+    // card. It is not a credential: this endpoint takes none, deliberately.
+    const outcome = await lookupTape(importUrl, card.event.slug);
+    setImportOutcome(outcome);
+
+    if (!outcome.ok) {
+      setImportStatus("error");
+      return;
+    }
+
+    const filled = new Set<string>();
+    update((current) => {
+      const next = { ...current };
+      // Only fills blanks. Anything they have already answered themselves wins.
+      const put = (key: keyof Draft, value: string | undefined, group: string) => {
+        if (value === undefined || next[key] !== "") return;
+        next[key] = value as never;
+        filled.add(group);
+      };
+
+      const { tape } = outcome;
+      put("nickname", tape.nickname, "nickname");
+      put("age", tape.age?.toString(), "age");
+      put("heightCm", tape.heightCm?.toString(), "height");
+      put("hometown", tape.hometown, "hometown");
+      put("w", tape.record?.w.toString(), "record");
+      put("l", tape.record?.l.toString(), "record");
+      put("d", tape.record?.d.toString(), "record");
+      put("ko", tape.finishes?.ko.toString(), "finishes");
+      put("sub", tape.finishes?.sub.toString(), "finishes");
+      return next;
+    });
+
+    setImportedKeys(filled);
+    setImportStatus("done");
+  };
+
+  const onPhoto = async (file: File) => {
+    setPhotoError(null);
+    try {
+      const blob = await downscale(file);
+      if (!upload) {
+        // Preview mode: show it locally so the card fills in, but nothing leaves
+        // the browser and nothing is stored.
+        update((current) => ({ ...current, photo: URL.createObjectURL(blob) }));
+        return;
+      }
+      const form = new FormData();
+      form.set("photo", new File([blob], "photo.jpg", { type: "image/jpeg" }));
+      const result = await upload(form);
+      if (!result.ok) {
+        // The action knows which of the three it was — wrong sort of file, too
+        // big, or nothing the fighter can do — and they have different answers.
+        setPhotoError(result.error);
+        return;
+      }
+      update((current) => ({ ...current, photo: result.path }));
+      // The drawing was of the previous photograph, so it goes with it — the
+      // same rule the stored column is held to in lib/questionnaire.ts.
+      setArtState("idle");
+      setArtPath(null);
+      setArtPreview(null);
+    } catch {
+      setPhotoError(ACTION_ERRORS.photoNotStored);
+    }
+  };
+
+  const makeArt = async () => {
+    if (!stylised) return;
+    setArtError(null);
+    // A second attempt throws the first away rather than leaving it in the
+    // bucket with nothing pointing at it.
+    if (artPath && artState === "ready") await stylised.discard(artPath).catch(() => {});
+    setArtState("making");
+    try {
+      const result = await stylised.make();
+      if (!result.ok) {
+        setArtError(result.error);
+        setArtState("idle");
+        return;
+      }
+      setArtPath(result.path);
+      setArtPreview(result.preview);
+      setArtState("ready");
+    } catch {
+      setArtError(ACTION_ERRORS.portraitNotMade);
+      setArtState("idle");
+    }
+  };
+
+  const approveArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.approve(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtState("approved");
+  };
+
+  const discardArt = async () => {
+    if (!stylised || !artPath) return;
+    setArtError(null);
+    const result = await stylised.discard(artPath).catch(() => null);
+    if (!result?.ok) {
+      setArtError(result?.error ?? ACTION_ERRORS.portraitNotMade);
+      return;
+    }
+    setArtPath(null);
+    setArtPreview(null);
+    setArtState("idle");
+  };
+
+  const removeDetails = async () => {
+    if (!remove) return;
+    setRemoveError(null);
+    const result = await remove().catch(() => null);
+    if (!result?.ok) {
+      setRemoveError(result?.error ?? ACTION_ERRORS.detailsNotRemoved);
+      return;
+    }
+    // Nothing is refetched: the link this page was opened with no longer opens
+    // anything, so the panel is the whole of what is left to show.
+    setRemoved(true);
+  };
+
+  // Repainting the full 1080x1920 preview on every keystroke makes typing feel
+  // sticky, so the preview trails the input by a frame or two instead.
+  const settled = useDeferredValue(draft);
+  // A drawing that has been made but not approved is shown on the card anyway,
+  // because judging it anywhere else is judging it out of the frame it would go
+  // in. Nothing is published until approve is pressed, and the panel says so.
+  const artOnCard =
+    artState === "ready" || artState === "approved" ? (artPreview ?? artPath) : null;
+  const fighter = useMemo(
+    () => ({ ...fighterFromDraft(base, settled), stylised: artOnCard ?? undefined }),
+    [base, settled, artOnCard],
+  );
+
+  const { score, missing } = completeness(fighter);
+  const behind = tapeGapsBehind(fighter, opponent);
+  const tapeRows = buildTape(opponent, fighter);
+  const importedTape = importOutcome?.ok ? importOutcome.tape : null;
+  const sourceLabel = importedTape ? SOURCE_LABEL[importedTape.source] : undefined;
+
+  const playReveal = () => {
+    if (raf.current !== null) cancelAnimationFrame(raf.current);
+    const { start, end } = SCENES.blue;
+    const frameMs = 1000 / FPS;
+    let current = start;
+    let last = performance.now();
+
+    const step = (now: number) => {
+      // Capped catch-up, so a slow device plays this slowly rather than jumping.
+      const dropped = Math.floor((now - last) / frameMs);
+      if (dropped > 0) {
+        last += dropped * frameMs;
+        current += Math.min(dropped, 3);
+        if (current >= end) {
+          setFrame(start + 84);
+          raf.current = null;
+          return;
+        }
+        setFrame(current);
+      }
+      raf.current = requestAnimationFrame(step);
+    };
+
+    raf.current = requestAnimationFrame(step);
+  };
+
+  const onSubmit = async () => {
+    if (!submit) {
+      setSubmitted(true);
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    pending.current = draft;
+    await flush();
+    setSubmitError(null);
+
+    let result: ActionResult;
+    try {
+      result = await submit(draft);
+    } catch {
+      result = { ok: false, error: ACTION_ERRORS.autosaveOffline };
+    }
+    if (!result.ok) {
+      // Not marked finished, because it is not: the form stays open with
+      // everything in it rather than showing a fighter a card they are not on.
+      setSubmitError(result.error);
+      return;
+    }
+    setSubmitted(true);
+  };
+
+  // Everything else is gone, including the link that opened this page, so the
+  // form is replaced rather than left on screen with empty boxes in it.
+  if (removed) {
+    return (
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl px-5 py-24">
+        <h1 className="display text-3xl">{REMOVAL.done.heading}</h1>
+        <p className="text-ash mt-4 text-sm leading-relaxed">{REMOVAL.done.body}</p>
+        <Link href="/privacy" className="label hover:text-chalk mt-6 inline-block">
+          {PRIVACY.link}
+        </Link>
+      </main>
+    );
+  }
+
+  return (
+    // The form is the whole of this page, so it is the page's landmark too. It
+    // was a bare div, which left a fighter reading it with a screen reader on a
+    // document where none of the content sat inside a region.
+    <main
+      id="main"
+      tabIndex={-1}
+      className="mx-auto grid w-full max-w-5xl gap-8 px-4 pb-28 pt-8 lg:grid-cols-[minmax(0,340px)_1fr] lg:gap-12"
+    >
+      {/* ------------------------------------------------------- preview */}
+      <div ref={previewRef} className="lg:sticky lg:top-8 lg:self-start">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="label">What the room sees</span>
+          <div className="flex items-center gap-1">
+            {(
+              [
+                ["card", "Your card"],
+                ["tape", "The tape"],
+              ] as const
+            ).map(([value, text]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPreviewMode(value)}
+                className={cx(
+                  "border px-2 py-1 font-mono text-[0.55rem] uppercase tracking-[0.14em] transition-colors",
+                  previewMode === value
+                    ? "border-chalk bg-chalk text-ink"
+                    : "border-hairline text-ash hover:border-chalk/30",
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {previewMode === "card" ? (
+          <>
+            <div className="border-hairline mx-auto max-w-[300px] border lg:max-w-none">
+              <Stage>
+                <TaleOfTheTape
+                  card={card}
+                  bout={bout}
+                  frame={Math.round(frame)}
+                  red={opponent}
+                  blue={fighter}
+                />
+              </Stage>
+            </div>
+            <button
+              type="button"
+              onClick={playReveal}
+              className="border-hairline hover:border-chalk/40 label mt-2 w-full border py-2 transition-colors"
+            >
+              Play your walkout
+            </button>
+          </>
+        ) : (
+          <div>
+            <div className="border-hairline grid grid-cols-[1fr_auto_1fr] items-end border-b pb-2">
+              <span className="text-red-corner-hot display truncate text-right text-sm">
+                {lastName(opponent)}
+              </span>
+              <span className="label px-3">vs</span>
+              <span className="text-blue-corner-hot display truncate text-sm">You</span>
+            </div>
+            <TapeTable rows={tapeRows} />
+            <p className="text-ash-dim mt-3 text-[0.7rem] leading-relaxed">
+              This is your bout on the programme. Every box you fill in replaces a dash
+              on your side of it.
+            </p>
+          </div>
+        )}
+
+        {behind.length ? (
+          <div className="border-red-corner/40 bg-red-corner/5 mt-4 border p-3">
+            <p className="text-chalk text-xs leading-relaxed">
+              {firstName(opponent)} has already answered{" "}
+              <span className="tnum display text-base">{behind.length}</span>{" "}
+              {behind.length === 1 ? "line" : "lines"} of the tape:{" "}
+              {behind.join(", ").toLowerCase()}. Add yours and the two of you go up side
+              by side, line for line.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <span className="label">Profile</span>
+            <span className="tnum display text-chalk text-lg">{score}%</span>
+          </div>
+          <div className="bg-panel h-1.5 w-full overflow-hidden">
+            <div
+              className="bg-red-corner h-full transition-all duration-500"
+              style={{ width: `${score}%` }}
+            />
+          </div>
+          {missing.length ? (
+            <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+              Still to come: {missing.join(", ").toLowerCase()}.
+            </p>
+          ) : (
+            <p className="text-gold mt-2 text-[0.7rem]">
+              Finished. This is exactly how you go out.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ---------------------------------------------------------- form */}
+      <div>
+        <header>
+          <span className="label">{eventName}</span>
+          <h1 className="display mt-2 text-4xl">
+            {base.name}, you&rsquo;re on bout {bout.number}
+          </h1>
+          <p className="text-ash mt-3 text-sm leading-relaxed">
+            {/* The gym is named only where somebody has given one: a card typed
+                in this morning carries a placeholder there. */}
+            You&rsquo;re fighting {opponent.name}
+            {stated(opponent.gym) ? ` out of ${stated(opponent.gym)}` : ""}. Fill this in and
+            you get the card above, on the screen of everyone in the building, plus the
+            video to post. It saves as you go.
+          </p>
+          {mode === "live" ? (
+            // Announced rather than only shown: on a phone this line is the only
+            // thing that says whether a car park's worth of typing has landed.
+            <p
+              role="status"
+              aria-live="polite"
+              className={cx(
+                "mt-3 font-mono text-[0.55rem] uppercase tracking-[0.16em]",
+                saveState === "failed" ? "text-red-corner-hot" : "text-ash-dim",
+              )}
+            >
+              {saveState === "saving"
+                ? "Saving…"
+                : saveState === "saved"
+                  ? "Saved"
+                  : saveState === "failed"
+                    ? (saveError ?? ACTION_ERRORS.autosaveOffline)
+                    : "Saves as you go"}
+            </p>
+          ) : null}
+        </header>
+
+        <div className="mt-8 grid gap-8">
+          {/* Before any field. The notice, the age, then the tick — in that
+              order, because a fighter under the minimum is asked nothing else
+              and nothing they type reaches the database until the box is on. */}
+          <section className="border-hairline bg-panel/40 border p-4 sm:p-5">
+            <h2 className="display text-chalk text-xl">{CONSENT_TEXT.heading}</h2>
+            <p className="text-ash mt-2 text-xs leading-relaxed">{CONSENT_TEXT.intro}</p>
+
+            <dl className="mt-4 grid gap-3">
+              {CONSENT_TEXT.points.map((point) => (
+                <div key={point.label}>
+                  <dt className="label">{point.label}</dt>
+                  <dd className="text-ash mt-1 text-xs leading-relaxed">{point.body}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <Link
+              href="/privacy"
+              className="text-ash-dim hover:text-chalk mt-3 inline-block text-[0.7rem] underline transition-colors"
+            >
+              {CONSENT_TEXT.privacyLink}
+            </Link>
+
+            <div className="border-hairline mt-5 border-t pt-4">
+              <Field
+                label={CONSENT_TEXT.age.label}
+                hint={CONSENT_TEXT.age.hint}
+                from={importedKeys.has("age") ? sourceLabel : undefined}
+              >
+                <input
+                  id="consent-age"
+                  className={cx(inputClass, "max-w-28")}
+                  inputMode="numeric"
+                  value={draft.age}
+                  onChange={(e) => set("age", e.target.value)}
+                  placeholder="22"
+                />
+              </Field>
+            </div>
+
+            {tooYoung ? (
+              <div className="border-hairline mt-4 border-t pt-4">
+                <h3 className="display text-chalk text-lg">{UNDER_AGE.heading}</h3>
+                <p className="text-ash mt-2 text-xs leading-relaxed">{UNDER_AGE.body}</p>
+              </div>
+            ) : (
+              <div className="border-hairline mt-4 border-t pt-4">
+                {consentStale ? (
+                  <p className="text-gold mb-3 text-xs leading-relaxed">{CONSENT_GIVEN.changed}</p>
+                ) : null}
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    id="consent"
+                    type="checkbox"
+                    checked={draft.consented}
+                    onChange={(e) => set("consented", e.target.checked)}
+                    className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                  />
+                  <span className="text-chalk text-xs leading-relaxed">{CONSENT_TEXT.tick}</span>
+                </label>
+                {consent?.at && draft.consented && !consentStale ? (
+                  <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                    {CONSENT_GIVEN.body}
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </section>
+
+          {open ? (
+            <>
+          <Section
+            step="01"
+            title="The bit people read"
+            blurb="This is what goes under your name when you walk out."
+          >
+            <Field label="Nickname" hint="Goes on the card in gold. Leave it if you haven't got one.">
+              <input
+                className={inputClass}
+                value={draft.nickname}
+                onChange={(e) => set("nickname", e.target.value)}
+                placeholder="The Welsh Dragon"
+              />
+            </Field>
+
+            <Field
+              group
+              label="Photo"
+              hint="We cut the background out for you. A plain wall and decent light is all it takes."
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                {/* The ring is on the label because the input is the thing that
+                    takes focus and the label is the thing that is drawn. It used
+                    to be `hidden`, which is `display: none` — so the one control
+                    that gets a fighter's photograph onto the card could not be
+                    reached with a keyboard at all. */}
+                <label className="border-hairline hover:border-chalk/40 focus-within:outline-gold cursor-pointer border px-3 py-2 text-xs transition-colors focus-within:outline-2 focus-within:outline-offset-2">
+                  Choose a photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void onPhoto(file);
+                    }}
+                  />
+                </label>
+                {draft.photo ? (
+                  <button
+                    type="button"
+                    onClick={() => update((d) => ({ ...d, photo: undefined }))}
+                    className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              {photoError ? (
+                <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
+              ) : null}
+            </Field>
+
+            {/* After the photograph and never instead of it. Drawn only on
+                request, and on the card only once the fighter has looked at
+                what came back. */}
+            {stylised && draft.photo ? (
+              <Field group label={STYLISED.label} hint={STYLISED.hint}>
+                {artState === "approved" ? (
+                  <div>
+                    <p className="text-gold text-[0.7rem] leading-relaxed">{STYLISED.approved}</p>
+                    <button
+                      type="button"
+                      onClick={() => void discardArt()}
+                      className="border-hairline hover:border-chalk/40 text-ash mt-2 border px-3 py-1.5 text-xs transition-colors"
+                    >
+                      {STYLISED.discard}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        id="stylised-consent"
+                        type="checkbox"
+                        checked={artOptIn}
+                        onChange={(e) => setArtOptIn(e.target.checked)}
+                        className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="text-ash text-xs leading-relaxed">{STYLISED.consent}</span>
+                    </label>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!artOptIn || artState === "making"}
+                        onClick={() => void makeArt()}
+                        className="border-chalk/60 hover:bg-chalk hover:text-ink border px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {artState === "making"
+                          ? STYLISED.making
+                          : artState === "ready"
+                            ? STYLISED.again
+                            : STYLISED.make}
+                      </button>
+                      {artState === "ready" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void approveArt()}
+                            className="border-gold/60 text-gold hover:bg-gold hover:text-ink border px-3 py-1.5 text-xs transition-colors"
+                          >
+                            {STYLISED.approve}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void discardArt()}
+                            className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                          >
+                            {STYLISED.discard}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {artState === "ready" ? (
+                      <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                        {STYLISED.preview}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+                {artError ? (
+                  <p className="text-red-corner-hot mt-2 text-[0.7rem]">{artError}</p>
+                ) : null}
+              </Field>
+            ) : null}
+
+            <Field
+              label="Instagram"
+              hint="Tapped straight from your card by anyone reading the programme."
+            >
+              <input
+                className={inputClass}
+                value={draft.instagram}
+                onChange={(e) => set("instagram", e.target.value)}
+                placeholder="@owenpryce"
+              />
+            </Field>
+
+            <Field
+              group
+              label="Your sponsors"
+              hint="Anyone putting money behind you gets their logo on your card and in your video."
+            >
+              <div className="grid gap-2 sm:grid-cols-2">
+                {sponsors.map((sponsor) => {
+                  const on = draft.sponsorIds.includes(sponsor.id);
+                  return (
+                    <button
+                      key={sponsor.id}
+                      type="button"
+                      onClick={() => toggle("sponsorIds", sponsor.id)}
+                      className={cx(
+                        "flex items-center justify-between border px-3 py-2 text-left transition-colors",
+                        on ? "border-chalk/50 bg-panel" : "border-hairline hover:border-chalk/30",
+                      )}
+                    >
+                      <SponsorLockup sponsor={sponsor} size="sm" />
+                      <span
+                        className={cx(
+                          "ml-2 h-3 w-3 shrink-0 border",
+                          on ? "border-chalk bg-chalk" : "border-ash-dim",
+                        )}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Walkout song">
+                <input
+                  className={inputClass}
+                  value={draft.walkoutTitle}
+                  onChange={(e) => set("walkoutTitle", e.target.value)}
+                  placeholder="Bulls on Parade"
+                />
+              </Field>
+              <Field label="Artist">
+                <input
+                  className={inputClass}
+                  value={draft.walkoutArtist}
+                  onChange={(e) => set("walkoutArtist", e.target.value)}
+                  placeholder="Rage Against the Machine"
+                />
+              </Field>
+            </div>
+          </Section>
+
+          <Section
+            step="02"
+            title="Why they should shout for you"
+            blurb="Three or four lines in your own words. This is the bit that turns a stranger in row four into someone shouting your name."
+          >
+            <Field label="Your story">
+              <textarea
+                className={cx(inputClass, "min-h-28 resize-y leading-relaxed")}
+                value={draft.bio}
+                onChange={(e) => set("bio", e.target.value)}
+                placeholder="Started at Bryn two years ago after a knee injury finished the rugby. First fight, and my whole village has bought tickets."
+              />
+            </Field>
+
+            <Field group label="How you fight" hint="Pick up to three.">
+              <div className="flex flex-wrap gap-2">
+                {STYLE_OPTIONS.map((tag) => {
+                  const on = draft.styleTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggle("styleTags", tag, 3)}
+                      className={cx(
+                        "border px-2.5 py-1 text-xs uppercase tracking-wider transition-colors",
+                        on
+                          ? "border-chalk bg-chalk text-ink"
+                          : "border-hairline text-ash hover:border-chalk/30",
+                      )}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          </Section>
+
+          <Section
+            step="03"
+            title="The tape"
+            blurb="Last on purpose. If you're already on Sherdog, paste the link and most of it fills itself in."
+          >
+            <div className="border-hairline bg-panel/40 border p-4">
+              <label htmlFor="record-import" className="label mb-2 block">
+                Fought before?
+              </label>
+              <p className="text-ash mb-3 text-xs leading-relaxed">
+                Paste your Sherdog page and we&rsquo;ll pull your record across so you
+                don&rsquo;t have to type it.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="record-import"
+                  className={inputClass}
+                  value={importUrl}
+                  onChange={(e) => {
+                    setImportUrl(e.target.value);
+                    if (importStatus !== "idle") setImportStatus("idle");
+                  }}
+                  placeholder="sherdog.com/fighter/Owen-Pryce-123456"
+                  inputMode="url"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => void runImport()}
+                  disabled={importStatus === "loading" || !importUrl.trim()}
+                  className="border-chalk/60 hover:bg-chalk hover:text-ink display shrink-0 border px-5 py-2.5 text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {importStatus === "loading" ? "Looking…" : "Look it up"}
+                </button>
+              </div>
+
+              {importStatus === "error" && importOutcome && !importOutcome.ok ? (
+                <p className="text-red-corner-hot mt-3 text-xs leading-relaxed">
+                  {importOutcome.kind === "not-a-profile"
+                    ? "That doesn't look like a Sherdog or Tapology fighter page. It should look like sherdog.com/fighter/Your-Name-12345. No record online? Just fill the boxes in below."
+                    : importOutcome.reason}
+                </p>
+              ) : null}
+
+              {importStatus === "done" && importedTape ? (
+                <div className="border-gold/40 bg-gold/5 mt-3 border p-3">
+                  <p className="text-chalk text-xs leading-relaxed">
+                    Found {importedTape.name ?? "a profile"} on {sourceLabel}
+                    {importedTape.recordKind === "professional"
+                      ? ", and that's the professional record, not the amateur one"
+                      : null}
+                    . <span className="text-gold">Check it before you submit</span> —
+                    records on there go out of date, and yours is the version that goes in
+                    front of the room.
+                  </p>
+                  <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
+                    Still yours to answer: {importedTape.notCovered.join(", ").toLowerCase()}.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Age is asked at the top with the notice rather than here, because
+                it decides whether there is a form at all. */}
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Field label="Height cm" from={importedKeys.has("height") ? sourceLabel : undefined}>
+                <input
+                  className={inputClass}
+                  inputMode="numeric"
+                  value={draft.heightCm}
+                  onChange={(e) => set("heightCm", e.target.value)}
+                  placeholder="174"
+                />
+              </Field>
+              <Field label="Reach cm">
+                <input
+                  className={inputClass}
+                  inputMode="numeric"
+                  value={draft.reachCm}
+                  onChange={(e) => set("reachCm", e.target.value)}
+                  placeholder="178"
+                />
+              </Field>
+              <Field
+                label="Hometown"
+                from={importedKeys.has("hometown") ? sourceLabel : undefined}
+              >
+                <input
+                  className={inputClass}
+                  value={draft.hometown}
+                  onChange={(e) => set("hometown", e.target.value)}
+                  placeholder="Wrexham"
+                />
+              </Field>
+            </div>
+
+            <Field group label="Stance">
+              <div className="flex gap-2">
+                {STANCES.map((stance: Stance) => (
+                  <button
+                    key={stance}
+                    type="button"
+                    onClick={() => set("stance", draft.stance === stance ? "" : stance)}
+                    className={cx(
+                      "border px-3 py-1.5 text-xs uppercase tracking-wider transition-colors",
+                      draft.stance === stance
+                        ? "border-chalk bg-chalk text-ink"
+                        : "border-hairline text-ash hover:border-chalk/30",
+                    )}
+                  >
+                    {stance}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Field
+              label="Record"
+              hint="Amateur fights only. Nought and nought is fine, everyone starts there."
+              from={importedKeys.has("record") ? sourceLabel : undefined}
+            >
+              <div className="grid grid-cols-3 gap-3">
+                {(["w", "l", "d"] as const).map((key) => (
+                  <Box key={key} label={{ w: "Won", l: "Lost", d: "Drawn" }[key]}>
+                    <input
+                      className={inputClass}
+                      inputMode="numeric"
+                      value={draft[key]}
+                      onChange={(e) => set(key, e.target.value)}
+                      placeholder="0"
+                    />
+                  </Box>
+                ))}
+              </div>
+            </Field>
+
+            <Field
+              label="Of those wins, how many finished early?"
+              from={importedKeys.has("finishes") ? sourceLabel : undefined}
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <Box label="Knockouts">
+                  <input
+                    className={inputClass}
+                    inputMode="numeric"
+                    value={draft.ko}
+                    onChange={(e) => set("ko", e.target.value)}
+                    placeholder="0"
+                  />
+                </Box>
+                <Box label="Submissions">
+                  <input
+                    className={inputClass}
+                    inputMode="numeric"
+                    value={draft.sub}
+                    onChange={(e) => set("sub", e.target.value)}
+                    placeholder="0"
+                  />
+                </Box>
+              </div>
+            </Field>
+          </Section>
+
+          {submitted ? (
+            <div className="border-gold/40 bg-gold/5 anim-rise border p-5">
+              <h3 className="display text-gold text-2xl">You&rsquo;re on the card</h3>
+              <p className="text-chalk/90 mt-2 text-sm leading-relaxed">
+                Your profile is live on the {eventName} programme.
+              </p>
+              <p className="text-ash-dim mt-3 text-xs">
+                Change anything up until first bell by opening this link again.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => void onSubmit()}
+                className="bg-chalk text-ink display hover:bg-gold w-full py-4 text-xl transition-colors"
+              >
+                Put me on the card
+              </button>
+              <p
+                role="status"
+                aria-live="polite"
+                className={cx(
+                  "text-red-corner-hot text-center text-xs leading-relaxed",
+                  !submitError && "sr-only",
+                )}
+              >
+                {submitError ?? ""}
+              </p>
+            </div>
+          )}
+
+          {mode === "preview" ? (
+            <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
+              Preview of what a fighter gets. Nothing typed here is saved.
+            </p>
+          ) : (
+            <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
+              Your details go on the programme for this show and in your tale of the tape
+              video. Nothing else, and nowhere else.{" "}
+              <Link href="/privacy" className="hover:text-chalk underline transition-colors">
+                {PRIVACY.link}
+              </Link>
+            </p>
+          )}
+            </>
+          ) : null}
+
+          {/* Taking it back, and reachable whether or not the form above is
+              open: a fighter who wants their details gone should not have to
+              agree to anything first. Two presses, because it clears a profile
+              and takes a photograph down and neither comes back. */}
+          {remove && !tooYoung ? (
+            <section className="border-hairline border-t pt-6">
+              <h2 className="display text-chalk text-xl">{REMOVAL.heading}</h2>
+              <p className="text-ash mt-2 text-xs leading-relaxed">{REMOVAL.body}</p>
+              <p className="text-ash-dim mt-2 text-xs leading-relaxed">{REMOVAL.stays}</p>
+              {removing ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void removeDetails()}
+                    className="border-red-corner text-red-corner-hot hover:bg-red-corner hover:text-chalk border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                  >
+                    {REMOVAL.confirm}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRemoving(false)}
+                    className="border-hairline hover:border-chalk/40 text-ash border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                  >
+                    {REMOVAL.cancel}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRemoving(true)}
+                  className="border-hairline hover:border-chalk/40 text-ash mt-4 border px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                >
+                  {REMOVAL.start}
+                </button>
+              )}
+              <p
+                role="status"
+                aria-live="polite"
+                className={cx(
+                  "text-red-corner-hot mt-2 text-xs leading-relaxed",
+                  !removeError && "sr-only",
+                )}
+              >
+                {removeError ?? ""}
+              </p>
+            </section>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Mobile progress bar, so the reward stays visible while scrolling the form. */}
+      <div className="border-hairline bg-ink/95 fixed inset-x-0 bottom-0 z-50 border-t px-4 py-3 backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <div className="bg-panel h-1.5 flex-1 overflow-hidden">
+            <div
+              className="bg-red-corner h-full transition-all duration-500"
+              style={{ width: `${score}%` }}
+            />
+          </div>
+          <span className="tnum display shrink-0 text-base">{score}%</span>
+          <button
+            type="button"
+            onClick={() => previewRef.current?.scrollIntoView({ behavior: "smooth" })}
+            className="label shrink-0"
+          >
+            My card
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}

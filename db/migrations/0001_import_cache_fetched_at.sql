@@ -1,0 +1,1 @@
+CREATE INDEX `import_cache_fetched_at` ON `import_cache` (`fetched_at`);

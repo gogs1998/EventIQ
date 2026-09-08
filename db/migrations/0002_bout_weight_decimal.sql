@@ -1,0 +1,15 @@
+-- Bout weights carry a decimal: catchweights on these cards are agreed at the
+-- half kilo, and 61.5 was being printed as 61.
+--
+-- There is deliberately nothing to run. SQLite types are affinities rather than
+-- constraints, and INTEGER affinity only converts a real to an integer when it
+-- can do so losslessly, so 61.5 is already stored as 61.5 in this column and
+-- comes back as 61.5. What changed is the Drizzle type, the parsing on the way
+-- in and the formatting on the way out.
+--
+-- The generated migration for this was a table rebuild wrapped in
+-- PRAGMA foreign_keys=OFF, which D1 does not support, and a DROP TABLE bouts on
+-- a live show to buy a column type the storage does not enforce is not a trade
+-- worth making. This file exists so the snapshot records the change and nobody
+-- generates that rebuild again.
+SELECT 1;

@@ -1,0 +1,1 @@
+CREATE INDEX `analytics_event_recent` ON `analytics_events` (`event_id`,`created_at`);

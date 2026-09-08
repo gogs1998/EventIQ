@@ -1,28 +1,284 @@
 # EventIQ
 
-Digital fight programmes for amateur MMA.
+Digital fight programmes for amateur MMA. Running at **https://eventiq.win**.
 
-Spectators scan a QR code at the venue and open a full digital programme for that event — every bout, every fighter, a reason to root for someone.
+> Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things, and [CLAUDE.md](CLAUDE.md) covers working in here: the rules that are load-bearing, the environment traps, and how the project got its shape.
+
+Spectators scan a QR code at the venue and open the full running order for that show. Every bout expands into a tale of the tape, and the ones that matter come with a broadcast-style video built from the fighters' own photos.
+
+The show data is real — a database, real fighter questionnaires, a promoter login, real interaction counting. The **content** is invented: Cage County 12 is a made-up show with made-up fighters, seeded so there is something to demonstrate.
 
 ## The problem
 
-Amateur shows still run on paper programmes: name, gym, weight class. That’s it. No story, no record, no photo, and nothing for the gyms, fighters, or sponsors to take home.
+Amateur shows run on paper. A real programme from a real event gives you a fighter's name, their gym, and their weight class. That is it. No record, no photo, no story, and nothing for the gyms, fighters or sponsors to take home. The punter in row four claps politely because there is nothing else to do.
 
-## What it is
+## What is here
 
-- **QR → programme.** One code on the table, doors, and posters. Opens a mobile web page for that event.
-- **Fighter questionnaires.** Bio, stats, record, photo, gym, Instagram, personal sponsors. Fighters fill these in because it puts their name, gym, and sponsors in front of the whole room.
-- **Table of the tape.** Every fight expands into a side-by-side card: weight, reach, record, gym, hometown, how they want to be introduced.
-- **Promoter face.** The event looks pro. House sponsors sit on the programme, not just a banner behind the cage.
-
-## Who it’s for
-
-| Person | What they get |
+| Route | What it is |
 | --- | --- |
-| Spectator | A reason to care about fight 4 on a Tuesday |
-| Fighter | A profile, Instagram link, and their sponsors in the room |
-| Promoter | A digital programme that sells the show and the sponsors |
+| `/` | The pitch page. The recorded walkthrough, the main event video, and a gallery of every screen |
+| `/e/[slug]` | The programme. 15 bouts, main event first, tap any bout for the tape |
+| `/e/[slug]/f/[fighter]` | A fighter profile, deep-linkable from an Instagram bio |
+| `/e/[slug]/qr` | The printable table card |
+| `/f/[token]` | A fighter's questionnaire, reached by their own invite link |
+| `/f/demo` | The questionnaire as a walkthrough, saving nothing |
+| `/promoter` | The promoter's area, behind a password |
+| `/render/[slug]/[bout]` | Capture surface for the video exporter. Needs the render key, or the promoter who owns the show |
 
-## Not this (yet)
+## Architecture
 
-Native app, live scoring, betting, ticketing. First version is the programme: scan, read, expand the tape, tap Instagram.
+Next.js on **Cloudflare Workers** via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare), with **D1** for data, **R2** for photographs and rendered video, and **Drizzle** for the schema and migrations. Authentication is Web Crypto and nothing else: a PBKDF2 password hash and an HMAC-signed cookie for the promoter, an unguessable token in the URL for the fighter.
+
+Video rendering is the one part that does not run on Cloudflare, because headless Chrome and ffmpeg cannot. It is an out-of-band job; see [rendering](#rendering-video) below and section 11 of the handover.
+
+## Running it
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, INVITE_KEY, SHOWCASE_SLUG and the seed password
+npm run db:reset                   # migrate and seed the local database
+npm run dev
+```
+
+Then open http://localhost:3000. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything. State lives under `.wrangler/`.
+
+The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`.
+
+```bash
+npm test           # both vitest projects
+npm run test:db    # just the half that runs against a real local D1
+npm run lint
+npm run typecheck
+npm run build
+```
+
+`npm test` runs two projects. **`unit`** is the derivation layer, pure and quick. **`db`** starts one Miniflare from this project's own `wrangler.jsonc`, applies `db/migrations` to a database held in memory, and runs the queries, `lib/visibility.ts` and the promoter's server actions against it — so it catches a where clause that selects one row too many, which no pure test can. `vitest run --project unit` is the quick half on its own.
+
+`npm test`, `npm run lint`, `npm run typecheck` and `npm run build` are what [CI](.github/workflows/ci.yml) runs on every push and every pull request, on the Node version in [`.nvmrc`](.nvmrc), so a green tick means the same thing there as it does here. Use `npm run typecheck` rather than `tsc --noEmit`: it runs `next typegen` first, and without that a clean checkout reports eight errors about `PageProps` that have nothing to do with your change.
+
+To run against the actual Workers runtime rather than Node:
+
+```bash
+npm run preview    # opennextjs-cloudflare build, then its own preview server
+```
+
+or the two halves separately, which is what you want if you are rebuilding repeatedly:
+
+```bash
+npx opennextjs-cloudflare build
+npx wrangler dev --port 8788 --local
+```
+
+**Not at the same time as `npm run dev`** — both open the same local SQLite file and the second one takes the first down.
+
+`npm run cf-typegen` regenerates `cloudflare-env.d.ts` from `wrangler.jsonc`. It is not part of any other command and the file it writes is gitignored: [`env.d.ts`](env.d.ts) declares the bindings by hand instead, because the generated version is 580KB of runtime declarations for a handful of bindings that change about once a year. Run it when you are debugging a binding type and want to see what wrangler thinks it is.
+
+## The end-to-end walkthrough
+
+```bash
+npm run e2e -- --base http://localhost:8788
+```
+
+Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+
+## Staging
+
+There are two deployed environments. Production is `eventiq` at https://eventiq.win; staging is `eventiq-staging`, with its own D1 database, its own R2 bucket and its own secrets, at https://eventiq-staging.gordonshepherd1.workers.dev. Nothing staging does is visible from eventiq.win.
+
+It exists because the walkthrough above **writes as it goes** — it adds a bout, removes it, fills a fighter in and uploads a photograph — and for a long time the only place to write was the card the whole pitch is built on. A check you have to tidy up after is a check that stops being run. Staging is the same demo card in a database nobody is selling from, and it is also where a migration or a deploy goes before a promoter's show is behind it.
+
+```bash
+node scripts/deploy.mjs --env staging    # build, migrate, deploy staging
+npm run db:backup -- --env staging
+curl -s https://eventiq-staging.gordonshepherd1.workers.dev/api/health
+```
+
+Every script that touches Cloudflare takes the same `--env`, and **without it they all mean production** — a flag you have to remember in order to reach production is a flag somebody eventually forgets in the other direction. `/api/health` says which Worker answered, from a var rather than from the hostname, so a staging address pointed at production cannot pass for staging. [DEPLOY.md](DEPLOY.md#staging) has the rest, including how it was stood up.
+
+## The tale of the tape
+
+The centrepiece. A still photograph and a row of numbers become a 16 second vertical sequence: bout billing, each corner revealed in turn, a head to head with the stats counting up and the leading side highlighted, then a closing hook drawn from the data.
+
+Two things make it work.
+
+**Depth from a flat photo.** Every portrait goes through background removal to produce a transparent cutout. The cutout and the backdrop then move at different rates, which reads as parallax rather than a photograph sliding around.
+
+That happens in the render pipeline, not in the upload: background removal is an ONNX model and several seconds of CPU per image, which a Worker cannot run at all and a fighter's phone should not be asked to. So `npm run render` cuts out anybody who has sent a photograph and has no cutout of it, and until it does the sequence shows the photograph — soft-masked, vignetted and moved a third as far, because a rectangle travelling over a drifting backdrop is the thing the parallax exists to avoid. The initialled "photo to follow" plate is only for a fighter who has sent nothing at all. The order lives in [`lib/portrait.ts`](lib/portrait.ts), with an opt-in stylised portrait above the cutout for a fighter who asked for one and approved what came back — off unless a deployment turns it on, and never what anybody gets by default.
+
+**One composition, two outputs.** [`components/sequence/TaleOfTheTape.tsx`](components/sequence/TaleOfTheTape.tsx) is a pure function of its props, of which one is a frame number. There are no CSS animations and no timers; all motion is interpolated in JS from `frame` using the helpers in [`lib/anim.ts`](lib/anim.ts). That single constraint buys both playback modes:
+
+- **In the page**, [`TapePlayer`](components/sequence/TapePlayer.tsx) advances `frame` with `requestAnimationFrame`.
+- **As an mp4**, [`scripts/render-tape.mjs`](scripts/render-tape.mjs) opens `/render/[slug]/[bout]` once in headless Chrome, then drives `window.__setFrame` and screenshots the viewport 480 times, streaming the frames into ffmpeg.
+
+Because the composition is deterministic, those two are the same picture.
+
+## Half-filled profiles are the normal case
+
+Getting fighters to return the questionnaire is the actual hard problem, not the web page. Two consequences run through the code.
+
+**Nothing may look broken when a fighter has told us nothing.** [`buildTape`](lib/tape.ts) keeps a row if *either* corner can fill it and drops it only when neither can, missing portraits get a designed placeholder rather than a gap, and `completeness()` drives an honest progress score. Note that `isDebut()` requires an explicit `0-0-0`: silence is not a debut, because announcing a veteran as a debutant is worse than saying nothing. The database enforces the same thing — a record is all three numbers or none of them.
+
+**The form is ordered to be finished.** Nickname, photo, Instagram and sponsors first; height, reach and record last. A form that opens with "reach in centimetres" does not get completed. The fighter watches their own card build as they type, and the reward for finishing is a video of it.
+
+The seeded card is deliberately uneven for the same reason: the top of the bill is what it looks like when fighters send their details in, and the openers are a name and a gym, exactly like the paper programme.
+
+## Consent, removal and retention
+
+Real amateur fighters send a photograph, an age and a hometown, and it is published on a page a promoter sells sponsorship against. So the form asks before it collects anything: a plain notice of what is taken, everywhere it appears, how long it is kept and how to have it removed, then the age, then a required tick. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and stores nothing at all.
+
+The wording is in [`lib/consent.ts`](lib/consent.ts) with a `CONSENT_VERSION` beside it, and both the version and the timestamp are stored on the invite, so what a particular fighter agreed to can be produced later. The check lives in the action rather than in the component: every one of these is reachable by anybody holding a link, so hiding the fields is not the control.
+
+"Remove my details" at the foot of the form clears everything the fighter sent, deletes their pictures out of the bucket, switches their link off and asks for the bout's video again. The name and the gym stay, because those are the promoter's running order rather than the fighter's answers, and the copy says so. [`npm run retention`](scripts/retention.mjs) does the same for fighters whose last show was more than 180 days ago — dry run unless you pass `--apply`.
+
+The notice is at [`/privacy`](app/privacy/page.tsx). It is a draft written to be read by a fighter, it claims no legal review, and the controller/processor position is a comment at the top of that file waiting for a lawyer to confirm it.
+
+## The promoter's view
+
+Behind a password. A chase list ordered by position on the card, bout-level readiness, the bout sponsor slots still unsold, and the counts for this show and the last one. Everything on it is derived by [`lib/promoter.ts`](lib/promoter.ts) from the same rows the programme reads, so the two cannot disagree.
+
+The nudge button copies a message ready to paste into WhatsApp, naming the fighter's bout, their opponent and their own invite link, and saying the other one has already sent theirs only where [`tapeGapsBehind`](lib/tape.ts) says that is true.
+
+Invite status comes from timestamps on the invite row, not from how full the profile looks. A record and an age come off the promoter's own entry form, so anyone with those but nothing else reads as "not opened" rather than as somebody who looked and gave up — which is the one distinction the page exists to draw.
+
+The card editor writes: event details, bouts, fighters, sponsors, invite links and the publish toggle.
+
+## The database
+
+```bash
+npm run db:generate         # migrations from db/schema.ts
+npm run db:migrate          # apply them to the local database
+npm run db:migrate:remote    # apply them to the live one
+npm run db:seed             # the demo card, with fresh invite tokens
+npm run db:reset            # both
+npm run db:studio -- "select count(*) from fighters"
+npm run db:migrate-invites  # seal any invite token still stored in the clear
+```
+
+`db:migrate-invites` is a one-off rather than part of the migration chain: migration `0010` adds the columns an invite token is sealed into, and SQLite has neither HMAC nor AES, so filling them in needs `INVITE_KEY` and a script. `-- --remote --dry-run` counts what is still in the clear without writing. Running it twice is a no-op, no token changes, and nobody has to be sent a new link — [DEPLOY.md](DEPLOY.md#the-invite-backfill) has the order the four steps go in and why the half-migrated state is safe.
+
+Promoter accounts are made by an operator rather than by signing up, and that is one command. `--local` by default, `--remote` for the live database, and neither while a dev server is running:
+
+```bash
+npm run promoter -- list
+npm run promoter -- create --slug budo --name "BUDO Fight Series" --generate
+npm run promoter -- set-password --slug budo --generate
+npm run promoter -- reset-link --slug budo    # one use, half an hour, no email needed
+```
+
+A generated password is printed once and stored nowhere. Setting a password — by either of those commands, or by the promoter at `/promoter/account` — signs that account out everywhere else. [DEPLOY.md](DEPLOY.md) section 5a has the rest.
+
+[`db/schema.ts`](db/schema.ts) is the single description of the schema. The seed is generated from `data/event.ts` at run time and never committed, because it contains working invite tokens.
+
+`db:migrate:remote` is there for a schema change that needs applying without a deploy. It is not the usual path: `npm run deploy` applies pending migrations itself, before the Worker goes up, because the Worker expects the schema that ships with it. See [DEPLOY.md](DEPLOY.md).
+
+Seeding the live database is deliberately awkward, because it is a rewrite rather than an insert — it deletes the promoter, their sponsors, the show and its fighters, and reissues every invite token. It wants a password, a flag spelled out in full, and a live database that still holds nobody but the seeded promoter:
+
+```bash
+SEED_PROMOTER_PASSWORD='...' npm run db:seed:remote -- --i-understand-this-rewrites-production
+```
+
+### Backups
+
+```bash
+npm run db:backup                                   # export the live D1 into R2, as backups/<date>.sql
+npm run db:restore-rehearsal -- --date 2026-09-07   # load it into a scratch database and count the rows
+```
+
+D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the cron line and the R2 lifecycle rule.
+
+### The nightly chores
+
+Three commands that keep the database and the bucket from growing without limit. All three are **dry run by default** and all three destroy data with `--apply`, so the dry run is the one to read first — it names every row it would touch.
+
+```bash
+npm run analytics:rollup -- --remote --apply    # fold counting older than 48h into a row per show-day
+npm run retention -- --remote --apply           # sweep fighters past the retention policy, and the folded rows
+npm run r2:orphans -- --remote --apply          # objects in the bucket that no row points at
+```
+
+**The order matters between the first two.** The fold is what keeps the numbers, and the sweep only removes counting the fold has already summed — it refuses to touch a show-day that has never been folded, whatever its age, because until then those rows are the only copy. The fold moves no totals: the dashboard reads the folded days plus whatever is still in `analytics_events` and adds them together.
+
+`r2:orphans` is a bill rather than a hole — `/media` refuses an object no card points at, so an orphan is invisible rather than exposed — and it never takes a live render or anything written in the last day. Listing a remote bucket needs an R2 API token with Object Read, because wrangler has no command that lists objects; the deletes go through the ordinary deploy token. The cron lines for all of these are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps), and **nothing has installed them yet** — the capability is not the schedule.
+
+## Rendering video
+
+```bash
+npm run render -- --slug cage-county-12 --list              # what needs doing
+npm run render -- --slug cage-county-12 --bout 15 --publish
+npm run render -- --slug cage-county-12 --stale --publish --remote
+```
+
+Reads the running order from D1, captures the frames, puts the mp4 in R2 and records the key in `render_jobs`, which is where the programme looks for it. `--stale` renders only the bouts whose fighters have changed since the last render. One bout is about a minute.
+
+It needs `RENDER_KEY` — the capture page it screenshots serves cards that are not published yet, so it is not public. Locally that comes out of `.dev.vars`; against the deployed site export it to match either the Worker secret or a key minted for the machine doing the rendering. See section 6c of the handover.
+
+```bash
+npm run render-key -- mint --label "a laptop" --promoter cage-county --days 90 --remote
+npm run render-key -- list --remote
+npm run render-key -- revoke --id rk_... --remote
+```
+
+A key that opens the capture page is a row in `render_keys`, scoped to a promoter or to none, expiring and revocable — so a lost one is replaced rather than recovered, and it never becomes a single credential that reads every promoter's drafts. It is printed once. The `RENDER_KEY` Worker secret is still accepted and is the migration path off it.
+
+**Most rendering is not run by hand.** [`.github/workflows/render.yml`](.github/workflows/render.yml) runs `--stale --publish --remote` against production every hour, for every published show dated within the last two days or later, so a photograph that arrives on the Thursday has a video before the Saturday without anybody being awake for it. It also takes a `workflow_dispatch` — a slug, optionally some bout numbers, and which environment — and a `repository_dispatch` of type `render`, which is how the promoter's "Render again" button could reach it. It runs on a GitHub runner because headless Chrome and ffmpeg cannot run on Cloudflare; that is the only reason.
+
+`--bout 15 --still 300` dumps a single frame as a PNG, which is the quickest way to iterate on the composition.
+
+Cutouts are made first, and can be made on their own:
+
+```bash
+npm run cutouts -- --slug cage-county-12 --remote
+npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
+```
+
+[`scripts/cutouts.mjs`](scripts/cutouts.mjs) is idempotent, never regenerates a cutout that exists, and never fails a render: a photograph it cannot handle is logged and the video falls back to the photograph. `--list` on the renderer says which bouts have a photograph still waiting.
+
+## Regenerating assets
+
+```bash
+npm run assets     # optimisation of the curated art in assets-src/
+npm run icons      # favicon, apple icon and the manifest icons
+```
+
+Only the optimised output in `public/` is committed. `npm run icons` is the exception to everything below it: the mark is a geometry definition inside [`scripts/make-icons.mjs`](scripts/make-icons.mjs) and every icon is emitted from it, so that one can always be rerun.
+
+**`assets-src/` is gitignored, so on a fresh clone `npm run assets` has nothing to work on.** The sources exist on the machine the demo artwork was made on and nowhere else, which means the committed files in `public/` cannot be regenerated from this repository — a new portrait or a re-crop needs the originals from that machine, or new originals. That was a reasonable trade while the inputs were large generated images and the outputs were the only thing anyone needed; it stops being reasonable the moment somebody has to change one. It is written down here rather than quietly discovered.
+
+This is for the demo card's artwork. Cutouts for photographs a fighter actually sends are made by the renderer, above, from what is in R2 — that path does not depend on `assets-src/` at all.
+
+## Recording the sales demo
+
+Promoter pitches happen over WhatsApp more than in person, so a recording of the flow is a deliverable in its own right. [`scripts/tour.mjs`](scripts/tour.mjs) scripts it: Chrome runs in app mode at phone dimensions so there is no tab strip or address bar in shot, and the scroll and pause timings live in the script so a take is repeatable.
+
+```bash
+node scripts/tour.mjs setup     # chrome-less phone-shaped window
+node scripts/tour.mjs tour      # run the walkthrough while recording the screen
+node scripts/tour.mjs teardown
+```
+
+Crop the capture to the window afterwards. The committed cut at `public/demo/eventiq-demo.mp4` predates the database and needs re-recording.
+
+## Product screenshots
+
+The gallery on the pitch page uses real captures of the running app, not mockups.
+
+```bash
+npm run shots                                  # public/screens + app/opengraph-image.jpg
+npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, for eyeballing
+```
+
+## Deploying
+
+[DEPLOY.md](DEPLOY.md) has the full procedure. In short: create the D1 database and the R2 bucket, put `SESSION_SECRET`, `RENDER_KEY` and `INVITE_KEY` in place, seed a promoter, then `npm run deploy`. Every command there takes `--env staging` for the second environment; without it they mean production.
+
+```bash
+node scripts/deploy.mjs --check    # what the current token can and cannot do
+```
+
+**Live at https://eventiq.win.** `npm run e2e -- --base https://eventiq.win` walks the whole product against it. Note that it writes as it goes, so it is not something to point at a card a promoter is using.
+
+## What is real and what is not
+
+Every fighter, gym and event here is invented, and the portraits are generated images. Three sponsors are real brands — Mouthguards.pro, FightIQ.win and EventIQ — and nothing is claimed about them that has not been said. Swap in real photographs before showing this to a specific promoter.
+
+There is no email or SMS, so invite links are copied and pasted by the promoter, and a promoter who has forgotten their password needs an operator to mint them a reset link. There is no self-service signup; promoter accounts are created with `npm run promoter -- create`. Video rendering runs outside Cloudflare and is not part of a deploy.
