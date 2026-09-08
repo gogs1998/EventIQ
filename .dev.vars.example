@@ -31,6 +31,13 @@ SHOWCASE_SLUG=cage-county-12
 # decision rather than a default. It does nothing under `next dev` either way:
 # there is no AI binding there, and the action says so rather than failing.
 STYLISED_PORTRAITS=off
+# INVITE_KEY signs the digest an invite is found by and encrypts the token the
+# dashboard shows back. Leave it out locally and SESSION_SECRET stands in; a
+# deployed Worker without it refuses to serve an invite rather than falling back
+# to something guessable. Rotating it makes every link already sent out stop
+# working, so it goes in the password manager beside the other two.
+#   openssl rand -base64 48
+INVITE_KEY=local-development-only-not-a-real-invite-key
 
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.

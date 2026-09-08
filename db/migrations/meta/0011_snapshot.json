@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bd922632-ab21-43ac-9099-db563d4d01f2",
+  "id": "9a8c6091-c3ad-43bd-b5a4-d02c15fc8d8b",
   "prevId": "2b9d20df-590b-499b-ae86-522b85d6fdc6",
   "tables": {
     "analytics_events": {
@@ -614,6 +614,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "stylised": {
+          "name": "stylised",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "instagram": {
           "name": "instagram",
           "type": "text",
@@ -713,6 +720,13 @@
             "cutout"
           ],
           "isUnique": false
+        },
+        "fighters_stylised": {
+          "name": "fighters_stylised",
+          "columns": [
+            "stylised"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -780,21 +794,7 @@
           "name": "token",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "token_digest": {
-          "name": "token_digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "token_cipher": {
-          "name": "token_cipher",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "event_id": {
@@ -818,13 +818,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "sent_channel": {
-          "name": "sent_channel",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "last_opened_at": {
           "name": "last_opened_at",
           "type": "integer",
@@ -839,9 +832,16 @@
           "notNull": false,
           "autoincrement": false
         },
-        "expires_at": {
-          "name": "expires_at",
+        "consented_at": {
+          "name": "consented_at",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "consent_version": {
+          "name": "consent_version",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -862,18 +862,18 @@
         }
       },
       "indexes": {
+        "invites_token_unique": {
+          "name": "invites_token_unique",
+          "columns": [
+            "token"
+          ],
+          "isUnique": true
+        },
         "invites_event_fighter": {
           "name": "invites_event_fighter",
           "columns": [
             "event_id",
             "fighter_id"
-          ],
-          "isUnique": true
-        },
-        "invites_token_digest": {
-          "name": "invites_token_digest",
-          "columns": [
-            "token_digest"
           ],
           "isUnique": true
         }

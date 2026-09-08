@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorPayload } from "@/lib/log";
+import { errorPayload, warningPayload } from "@/lib/log";
 
 /**
  * The shape is the whole point of the file, so it is the thing under test. A
@@ -43,5 +43,28 @@ describe("errorPayload", () => {
 
   it("has no stack where there was none to take", () => {
     expect(errorPayload({ event: "x" }, "no stack here").stack).toBeUndefined();
+  });
+});
+
+describe("warningPayload", () => {
+  /**
+   * A warning is for the thing that still works and is not meant to persist —
+   * an invite still stored in the clear after 0007, say. It shares every key
+   * with an error so one dashboard filter finds both, and it carries no stack,
+   * because nothing threw.
+   */
+  it("shares its keys with an error, and carries no stack", () => {
+    const payload = warningPayload(
+      { event: "plaintextInvite", eventId: "ev_1", fighterId: "chloe-baines" },
+      "Run scripts/migrate-invites.mjs.",
+    );
+
+    expect(payload.level).toBe("warn");
+    expect(payload.event).toBe("plaintextInvite");
+    expect(payload.eventId).toBe("ev_1");
+    expect(payload.fighterId).toBe("chloe-baines");
+    expect(payload.message).toBe("Run scripts/migrate-invites.mjs.");
+    expect(Number.isNaN(Date.parse(payload.at))).toBe(false);
+    expect("stack" in payload).toBe(false);
   });
 });

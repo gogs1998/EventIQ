@@ -11,6 +11,9 @@ import {
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
   fewerLossesEdge,
+  INVITE_CHANNEL,
+  INVITE_SHARE,
+  INVITE_STATE,
   NO_SHOWCASE,
   NOT_FOUND,
   PAGE_ERROR,
@@ -779,5 +782,67 @@ describe("the privacy notice", () => {
   it("does not promise the fighter anything it has no way of doing", () => {
     expect(UNDER_AGE.body).toMatch(/parent or guardian/i);
     expect(UNDER_AGE.body).not.toMatch(/we will|we can/i);
+  });
+});
+
+/**
+ * The share controls and what the dashboard says about a link that will not
+ * open. Held to the same rules as everything else here, and to one of its own:
+ * nothing on this list may say anything about the fighter. A promoter reading
+ * "they have not opened it" beside a Send button is being handed a verdict on
+ * somebody who may simply not have been sent it yet.
+ */
+const INVITE_STRINGS = [
+  INVITE_SHARE.note,
+  INVITE_SHARE.whatsapp,
+  INVITE_SHARE.sms,
+  INVITE_SHARE.copy,
+  INVITE_SHARE.regenerate,
+  INVITE_SHARE.regenerateHint,
+  INVITE_SHARE.revoke,
+  INVITE_SHARE.revokeHint,
+  ...Object.values(INVITE_STATE),
+  ...Object.values(INVITE_CHANNEL).filter(Boolean),
+];
+
+describe("the invite copy", () => {
+  it("never uses a gendered pronoun", () => {
+    for (const line of INVITE_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+    }
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of INVITE_STRINGS) {
+      expect(line).not.toMatch(/paper|print(ed|s)? programme/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color|!/i);
+    }
+  });
+
+  /** Nothing here is a remark about the fighter, and nothing blames the promoter. */
+  it("says what the control does and nothing about anybody", () => {
+    for (const line of INVITE_STRINGS) {
+      expect(line).not.toMatch(/fault|blame|ignor(ed|ing)|lazy/i);
+      expect(line).not.toMatch(/invalid|illegal|incorrect|bad/i);
+    }
+  });
+
+  it("reads as a sentence, not as a placeholder", () => {
+    for (const line of INVITE_STRINGS) {
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  /**
+   * A promoter who cannot tell "New link" from "Revoke link" will press the
+   * wrong one, and one of them leaves a fighter with no way in at all.
+   */
+  it("distinguishes issuing a new link from stopping this one", () => {
+    expect(INVITE_SHARE.regenerateHint).toMatch(/new link/i);
+    expect(INVITE_SHARE.revokeHint).toMatch(/without/i);
+    expect(INVITE_SHARE.revokeHint).not.toMatch(/issues a new/i);
   });
 });

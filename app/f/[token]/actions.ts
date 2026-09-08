@@ -2,15 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { isLinkPreviewBot } from "@/lib/bots";
 import { CONSENT_VERSION, consentGate, hasConsented } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
-import { getDb, getMedia, type Db } from "@/lib/db";
+import { getDb, getMedia, inviteSecret, type Db } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
+import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { cutoutSurvives } from "@/lib/portrait";
@@ -38,8 +39,9 @@ type Found = { db: Db; row: NonNullable<Invite> };
 async function inviteFor(token: string): Promise<ActionResult<Found>> {
   const db = await getDb();
   const row = await loadInviteByToken(db, token);
-  // A regenerated link and a made-up one answer the same way, which is also the
-  // only true thing that can be said to somebody holding either.
+  // A regenerated link, a revoked one, one that has lapsed and one that was
+  // never issued all answer the same way, which is also the only true thing that
+  // can be said to somebody holding any of them.
   if (!row) return refuse(ACTION_ERRORS.unknownInvite);
   return done({ db, row });
 }
@@ -262,10 +264,23 @@ export async function markOpened(token: string): Promise<ActionResult> {
 
   return attempt({ event: "markOpened", route: "/f/[token]" }, ACTION_ERRORS.notSaved, async () => {
     const db = await getDb();
+    const now = Date.now();
+    const digest = await digestToken(await inviteSecret(), token);
     await db
       .update(schema.invites)
-      .set({ lastOpenedAt: Date.now() })
-      .where(eq(schema.invites.token, token));
+      // Opening the form puts the expiry back to ninety days. A fighter who is
+      // reading their link today is the last person who should find it dead
+      // tomorrow, and an abandoned one still lapses on its own.
+      .set({ lastOpenedAt: now, expiresAt: now + INVITE_TTL_MS })
+      .where(
+        and(
+          // The plaintext column is still matched for rows the backfill has not
+          // reached. See loadInviteByToken.
+          or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+          isNull(schema.invites.revokedAt),
+          or(isNull(schema.invites.expiresAt), gt(schema.invites.expiresAt, now)),
+        ),
+      );
     return DONE;
   });
 }

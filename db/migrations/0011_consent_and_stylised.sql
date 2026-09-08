@@ -8,5 +8,4 @@
 ALTER TABLE `fighters` ADD `stylised` text;--> statement-breakpoint
 CREATE INDEX `fighters_stylised` ON `fighters` (`stylised`);--> statement-breakpoint
 ALTER TABLE `invites` ADD `consented_at` integer;--> statement-breakpoint
-ALTER TABLE `invites` ADD `consent_version` text;--> statement-breakpoint
-ALTER TABLE `invites` ADD `revoked_at` integer;
+ALTER TABLE `invites` ADD `consent_version` text;

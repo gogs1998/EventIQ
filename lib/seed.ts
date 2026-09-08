@@ -1,5 +1,6 @@
 import { INVITE_OVERRIDES } from "@/data/promoter";
-import { newId, newToken } from "@/lib/auth";
+import { newId } from "@/lib/auth";
+import { newInviteToken } from "@/lib/invite-token";
 import { completeness } from "@/lib/tape";
 import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
 
@@ -16,7 +17,9 @@ import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
  * The SQL is generated at seed time and not committed. Invite tokens are the
  * only thing standing between a stranger and a fighter's profile, so a file of
  * known ones in a public repository would be a way of shipping a vulnerability
- * that looks like a convenience.
+ * that looks like a convenience. They are not in the generated SQL either: the
+ * rows carry a digest and a ciphertext, and the raw links are returned so the
+ * script can print them once.
  */
 
 const DAY = 86_400_000;
@@ -169,6 +172,12 @@ export type SeedInput = {
    * there is no filesystem to look at.
    */
   renderedBouts: number[];
+  /**
+   * What the invite tokens are sealed under. Passed in rather than read here,
+   * because this module also runs inside the Worker and in the test suite, and a
+   * seed that reached for a binding could not do either.
+   */
+  inviteSecret: string;
   now: number;
 };
 
@@ -178,14 +187,15 @@ export type SeedResult = {
   inviteLinks: { fighter: string; token: string }[];
 };
 
-export function buildSeed({
+export async function buildSeed({
   event,
   fighters,
   sponsors,
   passwordHash,
   renderedBouts,
+  inviteSecret,
   now,
-}: SeedInput): SeedResult {
+}: SeedInput): Promise<SeedResult> {
   const promoterId = `pr_${event.slug.split("-").slice(0, 2).join("-")}`;
   const eventId = `ev_${event.slug}`;
   const statements: string[] = [];
@@ -314,17 +324,23 @@ export function buildSeed({
     });
 
     const invite = seedInviteFor(fighter, now);
-    const token = newToken();
+    const { token, columns } = await newInviteToken(now, inviteSecret);
     inviteLinks.push({ fighter: fighter.id, token });
     statements.push(
       row("invites", {
         id: newId("in"),
-        token,
+        // No plaintext, the same as every other row written since 0007. The raw
+        // link goes back to the script to be printed once and is not in the SQL.
+        token: null,
+        token_digest: columns.tokenDigest,
+        token_cipher: columns.tokenCipher,
         event_id: eventId,
         fighter_id: fighter.id,
         sent_at: invite.sentAt,
+        sent_channel: invite.sentAt ? "copied" : null,
         last_opened_at: invite.lastOpenedAt,
         submitted_at: invite.submittedAt,
+        expires_at: columns.expiresAt,
         created_at: now,
       }),
     );

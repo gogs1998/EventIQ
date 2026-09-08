@@ -52,9 +52,10 @@ const DEV_PASSWORD = "cagecounty";
 // Locally, .dev.vars wins, because that is the file the server reads and a
 // password the server will not accept is worse than useless. Remotely there is
 // no such file and the environment is the only source.
+const vars: Record<string, string | undefined> = remote ? {} : devVars();
 const password = remote
   ? (process.env.SEED_PROMOTER_PASSWORD ?? "")
-  : (devVars().SEED_PROMOTER_PASSWORD ?? process.env.SEED_PROMOTER_PASSWORD ?? DEV_PASSWORD);
+  : (vars.SEED_PROMOTER_PASSWORD ?? process.env.SEED_PROMOTER_PASSWORD ?? DEV_PASSWORD);
 
 if (!password) {
   console.error(
@@ -169,16 +170,37 @@ function checkRemoteIsStillTheDemo(): void {
 
 if (remote) checkRemoteIsStillTheDemo();
 
+/**
+ * What the seeded invite tokens are sealed under, which has to be the value the
+ * server will use or the links this script prints open nothing. Same precedence
+ * as the password: .dev.vars first locally, because that is the file the dev
+ * server reads; the environment only, remotely. Development falls back to
+ * SESSION_SECRET exactly as lib/invite-token.ts does.
+ */
+const inviteSecret = remote
+  ? (process.env.INVITE_KEY ?? "")
+  : (vars.INVITE_KEY ?? process.env.INVITE_KEY ?? vars.SESSION_SECRET ?? process.env.SESSION_SECRET ?? "");
+
+if (!inviteSecret) {
+  console.error(
+    "INVITE_KEY must be set when seeding the remote database. Without it the links\n" +
+      "this prints would be sealed under a value the Worker cannot read.\n" +
+      "  INVITE_KEY='...' npm run db:seed:remote",
+  );
+  process.exit(1);
+}
+
 const renderedBouts = event.bouts
   .map((bout) => bout.number)
   .filter((n) => existsSync(path.join(process.cwd(), "public", "renders", `bout-${n}.mp4`)));
 
-const { sql, inviteLinks } = buildSeed({
+const { sql, inviteLinks } = await buildSeed({
   event,
   fighters,
   sponsors,
   passwordHash: await hashPassword(password),
   renderedBouts,
+  inviteSecret,
   now: Date.now(),
 });
 

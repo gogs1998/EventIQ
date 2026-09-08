@@ -332,12 +332,29 @@ export const fighterSponsors = sqliteTable(
  * number or an ignored message. Opened and not submitted is the warmest lead on
  * the list, and it is only worth anything because it is recorded when it really
  * happens rather than guessed from how full the profile looks.
+ *
+ * The token itself is not kept in the clear. It cannot be hashed either: the
+ * dashboard has to show a promoter the link on demand, which is the whole chase
+ * workflow. So the row carries two derivations of it — an HMAC digest, which is
+ * what a lookup matches on, and an AES-GCM ciphertext, which is what the
+ * dashboard decrypts to display. Both come from one secret, and neither is
+ * readable from a copy of the database alone. See lib/invite-token.ts.
  */
 export const invites = sqliteTable(
   "invites",
   {
     id: text("id").primaryKey(),
-    token: text("token").notNull().unique(),
+    /**
+     * The plaintext token, nullable because nothing writes one any more. Rows
+     * from before it stopped being the stored credential still hold theirs until
+     * `scripts/migrate-invites.mjs` has run over them, and every lookup accepts
+     * either state so the migration and the deploy do not have to be simultaneous.
+     */
+    token: text("token"),
+    /** HMAC-SHA256 of the token. What a lookup matches, so it is indexed. */
+    tokenDigest: text("token_digest"),
+    /** AES-GCM of the token, so the dashboard can still show the link. */
+    tokenCipher: text("token_cipher"),
     eventId: text("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
@@ -345,6 +362,8 @@ export const invites = sqliteTable(
       .notNull()
       .references(() => fighters.id, { onDelete: "cascade" }),
     sentAt: integer("sent_at"),
+    /** whatsapp | sms | copied. How it went out, which the chase list reports. */
+    sentChannel: text("sent_channel"),
     lastOpenedAt: integer("last_opened_at"),
     submittedAt: integer("submitted_at"),
     /**
@@ -360,14 +379,25 @@ export const invites = sqliteTable(
     consentedAt: integer("consented_at"),
     consentVersion: text("consent_version"),
     /**
-     * When the fighter asked for their details to be taken down. The row stays,
-     * because deleting it would delete the record that they asked; the token
-     * stops working the moment this is set.
+     * When the link stops working. Pushed out again on every open, because a
+     * fighter halfway through the form is the last person who should be shut out
+     * of it. Null on a row written before this column existed, which is read as
+     * no expiry rather than as an expired one.
+     */
+    expiresAt: integer("expires_at"),
+    /**
+     * When the link was switched off — by the promoter's "Revoke link", or by the
+     * fighter asking for their details to be taken down. The row stays, because
+     * deleting it would delete the record that they asked; the token stops
+     * working the moment this is set, and a revoked or expired link 404s.
      */
     revokedAt: integer("revoked_at"),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [uniqueIndex("invites_event_fighter").on(table.eventId, table.fighterId)],
+  (table) => [
+    uniqueIndex("invites_event_fighter").on(table.eventId, table.fighterId),
+    uniqueIndex("invites_token_digest").on(table.tokenDigest),
+  ],
 );
 
 /**

@@ -54,6 +54,14 @@ declare global {
      * fighter's photograph to a model is one somebody has to switch on.
      */
     STYLISED_PORTRAITS?: string;
+    /**
+     * Signs the digest an invite is looked up by and encrypts the token the
+     * dashboard shows. Optional in the type only because development derives one
+     * from SESSION_SECRET; a production Worker without it refuses to serve an
+     * invite at all rather than falling back to something guessable. See
+     * lib/invite-token.ts.
+     */
+    INVITE_KEY?: string;
   }
 }
 

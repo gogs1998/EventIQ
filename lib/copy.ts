@@ -741,3 +741,48 @@ export const CONSENT_COPY_STRINGS: readonly string[] = [
   ...PRIVACY.sections.flatMap((section) => [section.heading, section.body]),
   PRIVACY.link,
 ];
+
+/* -------------------------------------------------------------------------
+ * Sending a fighter their link
+ *
+ * There is no SMS or email provider behind this and there is not going to be
+ * one. A promoter already has every fighter in WhatsApp, and a message from a
+ * sender nobody recognises is a message nobody answers. So the product's job is
+ * to make the promoter's own send one tap and to record that it happened, which
+ * is the only way the chase list can tell "never went out" from "went out and
+ * was ignored".
+ *
+ * These are verbs the promoter is about to do rather than descriptions of what
+ * the software will do, because none of it is sent from here. Nothing on this
+ * list says anything about the fighter.
+ * ---------------------------------------------------------------------- */
+
+export const INVITE_SHARE = {
+  /** The line above the controls, on the dashboard. */
+  note:
+    "Send it from your own phone or laptop. Either way the message goes out with their " +
+    "link already in it, and the chase list records which one you used.",
+  whatsapp: "WhatsApp",
+  sms: "Text",
+  copy: "Copy link",
+  /** Issues a fresh link. The old one stops working the moment this lands. */
+  regenerate: "New link",
+  regenerateHint: "Issues a new link and stops the old one working",
+  revoke: "Revoke link",
+  revokeHint: "Stops this link working, without issuing another",
+} as const;
+
+/** How a link went out, as the chase list reports it. "" where nobody said. */
+export const INVITE_CHANNEL = {
+  whatsapp: "on WhatsApp",
+  sms: "by text",
+  copied: "",
+} as const;
+
+/** What the dashboard says about a link that will not open anything. */
+export const INVITE_STATE = {
+  revoked: "This link has been withdrawn. New link issues a working one.",
+  expired: "This link has lapsed. New link issues a working one.",
+  /** A rotated key is the only thing that leaves a stored link unreadable. */
+  unreadable: "The link for this fighter cannot be shown. New link issues a fresh one.",
+} as const;

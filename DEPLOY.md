@@ -24,7 +24,7 @@ secret in place before anything is uploaded.
 > `lib/auth.ts`, read [the PBKDF2 ceiling](#the-pbkdf2-ceiling-and-why-local-tests-cannot-see-it)
 > — the runtime enforces a limit that no local test can observe.
 >
-> **There are now two secrets, not one.** `RENDER_KEY` joined
+> **There are now three secrets, not one.** `RENDER_KEY` joined
 > `SESSION_SECRET` when the capture page the video renderer screenshots stopped
 > being reachable by anybody who could guess a slug. A fresh deployment without
 > it renders no videos, and **no copy of the deployed value is kept anywhere**,
@@ -35,6 +35,10 @@ secret in place before anything is uploaded.
 >
 > **And one variable.** `SHOWCASE_SLUG` in `wrangler.jsonc` names the published
 > show EventIQ's own front page runs on. See [section 4a](#4a-set-the-variables).
+>
+> `INVITE_KEY` joined the secrets when invite tokens stopped being stored in the
+> clear; unlike the render key it **has to be kept**, because rotating it stops
+> every link already sent out. See [section 4](#4-set-the-secrets).
 
 ---
 
@@ -110,12 +114,13 @@ npx wrangler d1 migrations apply eventiq --remote
 
 ## 4. Set the secrets
 
-There are two, and the Worker needs both. Neither has a fallback and neither has
-a default.
+There are three, and the Worker needs all of them. None has a fallback and none
+has a default.
 
 ```bash
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
 openssl rand -base64 36 | npx wrangler secret put RENDER_KEY
+openssl rand -base64 48 | npx wrangler secret put INVITE_KEY
 ```
 
 **`SESSION_SECRET`** signs the promoter's login cookie. A Worker without it
@@ -132,6 +137,24 @@ secret the render route refuses everybody who is not the signed-in promoter who
 owns the show, and `npm run render` stops working** with the error saying so.
 Keep the same value in the environment of whatever machine runs the renderer —
 see [video rendering](#video-rendering).
+
+**`INVITE_KEY`** is what an invite token is sealed under. The token in a
+fighter's link is their whole credential, so the row no longer holds it: it
+holds an HMAC digest, which is what a lookup matches, and an AES-GCM ciphertext,
+which is what the dashboard decrypts to put the link back on the promoter's
+screen. Both keys are derived from this one value. Locally it may be left out
+and `SESSION_SECRET` stands in; **a deployed Worker without it refuses to serve
+an invite at all**, rather than sealing every fighter's link under a value that
+is in this repository.
+
+**This one has to be kept, and it is the only one of the three that does.**
+Rotating `RENDER_KEY` costs nothing and rotating `SESSION_SECRET` signs the
+promoter out; rotating `INVITE_KEY` stops every link already sent out and leaves
+the dashboard unable to show what the old ones were, so every fighter on every
+live card needs a new link. Put it in the password manager the day it is set.
+
+Turning it on over a database that already holds plaintext tokens is
+[the invite backfill](#the-invite-backfill), below.
 
 ### The operator mints their own render key
 
@@ -176,9 +199,36 @@ Check what is set at any time:
 npx wrangler secret list
 ```
 
-Secrets survive a deploy. Both of these were confirmed present after
-`npm run deploy`, which is worth knowing because `wrangler.jsonc` declares
-neither.
+Secrets survive a deploy. They were confirmed present after `npm run deploy`,
+which is worth knowing because `wrangler.jsonc` declares none of them.
+
+### The invite backfill
+
+Migration `0007` adds the digest, the ciphertext, the expiry and the revocation
+columns, and it cannot fill the first two in: sealing a token needs `INVITE_KEY`
+and SQLite has neither HMAC nor AES. So there is a one-off script, and the order
+of the four steps is what makes it safe to run against a live show.
+
+```bash
+npx wrangler secret put INVITE_KEY < the-value        # 1. the Worker can read it
+npm run db:migrate:remote                             # 2. the columns exist
+npm run deploy                                        # 3. the code that uses them
+INVITE_KEY='...' npm run db:migrate-invites -- --remote   # 4. seal what is there
+```
+
+Between 2 and 4 the table is half migrated, and that is a supported state rather
+than a window to hurry through: every lookup matches the digest **or** the
+plaintext column, so a link sent out last week goes on working throughout. Each
+one that comes in on the old column writes a `plaintextInvite` warning to the
+logs, which is the only thing that would ever tell you step 4 had not been run.
+
+The script only touches rows that still hold a plaintext token, so running it
+twice is a no-op, and `--dry-run` counts them without writing. **No token
+changes**, only what is kept of it — nobody has to be sent a new link.
+
+Rows carried over are given ninety days from the migration rather than ninety
+from when they were created, so upgrading a database cannot expire a link that
+is already in somebody's messages.
 
 ### Render keys are rows now, and the secret is the migration path
 
@@ -850,6 +900,10 @@ once, before a promoter's card and a room full of spectators depend on it.
       `npx wrangler secret delete RENDER_KEY`. Until that last command runs, the
       old single credential that reads every promoter's cards still exists.
       [Render keys](#render-keys-are-rows-now-and-the-secret-is-the-migration-path).
+- [ ] **Put `INVITE_KEY` in the password manager too, and treat it as the one
+      that cannot be replaced.** Rotating it stops every link already sent out
+      and leaves the dashboard unable to show what the old ones were, so a lost
+      one means every fighter on every live card being sent a new link by hand.
 - [ ] **Point an external uptime check at `/api/health`.** Anything that will
       send a message to a phone — a free tier is fine. Nothing here phones home,
       so a 500 on show night stays a 500 until somebody happens to log in, and

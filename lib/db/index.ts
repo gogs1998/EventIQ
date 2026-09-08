@@ -2,6 +2,7 @@ import type { Ai, R2Bucket } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@/db/schema";
+import { inviteSecretFrom } from "@/lib/invite-token";
 
 /**
  * Access to the bindings.
@@ -45,7 +46,7 @@ export async function getAi(): Promise<Ai | undefined> {
 }
 
 /** Every secret the Worker reads. Set with `wrangler secret put`. See DEPLOY.md. */
-export type SecretName = "SESSION_SECRET" | "RENDER_KEY";
+export type SecretName = "SESSION_SECRET" | "RENDER_KEY" | "INVITE_KEY";
 
 /**
  * Every plain variable the Worker reads. In `vars` in wrangler.jsonc and in
@@ -83,4 +84,23 @@ export async function requireSecret(name: SecretName): Promise<string> {
   const value = await readSecret(name);
   if (!value) throw new Error(`${name} is not set. See DEPLOY.md.`);
   return value;
+}
+
+/**
+ * The secret invite tokens are sealed under.
+ *
+ * The rule about which one it is, and about production refusing to invent one,
+ * is `inviteSecretFrom` in lib/invite-token.ts. It lives there because it is
+ * worth a test and this file is not testable; it is called from here because
+ * this is the only file that reads bindings.
+ */
+export async function inviteSecret(): Promise<string> {
+  const [inviteKey, sessionSecret] = await Promise.all([
+    readSecret("INVITE_KEY"),
+    readSecret("SESSION_SECRET"),
+  ]);
+  return inviteSecretFrom(
+    { INVITE_KEY: inviteKey, SESSION_SECRET: sessionSecret },
+    process.env.NODE_ENV !== "production",
+  );
 }
