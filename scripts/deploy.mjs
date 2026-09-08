@@ -286,7 +286,7 @@ async function provision() {
   }
 
   console.log("\nApplying migrations to the remote database");
-  await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote"]);
+  await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote", ...WRANGLER_ENV]);
 
   const secretFlags = WRANGLER_ENV.join(" ");
   console.log(
@@ -320,7 +320,7 @@ async function provision() {
  * from "none", and the caller treats it as one.
  */
 async function pendingMigrations() {
-  const out = await sh("npx", ["wrangler", "d1", "migrations", "list", DATABASE, "--remote"], {
+  const out = await sh("npx", ["wrangler", "d1", "migrations", "list", DATABASE, "--remote", ...WRANGLER_ENV], {
     capture: true,
   });
   if (/no migrations to apply/i.test(out)) return [];
@@ -346,7 +346,7 @@ async function pendingMigrations() {
 async function migrate() {
   console.log("\nApplying any pending D1 migrations to the remote database");
   try {
-    await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote"]);
+    await sh("npx", ["wrangler", "d1", "migrations", "apply", DATABASE, "--remote", ...WRANGLER_ENV]);
   } catch (error) {
     fail(
       [

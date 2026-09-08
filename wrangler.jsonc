@@ -159,7 +159,7 @@
           "binding": "DB",
           "database_name": "eventiq-staging",
           // Written by `node scripts/deploy.mjs --env staging --provision`.
-          "database_id": "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE",
+          "database_id": "e26f3b1f-e188-43a2-abe8-f5df09d55a72",
           "migrations_dir": "db/migrations"
         }
       ],
