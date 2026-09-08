@@ -1,7 +1,16 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
-import type { Db } from "@/lib/db";
+import { newId } from "@/lib/auth";
+import { inviteSecret, type Db } from "@/lib/db";
 import type { Card } from "@/lib/card";
+import {
+  digestToken,
+  inviteLive,
+  isSentChannel,
+  newInviteToken,
+  openToken,
+} from "@/lib/invite-token";
+import { logWarning } from "@/lib/log";
 import { renderUrl, type Renders } from "@/lib/renders";
 import type {
   AnalyticsKind,
@@ -147,13 +156,22 @@ function toEvent(
   };
 }
 
-export function toInvite(row: InviteRow): Invite {
+/**
+ * The token is passed in rather than read off the row, because getting it back
+ * out of the row is an async decryption and this mapping is not. The caller that
+ * has the key does that once for the whole card; everything else gets an invite
+ * with no token on it, which is all any other surface needs.
+ */
+export function toInvite(row: InviteRow, token?: string): Invite {
   return {
     fighterId: row.fighterId,
-    token: row.token,
+    token,
     sentAt: optional(row.sentAt),
+    sentChannel: isSentChannel(row.sentChannel) ? row.sentChannel : undefined,
     lastOpenedAt: optional(row.lastOpenedAt),
     submittedAt: optional(row.submittedAt),
+    expiresAt: optional(row.expiresAt),
+    revokedAt: optional(row.revokedAt),
   };
 }
 
@@ -275,18 +293,66 @@ export async function loadShowcase(db: Db): Promise<LoadedCard | null> {
   return pick ? loadCard(db, pick.slug) : null;
 }
 
+/**
+ * Every invite on a card, with the links decrypted.
+ *
+ * The dashboard is the reason the token is encrypted rather than hashed, so this
+ * is the one place that undoes it. The key is fetched once for the whole card
+ * and only where a row actually needs it, so a card whose rows are still
+ * plaintext — the window between the migration and the backfill — never asks for
+ * a secret it does not need.
+ */
 export async function loadInvites(db: Db, eventId: string): Promise<Record<string, Invite>> {
   const rows = await db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId));
+  const secret = rows.some((row) => !row.token && row.tokenCipher) ? await inviteSecret() : null;
+
   const invites: Record<string, Invite> = {};
-  for (const row of rows) invites[row.fighterId] = toInvite(row);
+  for (const row of rows) {
+    const token =
+      row.token ?? (secret && row.tokenCipher ? await openToken(secret, row.tokenCipher) : null);
+    invites[row.fighterId] = toInvite(row, token ?? undefined);
+  }
   return invites;
+}
+
+/**
+ * The row for a brand new invite, and the link to go with it.
+ *
+ * Every place that issues one goes through here — the card editor, the seed, the
+ * dashboard's "New link" — so a token cannot come to be written in the clear by
+ * somebody adding a fourth. The plaintext column is explicitly null rather than
+ * left out, because leaving it out is what a row half-migrated looks like.
+ */
+export async function newInviteValues(
+  eventId: string,
+  fighterId: string,
+  now: number,
+): Promise<{ token: string; values: typeof schema.invites.$inferInsert }> {
+  const { token, columns } = await newInviteToken(now, await inviteSecret());
+  return {
+    token,
+    values: { id: newId("in"), eventId, fighterId, createdAt: now, ...columns },
+  };
 }
 
 /**
  * An invite looked up by the token in the URL, with the show and the fighter it
  * belongs to. One query, because this runs on every keystroke's autosave.
+ *
+ * The match is on the digest, so nothing compares a presented token against a
+ * stored copy of itself. The plaintext column is still in the `or` because a row
+ * that has not been through `scripts/migrate-invites.mjs` yet has nothing else to
+ * match on, and a fighter must not lose their form to our own migration window.
+ * It is logged when it happens, because that state is meant to be temporary and
+ * nothing else would ever say so.
+ *
+ * A revoked or expired invite comes back as null, which is the same answer as a
+ * token nobody ever issued. The three are indistinguishable to the holder on
+ * purpose: "that link has been cancelled" tells a stranger they have found a
+ * real fighter.
  */
-export async function loadInviteByToken(db: Db, token: string) {
+export async function loadInviteByToken(db: Db, token: string, now = Date.now()) {
+  const digest = await digestToken(await inviteSecret(), token);
   const [row] = await db
     .select({
       invite: schema.invites,
@@ -296,9 +362,17 @@ export async function loadInviteByToken(db: Db, token: string) {
     .from(schema.invites)
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
-    .where(eq(schema.invites.token, token))
+    .where(or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)))
     .limit(1);
-  return row ?? null;
+
+  if (!row) return null;
+  if (!row.invite.tokenDigest) {
+    logWarning(
+      { event: "plaintextInvite", eventId: row.invite.eventId, fighterId: row.invite.fighterId },
+      "This invite is still stored in the clear. Run scripts/migrate-invites.mjs.",
+    );
+  }
+  return inviteLive(row.invite, now) ? row : null;
 }
 
 /**
@@ -428,20 +502,32 @@ export async function eventsShowingPortrait(db: Db, path: string) {
     .where(or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)));
 }
 
-/** Whether this invite token belongs to the fighter this portrait is of. */
-export async function inviteHoldsPortrait(db: Db, token: string, path: string): Promise<boolean> {
+/**
+ * Whether this invite token belongs to the fighter this portrait is of.
+ *
+ * Matched on the digest, and only where the invite is still live: a link that
+ * has been revoked stops opening the questionnaire, so it has to stop opening
+ * the photographs on it too, or the credential outlives its own revocation.
+ */
+export async function inviteHoldsPortrait(
+  db: Db,
+  token: string,
+  path: string,
+  now = Date.now(),
+): Promise<boolean> {
+  const digest = await digestToken(await inviteSecret(), token);
   const [row] = await db
-    .select({ id: schema.invites.id })
+    .select({ expiresAt: schema.invites.expiresAt, revokedAt: schema.invites.revokedAt })
     .from(schema.invites)
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .where(
       and(
-        eq(schema.invites.token, token),
+        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
         or(eq(schema.fighters.photo, path), eq(schema.fighters.cutout, path)),
       ),
     )
     .limit(1);
-  return !!row;
+  return !!row && inviteLive(row, now);
 }
 
 export async function loadPromoterEvents(db: Db, promoterId: string) {

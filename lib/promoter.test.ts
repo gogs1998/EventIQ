@@ -9,7 +9,9 @@ import {
   daysUntilShow,
   eventProgress,
   inviteStatus,
+  linkState,
   nudgeMessage,
+  sentNote,
   sponsorInventory,
   type Invites,
 } from "@/lib/promoter";
@@ -242,5 +244,68 @@ describe("nudgeMessage", () => {
         /\b(seconds?|minutes?|hours?)\b/i,
       );
     }
+  });
+});
+
+/**
+ * What the chase list reads, and the two things bug 9 says it must not do:
+ * report anything that was not observed, and lose the distinction between a link
+ * that never went out and one that went out and was ignored.
+ */
+describe("sentNote", () => {
+  const now = Date.UTC(2026, 9, 31);
+  const day = 86_400_000;
+  const base: Invite = { fighterId: "x" };
+
+  it("says nothing about a link that has not gone out", () => {
+    expect(sentNote(base, now)).toBeUndefined();
+    expect(sentNote(undefined, now)).toBeUndefined();
+  });
+
+  it("says when, in the words a promoter would use", () => {
+    expect(sentNote({ ...base, sentAt: now }, now)).toBe("Sent today");
+    expect(sentNote({ ...base, sentAt: now - day }, now)).toBe("Sent yesterday");
+    expect(sentNote({ ...base, sentAt: now - 4 * day }, now)).toBe("Sent 4 days ago");
+  });
+
+  it("says how, where the promoter's own control recorded it", () => {
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "whatsapp" }, now)).toBe(
+      "Sent today on WhatsApp",
+    );
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "sms" }, now)).toBe("Sent today by text");
+  });
+
+  /**
+   * A copied link goes somewhere we cannot see. Naming a channel for it would be
+   * the dashboard reporting something nobody observed, which is bug 9 again.
+   */
+  it("does not invent a channel for a link that was only copied", () => {
+    expect(sentNote({ ...base, sentAt: now, sentChannel: "copied" }, now)).toBe("Sent today");
+  });
+
+  it("never guesses at anybody's gender", () => {
+    for (const channel of ["whatsapp", "sms", "copied"] as const) {
+      expect(sentNote({ ...base, sentAt: now, sentChannel: channel }, now)).not.toMatch(
+        /(his|her|he|she)/i,
+      );
+    }
+  });
+});
+
+describe("linkState", () => {
+  const now = Date.UTC(2026, 9, 31);
+  const base: Invite = { fighterId: "x" };
+
+  it("is live until it lapses", () => {
+    expect(linkState({ ...base, expiresAt: now + 1 }, now)).toBe("live");
+    expect(linkState({ ...base, expiresAt: now - 1 }, now)).toBe("expired");
+  });
+
+  it("reports a withdrawal as a withdrawal, whatever the expiry says", () => {
+    expect(linkState({ ...base, expiresAt: now + 1, revokedAt: now - 1 }, now)).toBe("revoked");
+  });
+
+  it("treats a row from before expiry existed as live", () => {
+    expect(linkState(base, now)).toBe("live");
   });
 });

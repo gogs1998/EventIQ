@@ -70,3 +70,24 @@ export function errorPayload(context: LogContext, error: unknown): ErrorPayload 
 export function logError(context: LogContext, error: unknown): void {
   console.error(errorPayload(context, error));
 }
+
+export type WarningPayload = LogContext & {
+  level: "warn";
+  message: string;
+  at: string;
+};
+
+/** The same fields, so one filter finds both. Pure for the same reason. */
+export function warningPayload(context: LogContext, message: string): WarningPayload {
+  return { level: "warn", ...context, message, at: new Date().toISOString() };
+}
+
+/**
+ * Something that still worked and is not meant to keep happening. A migration
+ * only half applied is the case this exists for: nothing is broken, so no error
+ * will ever be raised, and without a line in the log the half-applied state is
+ * invisible until somebody goes looking.
+ */
+export function logWarning(context: LogContext, message: string): void {
+  console.warn(warningPayload(context, message));
+}

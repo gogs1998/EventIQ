@@ -12,6 +12,14 @@ SESSION_SECRET=local-development-only-not-a-real-secret
 # server and scripts/render-tape.mjs read it from this file.
 RENDER_KEY=local-development-only-not-a-real-render-key
 
+# INVITE_KEY signs the digest an invite is found by and encrypts the token the
+# dashboard shows back. Leave it out locally and SESSION_SECRET stands in; a
+# deployed Worker without it refuses to serve an invite rather than falling back
+# to something guessable. Rotating it makes every link already sent out stop
+# working, so it goes in the password manager beside the other two.
+#   openssl rand -base64 48
+INVITE_KEY=local-development-only-not-a-real-invite-key
+
 # The password the seed script sets on the seeded promoter. Change it before
 # seeding anything that is reachable from the internet.
 SEED_PROMOTER_PASSWORD=letmein

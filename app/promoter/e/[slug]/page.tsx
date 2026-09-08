@@ -21,6 +21,7 @@ import {
 import { jobsByBout, loadBoutFingerprints } from "@/lib/db/render-jobs";
 import {
   EMPTY_DASHBOARD,
+  INVITE_SHARE,
   RENDER_SECTION,
   RENDER_STATE_COPY,
   boutCountLabel,
@@ -35,7 +36,9 @@ import {
   chaseList,
   daysUntilShow,
   eventProgress,
+  linkState,
   nudgeMessage,
+  sentNote,
   sponsorFor,
   sponsorInventory,
 } from "@/lib/promoter";
@@ -366,9 +369,9 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </div>
         <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
           Top of the card first, because a gap in the main event costs more than a gap in
-          bout two. Copy puts a message on the clipboard naming their bout, their opponent
-          and their own link, and — only where it is true — that their opponent has
-          already sent theirs.
+          bout two. The message names their bout, their opponent and their own link, and
+          — only where it is true — that their opponent has already sent theirs.{" "}
+          {INVITE_SHARE.note}
         </p>
 
         {chase.length ? (
@@ -395,14 +398,25 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                         slug={event.slug}
                         fighterId={row.fighter.id}
                         token={row.invite.token}
-                        sent={!!row.invite.sentAt}
+                        message={nudgeMessage(row, event, SITE_URL)}
+                        state={linkState(row.invite)}
                       />
                     </div>
                   ) : null}
                 </div>
 
                 <div className="mt-2.5 flex items-center justify-between gap-2 sm:mt-0 sm:justify-start sm:gap-4">
-                  <Badge className={INVITE_STYLE[row.status]}>{INVITE_LABEL[row.status]}</Badge>
+                  <div className="shrink-0">
+                    <Badge className={INVITE_STYLE[row.status]}>{INVITE_LABEL[row.status]}</Badge>
+                    {/* When and how, under the state rather than in it. A promoter
+                        deciding whether to ring somebody wants both, and the badge
+                        is a fixed width so the column lines up. */}
+                    {sentNote(row.invite) ? (
+                      <div className="text-ash-dim mt-1 w-[7.5rem] text-center font-mono text-[0.5rem] uppercase tracking-[0.1em]">
+                        {sentNote(row.invite)}
+                      </div>
+                    ) : null}
+                  </div>
                   <Meter score={row.score} />
                   <NudgeButton
                     name={row.fighter.name}

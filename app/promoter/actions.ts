@@ -6,9 +6,10 @@ import { and, eq, max } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
-import { newId, newToken } from "@/lib/auth";
+import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
+import { newInviteValues } from "@/lib/db/queries";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { hasSlug, slugify } from "@/lib/slug";
@@ -249,13 +250,9 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
             createdAt: now,
             updatedAt: now,
           }),
-          db.insert(schema.invites).values({
-            id: newId("in"),
-            token: newToken(),
-            eventId: event.id,
-            fighterId: id,
-            createdAt: now,
-          }),
+          // Through newInviteValues so the token is sealed rather than stored in
+          // the clear, and so a third place that issues one cannot forget to.
+          db.insert(schema.invites).values((await newInviteValues(event.id, id, now)).values),
         );
       }
 
@@ -498,62 +495,10 @@ async function isOnCard(db: Db, eventId: string, fighterId: string): Promise<boo
 }
 
 // ------------------------------------------------------------------ invites
-
-/**
- * Records that the promoter has sent the link.
- *
- * The dashboard's whole value is the difference between "he never looked" and
- * "he looked and bailed", and neither means anything if "we never sent it" is
- * mixed in with them. So this is a button the promoter presses rather than
- * something inferred from the link having been copied.
- */
-export async function markInviteSent(slug: string, fighterId: string): Promise<ActionResult> {
-  return attempt(
-    { event: "markInviteSent", route: `/promoter/e/${slug}`, fighterId },
-    ACTION_ERRORS.notSaved,
-    async () => {
-      const db = await getDb();
-      const owned = await ownedEvent(db, slug);
-      if (!owned.ok) return owned;
-
-      await db
-        .update(schema.invites)
-        .set({ sentAt: Date.now() })
-        .where(
-          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
-        );
-
-      revalidatePath(`/promoter/e/${slug}`);
-      return DONE;
-    },
-  );
-}
-
-/**
- * A new token, invalidating the old one. For a link that went to the wrong
- * number, which on an amateur card happens more than once a show.
- */
-export async function regenerateInvite(slug: string, fighterId: string): Promise<ActionResult> {
-  return attempt(
-    { event: "regenerateInvite", route: `/promoter/e/${slug}`, fighterId },
-    ACTION_ERRORS.notSaved,
-    async () => {
-      const db = await getDb();
-      const owned = await ownedEvent(db, slug);
-      if (!owned.ok) return owned;
-
-      await db
-        .update(schema.invites)
-        .set({ token: newToken(), sentAt: null, lastOpenedAt: null })
-        .where(
-          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
-        );
-
-      revalidatePath(`/promoter/e/${slug}`);
-      return DONE;
-    },
-  );
-}
+//
+// markInviteSent, regenerateInvite and revokeInvite live in
+// app/promoter/invite-actions.ts, beside the encryption and expiry rules they
+// have to keep to.
 
 // ----------------------------------------------------------------- sponsors
 

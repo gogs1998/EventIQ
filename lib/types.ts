@@ -96,11 +96,28 @@ export type Corner = "red" | "blue";
  */
 export type Invite = {
   fighterId: string;
-  token: string;
+  /**
+   * Optional because it is no longer stored: it is decrypted from the row for
+   * the one surface that needs it, and a secret that has been rotated leaves the
+   * rest of the dashboard perfectly readable without it.
+   */
+  token?: string;
   sentAt?: number;
+  /** How the promoter said it went out, where they used one of the send controls. */
+  sentChannel?: SentChannel;
   lastOpenedAt?: number;
   submittedAt?: number;
+  /** When the link stops opening anything. Absent on a row from before expiry. */
+  expiresAt?: number;
+  revokedAt?: number;
 };
+
+/**
+ * How a promoter said a link went out. Recorded from the control they used
+ * rather than inferred, for the same reason `sentAt` is: the chase list is only
+ * worth reading where every state on it was observed.
+ */
+export type SentChannel = "whatsapp" | "sms" | "copied";
 
 export type InviteStatus =
   /** No way of reaching them yet, so nothing has gone out. */

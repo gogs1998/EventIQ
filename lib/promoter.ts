@@ -1,4 +1,6 @@
 import { boutsTopDown, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
+import { INVITE_CHANNEL } from "@/lib/copy";
+import { inviteLive } from "@/lib/invite-token";
 import {
   boutBillingLabel,
   completeness,
@@ -53,6 +55,46 @@ export const INVITE_LABEL: Record<InviteStatus, string> = {
   opened: "Opened, unfinished",
   submitted: "Done",
 };
+
+/**
+ * Whole days between two instants, in the words a promoter would use out loud.
+ * Measured from the difference rather than from calendar days on purpose: "two
+ * days ago" about something that happened thirty hours back is the answer a
+ * promoter deciding whether to ring somebody actually wants.
+ */
+function howLongAgo(then: number, now: number): string {
+  const days = Math.floor((now - then) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
+/**
+ * When the link went out and how, or nothing where it has not.
+ *
+ * The "how" is only ever what the promoter's own control recorded. A link that
+ * was copied to the clipboard and pasted somewhere unknown says when and stops
+ * there, because the channel is not something that can be observed from here and
+ * a guess on this row is the same class of mistake as bug 9.
+ */
+export function sentNote(invite: Invite | undefined, now = Date.now()): string | undefined {
+  if (!invite?.sentAt) return undefined;
+  const how = invite.sentChannel ? INVITE_CHANNEL[invite.sentChannel] : "";
+  return `Sent ${howLongAgo(invite.sentAt, now)}${how ? ` ${how}` : ""}`;
+}
+
+export type LinkState = "live" | "revoked" | "expired";
+
+/**
+ * Whether the link on this row still opens anything, and if not, which of the
+ * two reasons it is. The questionnaire treats both as a 404 and says nothing;
+ * the promoter is the one person entitled to know which, because they are the
+ * only one who can do something about it.
+ */
+export function linkState(invite: Invite, now = Date.now()): LinkState {
+  if (invite.revokedAt) return "revoked";
+  return inviteLive(invite, now) ? "live" : "expired";
+}
 
 export type ChaseRow = {
   fighter: Fighter;
@@ -181,7 +223,9 @@ export function sponsorInventory(card: Card): SponsorInventory {
  */
 export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string): string {
   const { fighter, opponent, bout, behind, invite } = row;
-  const link = invite ? `${baseUrl}/f/${invite.token}` : `${baseUrl}/f/demo`;
+  // The demo form where there is no link to give: a nudge naming a page that
+  // does not open is worse than one that shows what the form looks like.
+  const link = invite?.token ? `${baseUrl}/f/${invite.token}` : `${baseUrl}/f/demo`;
 
   // The opponent's gym is named only where somebody has given one. A card typed
   // in an hour ago carries a placeholder there, and "out of Gym to confirm" tells
