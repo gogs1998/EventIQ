@@ -338,6 +338,25 @@ So a key is a row in `render_keys` (migration `0007`): an id, a nullable `promot
 
 Proved locally against a second promoter inserted by hand, each promoter with an unpublished show: no key 404, cage-county's key 200 on its own draft and 404 on the other promoter's, budo's key the other way round, the unscoped runner key 200 on both, an expired key 404, a revoked key 404, a wrong key 404, and the `RENDER_KEY` secret still 200.
 
+### Four ways to a card, and no fifth
+
+`loadCard` fetches a show and asks nobody whether the caller may see it, so **nothing under app/ may import it**. There is an eslint rule saying exactly that, in [eslint.config.mjs](eslint.config.mjs), scoped to `app/**`. A route gets a card one of four ways, all of them in [lib/visibility.ts](lib/visibility.ts):
+
+| Function | For | The credential |
+| --- | --- | --- |
+| `loadVisibleCard` | the public programme, its fighter pages, the table card | published, or the promoter's own session |
+| `loadRenderableCard` | the capture page | a render key, or the promoter's own session |
+| `loadOwnedCard` | the promoter's dashboard and card editor, and `ownedEvent` in all three actions files | the promoter's own session, and the show is theirs |
+| `loadInvitedCard` | the fighter's questionnaire | the invite token, already spent by `loadInviteByToken` |
+
+`loadOwnedCard` is the one that arrived last and it replaced five copies of the same rule: `card.promoterId !== promoter.id` written inline in two promoter pages, and a where clause written out three times in three `"use server"` files — which could not share a helper, because everything a server module exports is an endpoint reachable from the internet. lib/visibility.ts is not a server module, so one function serves all five. It costs the whole card rather than the one row a where clause fetched, which is deliberate: nearly every caller goes on to ask for a render and loads the same card again, and none of them is on a spectator's path.
+
+`loadInvitedCard` looks like it does nothing, and that is the point. The token is the whole authorisation and the lookup has already spent it, so there is no check left to make — which is exactly the shape of the capture page's argument in this section, and **"this one is different" is where the next hole will be**. It also takes the show off the invite row rather than out of the address, so a fighter cannot be shown a card their link was not issued for.
+
+**The return types are branded**, and that is the half the lint rule cannot do. `loadVisibleCard` returns a `VisibleCard` and `loadOwnedCard` an `OwnedCard`; neither can be made anywhere but those two functions, because the cast that makes one lives beside them and nowhere else. So a card that came from somewhere unchecked cannot be passed where a checked one is wanted — the lint rule stops the import, the brand stops the value.
+
+There are tests for all four against a real database with two promoters, a draft and a published show, in [tests/db/visibility.test.ts](tests/db/visibility.test.ts), and a table-driven one in [tests/db/promoter-actions.test.ts](tests/db/promoter-actions.test.ts) that puts **every** promoter action against another promoter's show and asserts both the refusal and that nothing on the show moved. The list every action has to be in is the part that catches the action somebody adds next.
+
 ---
 
 ## 6d. The gate on `/media`, and the three limiters
@@ -392,9 +411,13 @@ One side effect worth having: the pitch page stopped loading every invite row fo
 
 **They have to stay global, and the reason is the address.** A programme lives at `/e/<slug>`, on a QR code printed on the tables, and that path has no promoter segment in it. Making slugs unique per promoter means either `/e/<promoter>/<slug>`, which changes every printed code, every link already sent, the Open Graph cards, the sitemap and the demo recording, or a hidden disambiguator that makes the address unpredictable from the name — and the name is how a promoter finds their own show. The uniqueness is not a modelling accident; it is the public URL.
 
-**The mitigation is suffixing, and it belongs in the slug rather than in the message.** `slugify` should take the collision and return `cage-county-13-2` — the same thing every publishing system does with a title that is already taken — so the promoter gets a show and an address rather than a refusal with a fact in it. `ACTION_ERRORS.addressTaken` then goes, because there is nothing left to refuse: a slug is derived, and a derived value that collides is disambiguated, not rejected.
+**The mitigation is suffixing, and it belongs in the slug rather than in the message.** A collision returns `cage-county-13-2` — the same thing every publishing system does with a title that is already taken — so the promoter gets a show and an address rather than a refusal with a fact in it. A slug is derived, and a derived value that collides is disambiguated, not rejected.
 
-Recommended, not implemented, and deliberately so: `slugify` is in [lib/slug.ts](lib/slug.ts) but the collision check and the refusal are both in `createEvent` in [app/promoter/actions.ts](app/promoter/actions.ts), which is being rewritten on another branch. Doing half of it — a suffixing helper nothing calls — would leave two ideas of what a slug is. The shape of the change is: `uniqueSlug(db, name)` in `lib/db/queries.ts`, which slugifies, asks once for the rows that start with that slug and returns the first free suffix; `createEvent` calls it and drops the clash query and `addressTaken` with it. Until then the oracle is real, and what it discloses is the existence of a show name — not its date, venue, card or anything else, all of which stay behind the publish check.
+Done. `uniqueSlug(db, name, promoterId)` is in [lib/db/queries.ts](lib/db/queries.ts): it slugifies, asks once for the rows at that address or a numbered form of it, and hands back the first free one. `createEvent` calls it and the clash query is gone. The arithmetic is `nextFreeSlug` in [lib/slug.ts](lib/slug.ts), which is pure and has its own tests; the query is one `LIKE`, safe against the base without escaping because a slug is only ever lower-case letters, digits and hyphens and so carries no `%` or `_` to be read as a wildcard.
+
+**`ACTION_ERRORS.addressTaken` stays, for one case: the promoter's own show.** A promoter typing the name of a show they already have is about to create it twice, and handing them a second `cage-county-13-2` is two shows with one name and no way to tell which is which. That refusal discloses nothing, because it is about a row they are looking at — the wording changed from "There is already a show at that address" to **"You already have a show at that address"**, which is both the honest sentence and the one that cannot be true of somebody else. `sameAddress` in lib/slug.ts is what keeps it to the numbered forms, so a promoter with a "Cage County 13 Rematch" in the diary is still allowed a "Cage County 13".
+
+So the oracle is closed. What is left is the race between the check and the insert, which the unique index still catches as a fault rather than a refusal; it was there before and is one row in a hundred thousand.
 
 ## 6g. Consent, removal and retention
 
@@ -409,6 +432,8 @@ The questionnaire publishes photographs, ages and hometowns of real amateur figh
 - **The gate is in the action, not only in the UI.** Every one of these is a server action anybody holding a link can call directly. The component hides the fields; `lib/consent.ts` is what actually decides.
 
 **Removal is a control on the fighter's own form**, in [app/f/[token]/consent-actions.ts](app/f/[token]/consent-actions.ts), behind a second press. A consent that cannot be withdrawn is not a consent, and it must not require writing to the promoter — who may be the person the fighter no longer wants to talk to. It clears every column the questionnaire collects, deletes their sponsor choices, deletes the photograph, cutout and stylised portrait out of R2, revokes the invite and asks for the bout's video again. The database write is one batch and goes first, so a bucket that will not answer cannot leave a profile half-cleared; the objects go afterwards, best effort, by which point no row points at them and `/media` refuses an object nothing points at.
+
+**Taking a bout off the card pulls the links and keeps the profiles.** `removeBout` used to delete the bout and leave both fighters' invites open, so somebody taken off a show could go on filling in a profile for a card they were not on for the ninety days the expiry gives it, and nothing on the dashboard said so — every screen there is derived from the running order the bout had just left. A corner the removal leaves on no other bout of that show now has their invite revoked in the same batch as the delete, because the link is the whole of the authorisation and revoking it is what taking somebody off the card means. **The profile is deliberately untouched.** Withdrawals and mistakes are the same click on an amateur card, and a bout removed in error must not destroy the photograph, the record and the answers a fighter sent: put back on the following morning they are re-invited with a new link and everything they typed is still there. What clears a profile nobody is putting on a card any more is the retention sweep below, which dates a fighter by their last connection to any show and therefore picks up an orphaned one on the ordinary schedule — and the fighter's own removal control, which is theirs to press. Nothing is rendered for the bout either; the fingerprints are built from the running order.
 
 **The name and the gym stay, and the copy says so.** They came off the promoter's matchmaking sheet rather than out of this form, and they are the running order: clearing them leaves a hole on a published card where somebody is still walking out. A fighter told "everything" who then finds their name on the programme has been told something untrue, so `REMOVAL.stays` says which two fields remain and where to take that.
 
@@ -835,6 +860,22 @@ npx wrangler dev --port 8788 --local
 
 `.dev.vars` is the source of truth for local secrets and **wrangler ignores the shell**, so anything outside the Worker that reads the same names has to read that file the same way. [scripts/dev-vars.mjs](scripts/dev-vars.mjs) exists because Node's `process.loadEnvFile` is the wrong way round — it leaves an already-exported variable in place — so with `SEED_PROMOTER_PASSWORD` exported in the shell the seed set one password and the login page expected another. That presents as "the password is wrong" and is not fun to diagnose.
 
+### The database-backed suite
+
+```bash
+npm run test:db
+```
+
+`npm test` is two vitest projects now. The pure one is the derivation layer and runs in two seconds; the second runs the queries, [lib/visibility.ts](lib/visibility.ts) and the promoter's server actions against a **real local D1**, and it exists because three of the worst bugs in section 14 were invisible to a pure test by construction.
+
+**What it can see that nothing else could.** A where clause that reads correctly and selects one row too many — which on an instance with one promoter is every instance this has ever run on. The hundred-parameter cap on a D1 statement, which is why a fighter's submission on the full fifteen-bout card queued no video and said so only in the log. A foreign key that turns out to be the thing actually enforcing an invariant the code merely assumes. And the migration chain applied to a database that already has a show in it, which is the one rehearsal `npm run db:migrate` on a fresh checkout can never be.
+
+**How it is wired.** [tests/db/platform.ts](tests/db/platform.ts) calls `getPlatformProxy()` — wrangler's own Node API — with this project's wrangler.jsonc, `persist: false` and `remoteBindings: false`, and applies `db/migrations` to the database it hands back. `persist: false` is not optional: the default is `.wrangler/state`, which is the development database, and a second writer on that file is the trap this section already warns about twice. Four modules that only exist inside a request are aliased to doubles in tests/db — `lib/db` for the bindings, and `next/headers`, `next/cache`, `next/navigation` — and nothing else is swapped, so signing a promoter in during a test goes through `signIn()` and a real signed cookie.
+
+**Not `@cloudflare/vitest-pool-workers`**, which runs the tests themselves inside workerd. That is the more faithful arrangement and it is also a second runtime to keep working on Windows, a second resolver for the `@/` alias, and an isolate with a workerd behind it per test file. The proxy gives a real D1 and real R2 for one workerd and ordinary Node tests.
+
+**One measurement worth carrying.** A write through the D1 binding costs about forty milliseconds and batching does not help — twenty inserts in one `batch()` cost forty each. The same twenty through `exec()` cost forty for the lot. So the fixtures build their SQL with drizzle and then send it through `exec` with the parameters written in, which is the difference between a suite that runs in ten seconds and one nobody runs.
+
 ### The browser walkthrough
 
 ```bash
@@ -1097,7 +1138,7 @@ Deploy is done (section 12) and is no longer on this list.
 
     - **The render key is a row, scoped to a promoter.** `render_keys`, migration `0007`, section 6c. The single shared secret that read every card on the instance is still accepted and is now the migration path with an expiry date on it.
     - **The shop window runs on a named show**, `SHOWCASE_SLUG`, section 6e — rather than on whichever published show has the furthest-out date, which would have put the second promoter's card on EventIQ's front page and in its sitemap with nobody having done anything.
-    - **Slugs stay global, and the collision message is the thing to fix**, section 6f. Suffixing, in the slug rather than in the refusal. Recommended, not implemented, because the refusal lives in an actions file being rewritten elsewhere.
+    - **Slugs stay global, and the collision is suffixed rather than refused.** Section 6f. `cage-county-13-2`, in the slug rather than in the message, so a promoter cannot learn from a refusal that a rival has a show of that name in the diary. The message survives for the one collision that is the promoter's own, where it discloses nothing.
     - **Fighters stay global.** This is the one that is a decision rather than a change. The `fighters` table is deliberately not owned by an event, because a returning fighter getting "confirm your details" instead of a blank form is the biggest retention hook in the idea (item 12), and a fighter id is a public slug that appears in the address of their profile page and in an Instagram bio. Splitting the table per promoter would break both.
 
       What makes that safe is that **a fighter row is only ever readable through a card the caller may see**, which is already true and is not a new rule: nothing loads a fighter by id, `loadCard` fetches them for one show, and every public route goes through `loadVisibleCard`. So promoter B holding a fighter id learns nothing from it — the card it hangs off answers 404 for them exactly as it does for a stranger, and there is a test for that in [lib/visibility.test.ts](lib/visibility.test.ts) rather than only a sentence here.

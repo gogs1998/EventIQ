@@ -12,8 +12,9 @@ import {
 import { Questionnaire } from "@/components/Questionnaire";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadCard, loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
+import { loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
 import { PRIVACY, REMOVAL } from "@/lib/copy";
+import { loadInvitedCard } from "@/lib/visibility";
 
 /**
  * A fighter's own page, reached by the token in the link and nothing else.
@@ -41,7 +42,10 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
     notFound();
   }
 
-  const card = await loadCard(db, row.event.slug);
+  // Through the invite rather than through the address: the token is the whole
+  // of the authorisation and lib/visibility.ts is where every way of reaching a
+  // card is written down, this one included.
+  const card = await loadInvitedCard(db, row.invite);
   if (!card) notFound();
 
   // Through the running order, so a bout whose other corner is not on the card

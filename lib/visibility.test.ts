@@ -3,10 +3,12 @@ import { digestsMatch, secretDigest, secretMatches } from "@/lib/auth";
 import type { LoadedCard } from "@/lib/db/queries";
 import {
   inviteTokenFromReferrer,
-  loadVisibleCard,
+  loadOwnedCard,
+  visibleCardFor,
   mediaVisibleTo,
   parseMediaKey,
   renderableTo,
+  ownedBy,
   renderKeyGrants,
   visibleTo,
   type RenderKey,
@@ -48,7 +50,7 @@ const cardOf = (published: boolean, promoterId: string) =>
  * The rule used to live inline in one page, which is how three other routes came
  * to be missing it: the printable table card had no publish check at all, and
  * both generateMetadata functions described any card that loaded. Every public
- * route now goes through loadVisibleCard, and this is the whole of what it
+ * route now goes through visibleCardFor, and this is the whole of what it
  * decides.
  */
 describe("visibleTo", () => {
@@ -134,37 +136,91 @@ describe("renderableTo", () => {
  * route actually calls, which is where a rule stops being written down and
  * starts being applied.
  */
-describe("loadVisibleCard, with two promoters on the instance", () => {
+describe("visibleCardFor, with two promoters on the instance", () => {
 
   it("never hands one promoter another's draft", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard("budo-79")).toBeNull();
+    expect(await visibleCardFor("budo-79")).toBeNull();
   });
 
   it("answers the same way to a stranger, so signing in tells you nothing", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = null;
-    expect(await loadVisibleCard("budo-79")).toBeNull();
+    expect(await visibleCardFor("budo-79")).toBeNull();
   });
 
   it("gives a promoter their own draft", async () => {
     stub.card = cardOf(false, "budo");
     stub.viewerId = "budo";
-    expect(await loadVisibleCard("budo-79")).not.toBeNull();
+    expect(await visibleCardFor("budo-79")).not.toBeNull();
   });
 
   /** Published is published: the other promoter is a member of the public. */
   it("gives anybody a published card, whoever owns it", async () => {
     stub.card = cardOf(true, "budo");
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard("budo-79")).not.toBeNull();
+    expect(await visibleCardFor("budo-79")).not.toBeNull();
   });
 
   it("answers null for a slug with nothing behind it", async () => {
     stub.card = null;
     stub.viewerId = "cage-county";
-    expect(await loadVisibleCard("no-such-show")).toBeNull();
+    expect(await visibleCardFor("no-such-show")).toBeNull();
+  });
+});
+
+/**
+ * The promoter's own half of the same rule.
+ *
+ * It was written out five times — twice inline in a promoter page and three
+ * times as a where clause in three "use server" files, which cannot share a
+ * helper between them because everything they export is an endpoint. This is
+ * where it is written once.
+ */
+describe("ownedBy", () => {
+  it("is their own show and nobody else's", () => {
+    expect(ownedBy(draft, "cage-county")).toBe(true);
+    expect(ownedBy(draft, "budo")).toBe(false);
+  });
+
+  it("is nobody's for a caller with no session at all", () => {
+    expect(ownedBy(draft, null)).toBe(false);
+    expect(ownedBy(draft, undefined)).toBe(false);
+    expect(ownedBy(draft, "")).toBe(false);
+  });
+
+  /** Publishing a show does not make it everybody's to edit. */
+  it("does not follow the publish check", () => {
+    expect(ownedBy(live, "budo")).toBe(false);
+  });
+});
+
+describe("loadOwnedCard", () => {
+  const db = {} as never;
+
+  it("gives a promoter their own draft", async () => {
+    stub.card = cardOf(false, "budo");
+    expect(await loadOwnedCard(db, "budo-79", "budo")).not.toBeNull();
+  });
+
+  it("refuses another promoter's show, published or not", async () => {
+    stub.card = cardOf(false, "budo");
+    expect(await loadOwnedCard(db, "budo-79", "cage-county")).toBeNull();
+    stub.card = cardOf(true, "budo");
+    expect(await loadOwnedCard(db, "budo-79", "cage-county")).toBeNull();
+  });
+
+  it("answers the same for a show that is not there, so a slug tells you nothing", async () => {
+    stub.card = null;
+    expect(await loadOwnedCard(db, "no-such-show", "cage-county")).toBeNull();
+  });
+
+  /** It reads no session of its own: the caller has already established who. */
+  it("does not fall back to whoever happens to be signed in", async () => {
+    stub.card = cardOf(false, "budo");
+    stub.viewerId = "budo";
+    expect(await loadOwnedCard(db, "budo-79", "cage-county")).toBeNull();
   });
 });
 

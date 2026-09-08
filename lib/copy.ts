@@ -331,7 +331,13 @@ export const ACTION_ERRORS = {
   showNameNeedsCharacters:
     "A show name needs at least one letter or number in it, because the address for the " +
     "programme is made from the name.",
-  addressTaken: "There is already a show at that address. Change the name slightly.",
+  /**
+   * Their own show, and only ever their own. A name that collides with another
+   * promoter's is suffixed instead — `cage-county-13-2` — because refusing it
+   * would say that a show of that name exists somewhere on the instance.
+   * Section 6f.
+   */
+  addressTaken: "You already have a show at that address. Give this one a slightly different name.",
 
   boutNeedsBothCorners: "A bout needs a name in both corners.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",

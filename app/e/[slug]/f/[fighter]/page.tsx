@@ -16,7 +16,7 @@ import {
   totalFights,
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
-import { loadVisibleCard } from "@/lib/visibility";
+import { visibleCardFor } from "@/lib/visibility";
 
 function boutFor(card: Card, fighterId: string) {
   const bout = card.event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
@@ -30,7 +30,7 @@ export async function generateMetadata({
   const { slug, fighter: id } = await params;
   // Through the same gate as the body, so a draft card's fighters are not named
   // to a crawler or in a chat app's preview of the link.
-  const card = await loadVisibleCard(slug);
+  const card = await visibleCardFor(slug);
   const fighter = card?.fighters[id];
   if (!card || !fighter) return {};
 
@@ -42,7 +42,7 @@ export async function generateMetadata({
 
 export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fighter]">) {
   const { slug, fighter: id } = await params;
-  const card = await loadVisibleCard(slug);
+  const card = await visibleCardFor(slug);
   if (!card) notFound();
 
   const fighter = card.fighters[id];

@@ -9,6 +9,7 @@ import { newToken } from "@/lib/auth";
 import { getDb, inviteSecret, type Db } from "@/lib/db";
 import { INVITE_TTL_MS, isSentChannel, sealedColumns } from "@/lib/invite-token";
 import { currentPromoter, type Promoter } from "@/lib/session";
+import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
 import type { SentChannel } from "@/lib/types";
 
 /**
@@ -25,27 +26,26 @@ import type { SentChannel } from "@/lib/types";
  * card actions do. A slug is a name, not a capability.
  */
 
-type Owned = { promoter: Promoter; event: typeof schema.events.$inferSelect };
+type Owned = { promoter: Promoter; card: OwnedCard };
 
 /**
  * The show and the promoter who owns it, or the sentence to show instead.
  *
- * Written out again rather than shared with app/promoter/actions.ts: everything
- * exported from a "use server" module is an endpoint, so a helper cannot be
- * exported between two of them without also publishing it to the internet.
+ * The where clause used to be written out again here rather than shared with
+ * app/promoter/actions.ts, because everything exported from a "use server"
+ * module is an endpoint and a helper cannot be passed between two of them
+ * without also publishing it to the internet. `loadOwnedCard` is in
+ * lib/visibility.ts, which is not a server module, so the copies are gone and
+ * the rule is where the publish gate is.
  */
 async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
   const promoter = await currentPromoter();
   if (!promoter) return refuse(ACTION_ERRORS.signedOut);
 
-  const [event] = await db
-    .select()
-    .from(schema.events)
-    .where(and(eq(schema.events.slug, slug), eq(schema.events.promoterId, promoter.id)))
-    .limit(1);
-  if (!event) return refuse(ACTION_ERRORS.noSuchShow);
+  const card = await loadOwnedCard(db, slug, promoter.id);
+  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
 
-  return done({ promoter, event });
+  return done({ promoter, card });
 }
 
 /**
@@ -81,7 +81,7 @@ export async function markInviteSent(
           sentChannel: isSentChannel(channel) ? channel : null,
         })
         .where(
-          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
+          and(eq(schema.invites.eventId, owned.card.eventId), eq(schema.invites.fighterId, fighterId)),
         );
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -128,7 +128,7 @@ export async function regenerateInvite(slug: string, fighterId: string): Promise
           lastOpenedAt: null,
         })
         .where(
-          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
+          and(eq(schema.invites.eventId, owned.card.eventId), eq(schema.invites.fighterId, fighterId)),
         );
 
       revalidatePath(`/promoter/e/${slug}`);
@@ -160,7 +160,7 @@ export async function revokeInvite(slug: string, fighterId: string): Promise<Act
         .update(schema.invites)
         .set({ revokedAt: Date.now() })
         .where(
-          and(eq(schema.invites.eventId, owned.event.id), eq(schema.invites.fighterId, fighterId)),
+          and(eq(schema.invites.eventId, owned.card.eventId), eq(schema.invites.fighterId, fighterId)),
         );
 
       revalidatePath(`/promoter/e/${slug}`);

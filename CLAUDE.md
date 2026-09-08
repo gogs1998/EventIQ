@@ -31,7 +31,8 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 564 unit tests in 32 files, ~2s
+npm test           # 684 tests in 35 files, ~85s
+npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck
 npm run build
@@ -59,7 +60,7 @@ Each of these looks like an improvement from the outside and is a regression. Ne
 
 **Nothing a fighter sends is stored before the box is ticked, and the check is in the action.** The questionnaire asks first — notice, age, tick, then everything else — and `lib/consent.ts` decides what a save may write. Under eighteen the form stops and stores nothing at all, including the age, because the gate checks the age before it checks the tick. The one thing a save may carry before there is a consent is the tick itself. Every one of these is a server action anybody holding a link can call directly, so hiding the fields in the component is not the control. The wording is versioned (`CONSENT_VERSION`) and stored on the invite with the timestamp, because "what exactly did this fighter agree to" is a question that gets asked once and has to be answerable — **bump the version whenever the text changes**. HANDOVER section 6g.
 
-**`lib/visibility.ts` is the only thing that decides who may see a card.** Public pages get a card through `loadVisibleCard` and the renderer's capture page through `loadRenderableCard`. Do not call `loadCard` from a route. A rule written inline in the one place somebody thought of is a rule three other places are free to forget (bugs 23, 27). **The objects belong to the card too**: `/media` asks `mediaVisibility` in the same file before it touches the bucket, because a draft show's mp4 is the draft show. A key shape with no rule written for it is refused rather than served, so a new prefix has to come here and say who may read it (HANDOVER section 6d).
+**`lib/visibility.ts` is the only thing that decides who may see a card.** Public pages get a card through `loadVisibleCard`, the renderer's capture page through `loadRenderableCard`, the promoter's own pages and every `ownedEvent` through `loadOwnedCard`, and the fighter's questionnaire through `loadInvitedCard`. **Nothing under app/ may import `loadCard`** — there is an eslint rule, and the first two return branded types that only those functions can make, so a card that came from somewhere else cannot be passed where a checked one is wanted. A rule written inline in the one place somebody thought of is a rule three other places are free to forget (bugs 23, 27). **The objects belong to the card too**: `/media` asks `mediaVisibility` in the same file before it touches the bucket, because a draft show's mp4 is the draft show. A key shape with no rule written for it is refused rather than served, so a new prefix has to come here and say who may read it (HANDOVER section 6d).
 
 **An endpoint anybody can reach accepts only what it can verify, and is counted.** `/api/track` takes no credential by design, so it writes nothing for an unpublished show and nothing naming a bout, fighter or sponsor that is not on the card — the counts are what a promoter hands a sponsor, so a table anybody can put a row in is not evidence. The login form, the record importer and the counter each have a `ratelimits` binding, and the login form also has a per-account lockout, because ten a minute per caller does not bound one password guessed from a thousand addresses. HANDOVER sections 6d and 9.
 
@@ -95,13 +96,18 @@ lib/db/         the only files that know what the tables look like
 db/             schema.ts is the single description; migrations are generated
 data/event.ts   the demo card — now only the seed, nothing reads it at runtime
 scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
+tests/db/       the database-backed suite and its harness; everything else is tested beside itself
 ```
 
 The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `Bout`, `Sponsor` and `FightEvent` types the original fixture used, and `loadCard()` fetches a whole show in two `db.batch` round trips, whatever the card holds. Everything downstream is a pure function of that `Card` object — `lib/tape.ts` and `lib/promoter.ts` never see a database, which is why they kept every test through the move from fixture to D1. Keep new derivation on that side of the line.
 
 ## Testing
 
-`npm test` is the derivation layer, which is pure and therefore cheap to test. It does not touch a database or a browser.
+`npm test` runs two vitest projects.
+
+**`unit`** is the derivation layer, which is pure and therefore cheap to test. It touches no database and no browser.
+
+**`db`** (`npm run test:db` on its own) runs against a real local D1. `getPlatformProxy()` from wrangler starts one Miniflare from this project's own wrangler.jsonc, `db/migrations` is applied to a database held in memory, and the four modules that exist only inside a request — `lib/db`, `next/headers`, `next/cache`, `next/navigation` — are aliased to doubles in `tests/db/`. Everything else runs exactly as written: the queries, `lib/visibility.ts`, and the promoter's server actions, against a real signed session cookie. It covers what a pure test structurally cannot — a where clause that selects one row too many, the hundred-parameter limit on a D1 statement, and the migration chain applied to a database that already has a card in it. [tests/db/platform.ts](tests/db/platform.ts) says why this and not `@cloudflare/vitest-pool-workers`, and why writes go through `exec` rather than the binding.
 
 The other half is `scripts/e2e.mjs`, 28 steps through a real browser:
 

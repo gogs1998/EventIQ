@@ -9,7 +9,7 @@ import { EMPTY_PROGRAMME, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
 import { formatEventDate, lastName } from "@/lib/tape";
-import { loadVisibleCard } from "@/lib/visibility";
+import { visibleCardFor } from "@/lib/visibility";
 
 export async function generateMetadata({
   params,
@@ -17,7 +17,7 @@ export async function generateMetadata({
   const { slug } = await params;
   // Through the same gate as the body. A draft show's name and venue in an
   // unfurled link is the show leaking, whatever the page itself answers.
-  const card = await loadVisibleCard(slug);
+  const card = await visibleCardFor(slug);
   if (!card) return {};
 
   const { event } = card;
@@ -30,7 +30,7 @@ export async function generateMetadata({
 export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) {
   const { slug } = await params;
   const db = await getDb();
-  const card = await loadVisibleCard(slug);
+  const card = await visibleCardFor(slug);
   if (!card) notFound();
 
   const { event } = card;

@@ -8,6 +8,7 @@ import {
   eventsShowingPortrait,
   inviteHoldsPortrait,
   loadCard,
+  loadCardById,
   renderKeysFor,
   type LoadedCard,
 } from "@/lib/db/queries";
@@ -29,12 +30,39 @@ import { currentPromoter } from "@/lib/session";
  * card this way is the only way to get one on a public page.
  */
 
+/**
+ * Which gate a card came through.
+ *
+ * A brand rather than a comment. `LoadedCard` is what `loadCard` returns and it
+ * says nothing about who may see it, so a route that had one could pass it
+ * anywhere a checked card was wanted and nothing would notice. These two types
+ * can only be made by the two functions below — the cast is here and nowhere
+ * else — so a card in a route either came through a gate or does not typecheck.
+ * The eslint rule in eslint.config.mjs is the other half of it: nothing under
+ * app/ may import `loadCard` at all.
+ */
+declare const gate: unique symbol;
+
+/** A card that has been through the publish check. Safe to render publicly. */
+export type VisibleCard = LoadedCard & { readonly [gate]: "visible" };
+
+/** A card that has been through the ownership check. The promoter's own show. */
+export type OwnedCard = LoadedCard & { readonly [gate]: "owned" };
+
 /** The rule itself, with nothing around it: published, or the promoter's own. */
 export function visibleTo(
   card: { published: boolean; promoterId: string },
   viewerId: string | null | undefined,
 ): boolean {
   return card.published || (!!viewerId && viewerId === card.promoterId);
+}
+
+/** The same, for a page that is the promoter's rather than the public's. */
+export function ownedBy(
+  card: { promoterId: string },
+  promoterId: string | null | undefined,
+): boolean {
+  return !!promoterId && card.promoterId === promoterId;
 }
 
 /**
@@ -55,14 +83,77 @@ export function visibleTo(
  * here rather than passed in — `getDb` hands back a new Drizzle instance every
  * time, and an argument that is never equal to itself memoises nothing.
  */
-export const loadVisibleCard = cache(async (slug: string): Promise<LoadedCard | null> => {
-  const card = await loadCard(await getDb(), slug);
+export async function loadVisibleCard(db: Db, slug: string): Promise<VisibleCard | null> {
+  const card = await loadCard(db, slug);
   if (!card) return null;
-  if (card.published) return card;
+  if (card.published) return card as VisibleCard;
 
   const promoter = await currentPromoter();
-  return visibleTo(card, promoter?.id) ? card : null;
-});
+  return visibleTo(card, promoter?.id) ? (card as VisibleCard) : null;
+}
+
+/**
+ * The card at this slug for the promoter it belongs to, or null.
+ *
+ * The same rule as the publish check and the same reason for being here: it was
+ * written out five times — twice inline in a promoter page as
+ * `card.promoterId !== promoter.id`, and three times as a where clause in three
+ * "use server" files that could not share a helper between them, because
+ * everything a "use server" module exports is an endpoint. Five copies of a rule
+ * is the shape of every bug in section 14 that mattered. This module is not a
+ * server module, so the copies can become one call.
+ *
+ * Null for a show that is not theirs and for a show that does not exist alike:
+ * a slug is the promoter's own show name and therefore guessable, so telling
+ * the two apart would be a way of finding out what a rival has in the diary.
+ *
+ * It costs the whole card rather than the one row a where clause would, and
+ * that is the trade taken deliberately. Nearly every caller goes on to ask for a
+ * render, which loads the same card again, and none of them is on a spectator's
+ * path — a promoter pressing save can afford a round trip that a QR code on a
+ * table cannot.
+ */
+export async function loadOwnedCard(
+  db: Db,
+  slug: string,
+  promoterId: string,
+): Promise<OwnedCard | null> {
+  const card = await loadCard(db, slug);
+  return card && ownedBy(card, promoterId) ? (card as OwnedCard) : null;
+}
+
+/**
+ * The card an invite is for.
+ *
+ * The fighter's questionnaire holds no session and no key: the token in the
+ * address is the whole of the authorisation, and `loadInviteByToken` has already
+ * spent it. So there is nothing left for this to check — and that is exactly why
+ * it is written down here with the others rather than left as a `loadCard` in a
+ * route, because "this one is different" is where the next hole will be.
+ *
+ * The show is taken off the invite row rather than out of the address, so the
+ * card a fighter is shown cannot be a different show from the one their link was
+ * issued for however the page happens to be reached.
+ */
+export function loadInvitedCard(
+  db: Db,
+  invite: { eventId: string },
+): Promise<LoadedCard | null> {
+  return loadCardById(db, invite.eventId);
+}
+
+/**
+ * The visible card for a slug, once per request.
+ *
+ * A programme page and its generateMetadata both need the card, and each was
+ * loading it: two batches for one spectator. React's cache() keys on the slug
+ * for the life of the request, so the second asker gets the first answer. The
+ * database is fetched inside, because a Drizzle instance created per call
+ * memoises nothing and would defeat the point.
+ */
+export const visibleCardFor = cache(
+  async (slug: string): Promise<VisibleCard | null> => loadVisibleCard(await getDb(), slug),
+);
 
 /**
  * Who is allowed to render a show.
