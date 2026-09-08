@@ -1022,6 +1022,35 @@ that is a question for the privacy notice and the retention policy, which are
 [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) item 2, and it wants
 answering before real fighters' details are in these files.
 
+### Objects nothing points at
+
+```bash
+npm run r2:orphans                   # the local bucket, dry run
+npm run r2:orphans -- --remote       # the deployed one
+npm run r2:orphans -- --remote --apply
+```
+
+Every object under `fighters/`, `cutouts/`, `portraits/`, `sponsors/` and
+`renders/` is reachable through one column, and `/media` refuses one that is
+not — so an orphan is invisible rather than exposed, and this is a bill rather
+than a hole. It never takes a `render_jobs.current_r2_key`, and it never takes
+anything written in the last day, because a portrait waiting to be approved and
+an upload a moment ahead of its row are both legitimately unreferenced.
+
+**Listing a remote bucket needs an R2 API token**, because wrangler has no
+command that lists objects and R2's own S3 API is what does. Make one under
+**R2 · Manage R2 API Tokens** with **Object Read** on `eventiq-media`, and give
+the script the pair it prints plus the account id:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=...
+export R2_ACCESS_KEY_ID=...
+export R2_SECRET_ACCESS_KEY=...
+```
+
+Read is enough. The deletes go through wrangler with the ordinary deploy token,
+so the listing credential never needs to be able to remove anything.
+
 ## The PBKDF2 ceiling, and why local tests cannot see it
 
 **The deployed Workers runtime refuses PBKDF2 above 100,000 iterations.** Ask
