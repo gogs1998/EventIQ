@@ -396,6 +396,12 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
       await db
         .delete(schema.bouts)
         .where(and(eq(schema.bouts.eventId, event.id), eq(schema.bouts.number, boutNumber)));
+      // The video request goes with the bout. Left behind, it is a queued job
+      // for a bout that no longer exists, which the runner would try, fail and
+      // report against a card that has nothing at that number.
+      await db
+        .delete(schema.renderJobs)
+        .where(and(eq(schema.renderJobs.eventId, event.id), eq(schema.renderJobs.boutNumber, boutNumber)));
 
       if (!event.published) {
         const remaining = await db
@@ -412,6 +418,13 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
               .update(schema.bouts)
               .set({ number: index + 1 })
               .where(eq(schema.bouts.id, bout.id));
+            // Jobs and videos are keyed by bout number, so they move with it;
+            // otherwise the video made for bout seven would be filed under
+            // whichever bout is seventh now.
+            await db
+              .update(schema.renderJobs)
+              .set({ boutNumber: index + 1 })
+              .where(and(eq(schema.renderJobs.eventId, event.id), eq(schema.renderJobs.boutNumber, bout.number)));
           }
         }
         // Renumbering moves every bout below the gap, and the number is in the

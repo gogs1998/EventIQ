@@ -179,7 +179,24 @@ export async function enqueueRender(
     }));
   if (!rows.length) return 0;
 
-  await db
+  // D1 binds at most 100 parameters to one statement, and a row here is seven
+  // of them, so a fifteen-bout card in one insert is refused outright — which is
+  // how a fighter's submission on the demo card queued nothing and said so only
+  // in the log. Ten rows a statement leaves room, and the batch keeps a card's
+  // worth of requests in one transaction.
+  const statements = [];
+  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
+    statements.push(upsert(db, rows.slice(i, i + ROWS_PER_INSERT), now));
+  }
+  await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+
+  return rows.length;
+}
+
+const ROWS_PER_INSERT = 10;
+
+function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: number) {
+  return db
     .insert(schema.renderJobs)
     .values(rows)
     .onConflictDoUpdate({
@@ -202,8 +219,6 @@ export async function enqueueRender(
         lt(schema.renderJobs.leaseUntil, now),
       ),
     });
-
-  return rows.length;
 }
 
 /**
