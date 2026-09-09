@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
-import { claimSql, renderInputsFrom } from "./render-tape.mjs";
+import { brokenImageMessage, claimSql, renderInputsFrom, sameOrigin } from "./render-tape.mjs";
 
 /**
  * The renderer's pure parts. The capture loop needs a browser and a dev server
@@ -77,6 +77,65 @@ describe("renderInputsFrom", () => {
     // programme page and in none of the five scenes.
     const withNoise = { ...ROW, doors_time: "18:30", tagline: "Twelve fights, one night" };
     expect(await renderFingerprint(renderInputsFrom(withNoise, LOCKUPS))).toBe(base);
+  });
+});
+
+/**
+ * Which requests carry the render key.
+ *
+ * The key went out on every request, then on the document alone, and the second
+ * of those broke every draft render: /media asks the same question the capture
+ * page does, so the page's own portraits came back 404 and the bout rendered
+ * empty. Same-origin is the boundary — the concern was a sponsor mark on
+ * somebody else's host, and that is precisely what an origin test excludes.
+ */
+describe("sameOrigin", () => {
+  const BASE = "https://eventiq.win";
+
+  it("takes the capture page itself", () => {
+    expect(sameOrigin(`${BASE}/render/budo-fighting-championship/6`, BASE)).toBe(true);
+  });
+
+  /** The bug: a draft show's cutouts are refused without the key. */
+  it("takes the page's own /media requests", () => {
+    expect(sameOrigin(`${BASE}/media/cutouts/owen-pryce-ab12.webp`, BASE)).toBe(true);
+  });
+
+  it("refuses somebody else's host", () => {
+    expect(sameOrigin("https://cdn.example.com/sponsor-mark.svg", BASE)).toBe(false);
+    // A prefix match on the base URL would have sent the key here.
+    expect(sameOrigin("https://eventiq.win.example.com/mark.svg", BASE)).toBe(false);
+  });
+
+  /** Same host, no https: a header sent there goes out in the clear. */
+  it("refuses the same host on another scheme", () => {
+    expect(sameOrigin("http://eventiq.win/media/cutouts/a-b.webp", BASE)).toBe(false);
+  });
+
+  it("holds for a local render, port and all", () => {
+    const local = "http://localhost:3402";
+    expect(sameOrigin(`${local}/media/cutouts/a-b.webp`, local)).toBe(true);
+    expect(sameOrigin("http://localhost:3000/media/cutouts/a-b.webp", local)).toBe(false);
+  });
+
+  it("refuses anything that is not an address", () => {
+    expect(sameOrigin("data:image/png;base64,iVBORw0K", BASE)).toBe(false);
+    expect(sameOrigin("", BASE)).toBe(false);
+  });
+});
+
+describe("brokenImageMessage", () => {
+  it("names the first broken source, because that is what gets curled", () => {
+    expect(brokenImageMessage(["https://eventiq.win/media/cutouts/owen-ab12.webp"])).toContain(
+      "/media/cutouts/owen-ab12.webp",
+    );
+  });
+
+  it("counts the rest rather than listing a card's worth of them", () => {
+    const message = brokenImageMessage(["/media/a.webp", "/media/b.webp", "/media/c.webp"]);
+    expect(message).toContain("/media/a.webp");
+    expect(message).toContain("and 2 other images");
+    expect(message).not.toContain("/media/c.webp");
   });
 });
 

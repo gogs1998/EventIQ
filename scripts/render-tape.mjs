@@ -418,6 +418,50 @@ async function finishJob(eventId, boutNumber, fields) {
 
 // --------------------------------------------------------------- capturing
 
+/**
+ * Whether a request the capture page made is to the site being captured.
+ *
+ * This is the boundary the render key is allowed to cross. Origin rather than a
+ * prefix match on the base URL, because `https://eventiq.win` is a prefix of
+ * `https://eventiq.win.example.com` and a scheme is part of who you are talking
+ * to: the same host over http is a different origin and a header sent there goes
+ * out in the clear.
+ *
+ * Anything that is not a URL at all — a data: or blob: source, which the
+ * composition does not use but a preview might — is not our origin, so it gets
+ * nothing.
+ */
+export function sameOrigin(url, baseUrl) {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What a bout fails with when the capture page could not load a picture.
+ *
+ * It names the first source, because the operator's next move is to curl it: a
+ * `/media/cutouts/...` in here means the object is being refused rather than
+ * missing, and a render that is refused its portraits is exactly the render that
+ * used to succeed with nobody in it.
+ */
+export function brokenImageMessage(broken) {
+  const [first, ...rest] = broken;
+  const others = rest.length ? ` (and ${rest.length} other image${rest.length === 1 ? "" : "s"})` : "";
+  return (
+    `The capture page could not load ${first}${others}, so this bout would render ` +
+    "with an empty subject. Nothing was captured."
+  );
+}
+
+/** Reads what the page has recorded, and refuses the bout if it has recorded anything. */
+async function refuseBrokenImages(page) {
+  const broken = await page.evaluate(() => window.__checkImages?.() ?? []);
+  if (broken.length) throw new Error(brokenImageMessage(broken));
+}
+
 export async function withPage(fn) {
   if (!renderKey) {
     throw new Error(
@@ -446,22 +490,25 @@ export async function withPage(fn) {
     const page = await browser.newPage();
 
     /**
-     * The key goes on the capture page's own request and on nothing else.
+     * The key goes on every same-origin request and on nothing else.
      *
      * It used to be set with setExtraHTTPHeaders, which puts a header on every
-     * request the page makes: the photographs out of /media, the fonts, the
-     * chunks, and — for a card whose backdrop or sponsor mark is hosted anywhere
-     * else — on a request to somebody else's server. A shared secret that can
-     * read any card on the instance, published or not, has no business
-     * travelling with an image. Only the capture page checks it, so only the
-     * capture page is sent it.
+     * request the page makes — including, for a card whose backdrop or sponsor
+     * mark is hosted somewhere else, a request to somebody else's server. A
+     * shared secret that can read any card on the instance has no business
+     * travelling there, so it was narrowed to the document alone.
+     *
+     * That was too narrow by one boundary. `/media` asks the same question the
+     * capture page does (section 6d), so on a draft show the page's own <img>
+     * requests for the portraits were refused, and every one of them is
+     * `complete` with nothing in it — 480 frames of empty subject, exit code 0.
+     * Same-origin is the line the concern actually drew: the third-party host is
+     * the thing to keep the key away from, and our own routes are the things
+     * that check it.
      */
     await page.setRequestInterception(true);
     page.on("request", (request) => {
-      const wantsKey =
-        request.isNavigationRequest() &&
-        request.frame() === page.mainFrame() &&
-        request.url().startsWith(base);
+      const wantsKey = sameOrigin(request.url(), base);
       void request.continue(
         wantsKey ? { headers: { ...request.headers(), [RENDER_KEY_HEADER]: renderKey } } : {},
       );
@@ -495,6 +542,9 @@ export async function openBout(page, bout, eventSlug = slug) {
   }
 
   await page.waitForFunction(() => window.__ready === true, { timeout: 120_000 });
+  // The backdrop and the promoter's mark are in the document from the first
+  // frame, so anything wrong with those is known before ffmpeg is started.
+  await refuseBrokenImages(page);
   return page.evaluate(() => window.__duration ?? 480);
 }
 
@@ -513,17 +563,38 @@ export async function openBout(page, bout, eventSlug = slug) {
  * `decode()` is the right question to ask — it resolves when the image can be
  * painted without a delay, and resolves immediately for anything already
  * painted, so asking on all 480 frames costs almost nothing.
+ *
+ * What it must not do is swallow the answer. A rejected decode used to go into
+ * an empty catch, which is how a bout whose every portrait was being refused
+ * captured 480 frames of nothing and finished successfully. Each frame is
+ * checked, not just the first, because a portrait does not enter the document
+ * until its reveal begins at frame 62.
  */
 export async function seek(page, frame) {
-  await page.evaluate(async (f) => {
+  // One round trip rather than two: the check runs in the same evaluate, because
+  // this is on the path 480 times a bout.
+  const broken = await page.evaluate(async (f) => {
     window.__setFrame(f);
     // One frame for React to commit, so anything new is in the document.
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    await Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => {})));
+    const failed = [];
+    await Promise.all(
+      Array.from(document.images).map((img) =>
+        img.decode().catch(() => {
+          // An image taken out of the document mid-decode was aborted by the
+          // frame moving on, which is not a missing picture. Anything still in
+          // the document that will not decode is one.
+          if (img.isConnected) failed.push(img.currentSrc || img.src);
+        }),
+      ),
+    );
     await new Promise((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(resolve)),
     );
+    return window.__checkImages?.(failed) ?? failed;
   }, frame);
+
+  if (broken.length) throw new Error(brokenImageMessage(broken));
 }
 
 async function renderStill(bout, frame) {
