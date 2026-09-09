@@ -237,6 +237,12 @@ function Head({
         </Link>
         <div className="ml-auto flex items-center gap-2">
           <Link
+            href="/promoter/new"
+            className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+          >
+            New show
+          </Link>
+          <Link
             href="/promoter/account"
             className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
           >
