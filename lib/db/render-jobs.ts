@@ -112,18 +112,25 @@ export async function loadBoutFingerprints(
 /**
  * Asks for a bout, or a whole card, to be rendered again.
  *
- * **Where this belongs.** Nothing calls it yet, deliberately — the actions files
- * it belongs in are being rewritten on another branch. It should be called from
- * four places, all of which change what a video would look like:
+ * **Where this belongs.** Every save that changes what a video would look like
+ * asks for one, which is why the call is in the actions and not here:
  *
  * - `setPublished` in app/promoter/actions.ts, when a show goes live: a card
  *   nobody could read did not need its videos made.
- * - `submitQuestionnaire` in app/f/[token]/actions.ts: a fighter sending their
- *   photograph and record is the change the whole pipeline exists for.
- * - `saveBout` / `deleteBout` in app/promoter/actions.ts, for the bout touched.
- * - `updateEvent` and anything that edits a sponsor, for every bout on the card:
- *   the show's name, date, venue and backdrop are on screen in three of the five
- *   scenes, and a bout sponsor is the closing card.
+ * - `submitProfile` in app/f/[token]/actions.ts, and the portrait and removal
+ *   actions beside it: a fighter sending their photograph and record is the
+ *   change the whole pipeline exists for.
+ * - `addBout`, `updateBout`, `setBoutOff` and `removeBout` in
+ *   app/promoter/actions.ts, for the bout touched.
+ * - `updateEvent`, `updateFighter` and anything that edits a sponsor, for every
+ *   bout on the card: the show's name, date, venue and backdrop are on screen in
+ *   three of the five scenes, and a bout sponsor is the closing card.
+ *
+ * All of those go through `requestRenderQuietly` below, because the save has
+ * already happened by the time the queue is written. The one caller that asks
+ * directly is `requestRender` in app/promoter/render-actions.ts, the promoter's
+ * own control, where a failure is something they pressed and should be told
+ * about.
  *
  * Queuing is cheap and idempotent, so it is better to ask twice than to leave a
  * fighter's photograph out of their own video until somebody notices. The
@@ -195,13 +202,6 @@ function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: nu
 }
 
 /**
- * The jobs for one show, keyed by bout number.
- *
- * `loadRenderJobs` in queries.ts returns the rows; this is only the shaping the
- * dashboard wants, kept here so that file does not grow a second reason to
- * change.
- */
-/**
  * The same, for a server action that has already saved what the promoter or the
  * fighter typed.
  *
@@ -224,6 +224,13 @@ export async function requestRenderQuietly(
   }
 }
 
+/**
+ * The jobs for one show, keyed by bout number.
+ *
+ * `loadRenderJobs` in queries.ts returns the rows; this is only the shaping the
+ * dashboard wants, kept here so that file does not grow a second reason to
+ * change.
+ */
 export function jobsByBout<T extends { boutNumber: number }>(rows: T[]): Record<number, T> {
   const jobs: Record<number, T> = {};
   for (const row of rows) jobs[row.boutNumber] = row;
