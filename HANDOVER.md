@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 564 unit tests and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Production deploys from `main`. The first phase was built on `cursor/eventiq-digital-fight-programme` and went in through [PR #1](https://github.com/gogs1998/EventIQ/pull/1); that branch has not moved since the merge, so `main` is the only tree worth reading. Build, lint and typecheck clean; 774 tests in 40 files and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -63,12 +63,17 @@ An independent audit after that found three more, all fixed: **the capture page 
 | `/promoter` | Shows list, or straight to the dashboard if there is one | password |
 | `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
 | `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
+| `/promoter/new` | Creates a show. Its own address because the index redirects a promoter with one show straight past it — bug 45 | password |
+| `/promoter/account` | Change your password, and sign out | password |
 | `/promoter/login` | Sign in | public |
+| `/promoter/reset/[token]` | Set a new password from an operator's link | the token is the credential |
 | `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
 | `/media/[...key]` | Serves R2 objects | public |
 | `/api/track` | Records one interaction | public, write-only |
 | `/api/import-record` | Fetches and parses one record page | public |
+| `/api/health` | Whether D1 and R2 are answering. Section 12a | public |
 | `/about-the-importer` | What the importer bot does, linked from its user agent | public |
+| `/privacy` | The privacy notice, and a draft. Section 6g | public |
 
 ---
 
@@ -77,7 +82,7 @@ An independent audit after that found three more, all fixed: **the capture page 
 - **Next.js 16.3 App Router, TypeScript, Tailwind 4.** Single app at repo root.
 - **Cloudflare Workers via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare).** `@cloudflare/next-on-pages` is deprecated and Pages is the wrong product for an app with server actions and a database.
 - **D1** for data, **R2** for photographs and rendered video.
-- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is 267 lines of TypeScript that generates its own migrations.
+- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is a single file of TypeScript, short enough to read in one sitting, and it generates its own migrations.
 - **No auth dependency.** Web Crypto, which is in the Workers runtime, in Node and in the test environment, so the same code runs everywhere. Section 6.
 - **`devIndicators: false`** in [next.config.ts](next.config.ts). Not cosmetic — the video exporter screenshots the running dev server, and the Next.js dev badge was being burned into every frame.
 - **`images: { unoptimized: true }`** — all imagery is pre-optimised and the Workers image loader would be a cost for no gain.
@@ -429,7 +434,7 @@ The questionnaire publishes photographs, ages and hometowns of real amateur figh
 
 **The order on the form is the argument.** Notice, then age, then the tick, then everything else. Nothing else is on the page until the box is on.
 
-- **Age first, and eighteen is the floor.** Amateur cards do run junior bouts, and this form is not the place for one: a published profile with sponsorship beside it is not something a child agrees to on a phone. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and **collects nothing further, including the age itself** — `consentGate` checks age before it checks the tick, because a gate that stored the age and refused afterwards would have kept the one field it should never have taken.
+- **Age first, and eighteen is the floor.** Amateur cards do run junior bouts, and this form is not the place for one: a published profile with sponsorship beside it is not something a child agrees to on a phone. Under eighteen the form stops, says a parent or guardian should speak to the promoter, and **collects nothing further, including the age itself** — `consentGate` checks age before it checks the tick, because a gate that stored the age and refused afterwards would have kept the one field it should never have taken. `MINIMUM_AGE` is the constant, and it is a product boundary rather than a setting: what it costs, and what changing it would take, is in section 20.
 - **The tick is the only thing a save may carry before there is a consent.** `saveDraft` answers `consentOnly` for that save and writes the consent alone; the browser then sends the same draft again, now that there is a consent for the answers to sit under. `uploadPhoto` refuses outright without one, because it is reachable without the form and a photograph is the most exposed thing here.
 - **The gate is in the action, not only in the UI.** Every one of these is a server action anybody holding a link can call directly. The component hides the fields; `lib/consent.ts` is what actually decides.
 
@@ -1017,7 +1022,7 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 564 unit tests
+npm test                     # 774 tests in 40 files, both projects
 npm run lint
 npm run typecheck
 
@@ -1190,7 +1195,7 @@ Deploy is done (section 12) and is no longer on this list.
 
       What is *not* decided, and must not be decided by an implementation detail, is **matching a returning fighter across promoters**. Within one promoter's shows it is a matching problem. Across promoters it is a data-sharing question — does promoter B see the profile promoter A collected, and did the fighter agree to that — and it lands directly on item 2. Until there is consent wording that says so, matching stays within a promoter. Note that the row being global means the plumbing for cross-promoter matching is already there and costs one query to switch on, which is exactly why the decision wants writing down rather than leaving to whoever writes item 12.
 
-    A change-password form is the small piece of code left and is what unblocks a second account; the point that stands is that the form without the decisions above is how a second promoter gets minted into a model that was never designed for them.
+    The change-password form that was the last piece of code here is built: `/promoter/account`, with an operator-issued reset link at `/promoter/reset/[token]` for a promoter who cannot sign in to use it. So a second account can now be created without the operator holding its password, and what is left of this item is the matching decision above rather than anything to write. The point that stands is that the form without those decisions is how a second promoter gets minted into a model that was never designed for them.
 
 12. **Returning fighters.** The schema already keeps fighters across events. What is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. That remains the biggest retention hook in the idea for a single promoter. Matching across promoters waits on item 11, and on the consent in item 2 saying whether a profile may follow a fighter onto somebody else's card.
 
@@ -1210,12 +1215,15 @@ Deploy is done (section 12) and is no longer on this list.
 
 Native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring here means round-by-round judging, not the crowd scorecard in item 9.
 
+**Other sports, and grassroots football in particular, were investigated and the answer is [BEYOND-FIGHT-SPORT.md](BEYOND-FIGHT-SPORT.md)**: go wider within fight sport, where boxing, Muay Thai and K1 already work with no code written, and treat football as a second vertical on shared foundations only once a football customer exists.
+
 ---
 
 ## 20. Risks worth tracking
 
 - **Anything a client sends is a claim.** The SVG upload (section 6b) is the instance that has already been live: `file.type` was trusted, and the browser's own JPEG re-encode was mistaken for a control when the server action behind it is reachable directly. The same reasoning applies to every field the questionnaire and the card editor accept, and it is why `sanitiseDraft` caps lengths and clamps numbers rather than trusting the form. When a value decides what a browser will *do* — a content type, a redirect target, a filename — derive it, do not accept it.
 - **Personal data.** The questionnaire collects age, hometown and photographs of real people, and it is reachable by an unguessable link with no authentication. It now asks first, records what was agreed to and when, refuses under-eighteens, offers removal and sweeps on a retention policy, with a notice at `/privacy` — section 6g. **The lawful basis for publishing is still stated nowhere**, and the controller/processor position is a draft in a source comment that no lawyer has seen. Both are section 19 item 2, and both need the originator rather than a commit. The residual risks are ordinary rather than structural now: a column added to the questionnaire and not added to `clearedFighterColumns` is a field that survives a fighter asking for it to go, and **the retention sweep, the analytics fold and the bucket sweep are three commands nobody has scheduled** — the same shape of gap as the backup below, and the cron lines for all of them are in [DEPLOY.md](DEPLOY.md#folding-the-counting-and-the-sweeps).
+- **Under eighteen cannot use the questionnaire at all, and that is a boundary on the product rather than on the form.** `MINIMUM_AGE` in [lib/consent.ts](lib/consent.ts) is eighteen and `consentGate` checks the age before it checks the tick, so a fighter who says they are younger has nothing stored, not even the age they just gave. That is correct for what this is and it should not change on its own — section 6g says why. What has not been written down outside that module is the cost of it. Amateur cards already run junior bouts, so a promoter with one on the bill has fighters the questionnaire cannot take and has to fall back to typing their name and gym in like the paper programme; and **a large share of grassroots sport is youth sport**, so any plan to take this product beyond adult amateur fight sport — school rugby, junior football, a club's own age groups — meets this wall before it meets anything technical. It is not a matter of lowering the number. It needs a parent or guardian in the flow, a consent given and withdrawable by somebody who is not the subject, and a decision about what may be published about a child at all, which is a harder legal question than the one in section 19 item 2 and wants asking of a lawyer rather than answered here. Anyone scoping that expansion should cost it as a new consent design, not as a constant.
 - **Invite links are bearer tokens.** Anyone who gets the link can edit that fighter's entry. Mitigated by regeneration and by there being nothing sensitive behind it beyond the profile itself, but it is a real property of the design and not an oversight.
 - **So is the render key, and it is now per promoter.** It used to be one shared secret held by whatever machine rendered the videos, and anybody holding it could read any card on the instance, published or not. Keys are rows in `render_keys` now, scoped to a promoter, expiring and revocable — section 6c. Two things are left of the risk. The runner's key is unscoped by necessity, because the hourly job renders whatever is queued, so it is still a credential that reads every draft on the instance and it lives in repository secrets: anyone who can read those, or push a workflow that echoes them, holds it. And **the `RENDER_KEY` secret is still accepted**, which means the old cross-tenant credential exists until somebody mints a runner key and runs `wrangler secret delete RENDER_KEY`. That is the one piece of this that is a chore rather than a decision, and it is not done. Rotation costs nothing else: nothing but the renderer reads it.
 - **"This one is different" is where the next hole will be.** The route that leaked unpublished shows had a good reason not to use the shared publish check and a comment saying so, and that comment was where the thinking stopped. Any place that opts out of a general rule needs its own rule, not none.

@@ -2,7 +2,9 @@
 
 # EventIQ — working on this codebase
 
-Digital fight programmes for amateur MMA. Live at **https://eventiq.win**. Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1).
+Digital fight programmes for amateur MMA. Live at **https://eventiq.win**, deployed from `main`.
+
+**Branch off `main`.** The whole first phase was built on `cursor/eventiq-digital-fight-programme` and reached `main` through [PR #1](https://github.com/gogs1998/EventIQ/pull/1), which is merged. That branch has not moved since and `main` is well ahead of it, so anything checked out from it is a superseded tree — which matters here more than it usually would, because this file is the first thing a fresh session reads and it used to name that branch as the work.
 
 Spectators scan a QR code at a venue and get the full running order. Every bout expands into a tale of the tape, and the important ones come with a broadcast-style vertical video built from the fighters' own photographs. Promoters get a dashboard telling them who has not sent their details in yet, and sponsor placements they can sell.
 
@@ -13,7 +15,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 800 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,200 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 
@@ -23,7 +25,7 @@ When you need to know why something is written a particular way, HANDOVER.md alm
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, SHOWCASE_SLUG, the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, INVITE_KEY, SHOWCASE_SLUG, the seed password
 npm run db:reset                   # migrate and seed the local D1
 npm run dev                        # http://localhost:3000
 ```
@@ -31,7 +33,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 767 tests in 40 files, ~90s
+npm test           # 774 tests in 40 files, ~90s
 npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck
@@ -95,7 +97,8 @@ lib/            derivation and helpers, all pure and unit-tested
 lib/db/         the only files that know what the tables look like
 db/             schema.ts is the single description; migrations are generated
 data/event.ts   the demo card — now only the seed, nothing reads it at runtime
-scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
+scripts/        renderer, cutouts, seed, e2e, deploy, backup, the sweeps, promoter
+                accounts, render keys, screenshots, sales tour
 tests/db/       the database-backed suite and its harness; everything else is tested beside itself
 ```
 
@@ -166,6 +169,8 @@ The conversation that produced this, in order, because several of the decisions 
 
 **The list lives in [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next), and only there.** It used to be summarised here as well, which meant two orderings of the same work drifting apart — and the summary is the one that goes stale, because the reasoning that would tell you an item had moved is in the handover and not in the precis.
 
-What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
+What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. Several of the second half are struck through as done now, because an item that has been built still says what was decided while building it; read past them rather than treating the first numbered item you reach as the next one. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
 
-Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The cancelled-bout flag in section 19 is the exception that proves that, not a weakening of it.
+Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The withdrawn-bout flag, which is built, is the exception that proves that rather than a weakening of it: it is a state on a row that already existed and it does not ask the programme to be right in the same second as the MC.
+
+**Whether this should serve other sports is answered in [BEYOND-FIGHT-SPORT.md](BEYOND-FIGHT-SPORT.md)** — go wider within fight sport, where boxing, Muay Thai and K1 already work with no code written, and do not generalise the fight domain in place for a football customer who does not exist yet.
