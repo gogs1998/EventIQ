@@ -6,12 +6,15 @@ import {
   boutsTopDown,
   cardCompleteness,
   emptiestEntry,
+  entryOf,
   featuredBout,
+  runningEntryOf,
   showSponsors,
   type Card,
 } from "@/lib/card";
 import { DONE_AT } from "@/lib/promoter";
 import { boutBillingLabel, completeness } from "@/lib/tape";
+import type { Bout } from "@/lib/types";
 
 const card: Card = { event, fighters, sponsors };
 
@@ -163,6 +166,97 @@ describe("a bout that is off", () => {
     expect(boutsRunning(none)).toEqual([]);
     expect(boutsTopDown(none).length).toBe(event.bouts.length);
     expect(cardCompleteness(none, DONE_AT)).toEqual({ score: 0, done: 0, total: 0 });
+  });
+});
+
+/**
+ * Which bout is a fighter's, asked the same way twice.
+ *
+ * A fighter's public profile and the fighter's own questionnaire both have to
+ * answer it, and they used to answer it with two different searches: the profile
+ * took the first match walking `card.event.bouts` upwards from the openers, the
+ * questionnaire took the first match walking the programme's order down from the
+ * main event. On the ordinary card, where a fighter has one bout that is still
+ * going ahead, those agree — which is why it went unnoticed.
+ */
+describe("the bout a fighter is on", () => {
+  const withBout = (number: number, change: Partial<Bout>): Card => ({
+    ...card,
+    event: {
+      ...event,
+      bouts: event.bouts.map((bout) => (bout.number === number ? { ...bout, ...change } : bout)),
+    },
+  });
+
+  // The main event's red corner stepping in on bout 1 as well, which is
+  // ordinary enough on an amateur card where somebody has pulled out.
+  const doubledUp = withBout(1, { blueId: "callum-reeves" });
+  const mainEventOff = withBout(15, { cancelled: true });
+
+  it("names the bout the card gives the most prominence, where a fighter is on two", () => {
+    expect(entryOf(doubledUp, "callum-reeves")?.bout.number).toBe(15);
+    expect(runningEntryOf(doubledUp, "callum-reeves")?.bout.number).toBe(15);
+  });
+
+  it("gives both surfaces the same corner as well as the same bout", () => {
+    expect(entryOf(doubledUp, "callum-reeves")).toEqual(
+      runningEntryOf(doubledUp, "callum-reeves"),
+    );
+    expect(entryOf(doubledUp, "callum-reeves")?.corner).toBe("red");
+    expect(entryOf(card, "dre-osei")?.corner).toBe("blue");
+  });
+
+  /**
+   * A withdrawal keeps its number, its place and its sponsor on the programme,
+   * where it is struck through and labelled. A profile heading a fighter's page
+   * with that bout and no such label was the one surface still presenting it as
+   * a fight somebody could turn up to.
+   */
+  it("is not a withdrawn bout on the public profile", () => {
+    expect(runningEntryOf(mainEventOff, "callum-reeves")).toBeUndefined();
+    expect(runningEntryOf(mainEventOff, "dre-osei")).toBeUndefined();
+  });
+
+  /**
+   * The fighter's own link still works, because the bout can go back on and
+   * because the control for asking for their details back is on that page.
+   */
+  it("is still a withdrawn bout on the fighter's own link", () => {
+    expect(entryOf(mainEventOff, "callum-reeves")?.bout.number).toBe(15);
+    expect(entryOf(mainEventOff, "callum-reeves")?.corner).toBe("red");
+  });
+
+  it("falls back to the bout still going ahead, for a fighter on one of each", () => {
+    const one = withBout(1, { blueId: "callum-reeves" }).event.bouts;
+    const both: Card = {
+      ...card,
+      event: {
+        ...event,
+        bouts: one.map((bout) => (bout.number === 15 ? { ...bout, cancelled: true } : bout)),
+      },
+    };
+
+    expect(runningEntryOf(both, "callum-reeves")?.bout.number).toBe(1);
+    expect(runningEntryOf(both, "callum-reeves")?.corner).toBe("blue");
+    expect(entryOf(both, "callum-reeves")?.bout.number).toBe(15);
+  });
+
+  /**
+   * A bout that has lost a corner is left out of the programme, so it is not
+   * offered as the remaining fighter's bout either. The profile searched the
+   * bouts raw and would link to a bout nobody could find on the card.
+   */
+  it("does not offer a bout the programme leaves out", () => {
+    const lostACorner = withBout(1, { blueId: "nobody-at-all" });
+
+    expect(boutsTopDown(lostACorner).map((bout) => bout.number)).not.toContain(1);
+    expect(entryOf(lostACorner, "kieran-doyle")).toBeUndefined();
+    expect(runningEntryOf(lostACorner, "kieran-doyle")).toBeUndefined();
+  });
+
+  it("has nothing for a fighter who is not on the card", () => {
+    expect(entryOf(card, "nobody-at-all")).toBeUndefined();
+    expect(runningEntryOf(card, "nobody-at-all")).toBeUndefined();
   });
 });
 

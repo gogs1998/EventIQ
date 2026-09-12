@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { FighterPortrait } from "@/components/FighterPortrait";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
-import { fighterSponsors, type Card } from "@/lib/card";
+import { fighterSponsors, runningEntryOf } from "@/lib/card";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -17,12 +17,6 @@ import {
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
 import { visibleCardFor } from "@/lib/visibility";
-
-function boutFor(card: Card, fighterId: string) {
-  const bout = card.event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
-  if (!bout) return undefined;
-  return { bout, corner: (bout.redId === fighterId ? "red" : "blue") as Corner };
-}
 
 export async function generateMetadata({
   params,
@@ -48,7 +42,9 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
   const fighter = card.fighters[id];
   if (!fighter) notFound();
 
-  const assignment = boutFor(card, id);
+  // The bout they are still fighting, through the one helper that decides that,
+  // so this page and the fighter's own link never name different bouts.
+  const assignment = runningEntryOf(card, id);
   const corner: Corner = assignment?.corner ?? "red";
   const record = formatRecord(fighter);
   const { score, missing } = completeness(fighter);
