@@ -25,7 +25,7 @@ When you need to know why something is written a particular way, HANDOVER.md alm
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, SHOWCASE_SLUG, the seed password
+cp .dev.vars.example .dev.vars     # SESSION_SECRET, RENDER_KEY, INVITE_KEY, SHOWCASE_SLUG, the seed password
 npm run db:reset                   # migrate and seed the local D1
 npm run dev                        # http://localhost:3000
 ```
@@ -97,7 +97,8 @@ lib/            derivation and helpers, all pure and unit-tested
 lib/db/         the only files that know what the tables look like
 db/             schema.ts is the single description; migrations are generated
 data/event.ts   the demo card — now only the seed, nothing reads it at runtime
-scripts/        renderer, cutouts, seed, e2e, deploy, backup, screenshots, sales tour
+scripts/        renderer, cutouts, seed, e2e, deploy, backup, the sweeps, promoter
+                accounts, render keys, screenshots, sales tour
 tests/db/       the database-backed suite and its harness; everything else is tested beside itself
 ```
 
@@ -168,6 +169,6 @@ The conversation that produced this, in order, because several of the decisions 
 
 **The list lives in [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next), and only there.** It used to be summarised here as well, which meant two orderings of the same work drifting apart — and the summary is the one that goes stale, because the reasoning that would tell you an item had moved is in the handover and not in the precis.
 
-What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
+What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. Several of the second half are struck through as done now, because an item that has been built still says what was decided while building it; read past them rather than treating the first numbered item you reach as the next one. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
 
-Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The cancelled-bout flag in section 19 is the exception that proves that, not a weakening of it.
+Explicitly out of scope so far: native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring means round-by-round judging, not the crowd scorecard. "Live on the night" is attractive and is a different product with different reliability demands — do not let it in early. The withdrawn-bout flag, which is built, is the exception that proves that rather than a weakening of it: it is a state on a row that already existed and it does not ask the programme to be right in the same second as the MC.

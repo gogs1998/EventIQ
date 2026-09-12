@@ -63,12 +63,17 @@ An independent audit after that found three more, all fixed: **the capture page 
 | `/promoter` | Shows list, or straight to the dashboard if there is one | password |
 | `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
 | `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
+| `/promoter/new` | Creates a show. Its own address because the index redirects a promoter with one show straight past it — bug 45 | password |
+| `/promoter/account` | Change your password, and sign out | password |
 | `/promoter/login` | Sign in | public |
+| `/promoter/reset/[token]` | Set a new password from an operator's link | the token is the credential |
 | `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
 | `/media/[...key]` | Serves R2 objects | public |
 | `/api/track` | Records one interaction | public, write-only |
 | `/api/import-record` | Fetches and parses one record page | public |
+| `/api/health` | Whether D1 and R2 are answering. Section 12a | public |
 | `/about-the-importer` | What the importer bot does, linked from its user agent | public |
+| `/privacy` | The privacy notice, and a draft. Section 6g | public |
 
 ---
 
@@ -1190,7 +1195,7 @@ Deploy is done (section 12) and is no longer on this list.
 
       What is *not* decided, and must not be decided by an implementation detail, is **matching a returning fighter across promoters**. Within one promoter's shows it is a matching problem. Across promoters it is a data-sharing question — does promoter B see the profile promoter A collected, and did the fighter agree to that — and it lands directly on item 2. Until there is consent wording that says so, matching stays within a promoter. Note that the row being global means the plumbing for cross-promoter matching is already there and costs one query to switch on, which is exactly why the decision wants writing down rather than leaving to whoever writes item 12.
 
-    A change-password form is the small piece of code left and is what unblocks a second account; the point that stands is that the form without the decisions above is how a second promoter gets minted into a model that was never designed for them.
+    The change-password form that was the last piece of code here is built: `/promoter/account`, with an operator-issued reset link at `/promoter/reset/[token]` for a promoter who cannot sign in to use it. So a second account can now be created without the operator holding its password, and what is left of this item is the matching decision above rather than anything to write. The point that stands is that the form without those decisions is how a second promoter gets minted into a model that was never designed for them.
 
 12. **Returning fighters.** The schema already keeps fighters across events. What is missing is matching them on the way in, so a second show offers "confirm your details" rather than a blank form. That remains the biggest retention hook in the idea for a single promoter. Matching across promoters waits on item 11, and on the consent in item 2 saying whether a profile may follow a fighter onto somebody else's card.
 
