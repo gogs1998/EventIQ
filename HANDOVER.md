@@ -1215,6 +1215,8 @@ Deploy is done (section 12) and is no longer on this list.
 
 Native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring here means round-by-round judging, not the crowd scorecard in item 9.
 
+**Other sports, and grassroots football in particular, were investigated and the answer is [BEYOND-FIGHT-SPORT.md](BEYOND-FIGHT-SPORT.md)**: go wider within fight sport, where boxing, Muay Thai and K1 already work with no code written, and treat football as a second vertical on shared foundations only once a football customer exists.
+
 ---
 
 ## 20. Risks worth tracking
