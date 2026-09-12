@@ -2,7 +2,9 @@
 
 # EventIQ — working on this codebase
 
-Digital fight programmes for amateur MMA. Live at **https://eventiq.win**. Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1).
+Digital fight programmes for amateur MMA. Live at **https://eventiq.win**, deployed from `main`.
+
+**Branch off `main`.** The whole first phase was built on `cursor/eventiq-digital-fight-programme` and reached `main` through [PR #1](https://github.com/gogs1998/EventIQ/pull/1), which is merged. That branch has not moved since and `main` is well ahead of it, so anything checked out from it is a superseded tree — which matters here more than it usually would, because this file is the first thing a fresh session reads and it used to name that branch as the work.
 
 Spectators scan a QR code at a venue and get the full running order. Every bout expands into a tale of the tape, and the important ones come with a broadcast-style vertical video built from the fighters' own photographs. Promoters get a dashboard telling them who has not sent their details in yet, and sponsor placements they can sell.
 
@@ -13,7 +15,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 800 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,200 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 
@@ -31,7 +33,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 767 tests in 40 files, ~90s
+npm test           # 774 tests in 40 files, ~90s
 npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck

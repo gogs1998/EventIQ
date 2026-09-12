@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 564 unit tests and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Production deploys from `main`. The first phase was built on `cursor/eventiq-digital-fight-programme` and went in through [PR #1](https://github.com/gogs1998/EventIQ/pull/1); that branch has not moved since the merge, so `main` is the only tree worth reading. Build, lint and typecheck clean; 774 tests in 40 files and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -77,7 +77,7 @@ An independent audit after that found three more, all fixed: **the capture page 
 - **Next.js 16.3 App Router, TypeScript, Tailwind 4.** Single app at repo root.
 - **Cloudflare Workers via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare).** `@cloudflare/next-on-pages` is deprecated and Pages is the wrong product for an app with server actions and a database.
 - **D1** for data, **R2** for photographs and rendered video.
-- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is 267 lines of TypeScript that generates its own migrations.
+- **Drizzle ORM.** Chosen over Prisma because Prisma's D1 support still goes through a driver adapter and pulls a query engine into the bundle; Drizzle compiles to plain SQL and adds almost nothing to the Worker. The schema is a single file of TypeScript, short enough to read in one sitting, and it generates its own migrations.
 - **No auth dependency.** Web Crypto, which is in the Workers runtime, in Node and in the test environment, so the same code runs everywhere. Section 6.
 - **`devIndicators: false`** in [next.config.ts](next.config.ts). Not cosmetic — the video exporter screenshots the running dev server, and the Next.js dev badge was being burned into every frame.
 - **`images: { unoptimized: true }`** — all imagery is pre-optimised and the Workers image loader would be a cost for no gain.
@@ -1017,7 +1017,7 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 564 unit tests
+npm test                     # 774 tests in 40 files, both projects
 npm run lint
 npm run typecheck
 
