@@ -6,6 +6,7 @@ import { cardCompleteness, featuredBout } from "@/lib/card";
 import {
   chaseNote,
   NO_SHOWCASE,
+  PITCH,
   PRIVACY,
   programmeLinkNote,
   sponsorNote,
@@ -19,8 +20,12 @@ import { formatEventDateShort } from "@/lib/tape";
 const steps = [
   {
     n: "01",
-    title: "Send us the running order",
-    body: "The same sheet you send the printer. Bouts, weights, gyms, corners. We build the programme from it.",
+    // It used to read "Send us the running order … we build the programme from
+    // it", which is not what happens: a promoter types the card in themselves on
+    // their own dashboard, and a promoter who signed in expecting to send a
+    // sheet somewhere would find a form and no address to send it to.
+    title: "Put the running order in",
+    body: "The same sheet you send the printer. Bouts, weights, gyms, corners. The programme is built from it as you type.",
   },
   {
     n: "02",
@@ -110,8 +115,13 @@ export default async function PitchPage() {
   return (
     <main id="main" tabIndex={-1} className="w-full">
       {/* ------------------------------------------------------------ hero */}
-      <section className="mx-auto max-w-3xl px-5 pb-14 pt-16">
-        <h1 className="display anim-slam text-5xl leading-[0.9] sm:text-6xl">
+      {/* Four things before a promoter scrolls: what it is, what it costs, the
+          three things the paper programme and a card viewer cannot do, and the
+          way in. The price and the three differences used to be spread over five
+          sections further down, which meant the first screen made an argument
+          any digital programme could have made. */}
+      <section className="mx-auto max-w-5xl px-5 pb-12 pt-14">
+        <h1 className="display anim-slam max-w-3xl text-5xl leading-[0.9] sm:text-6xl">
           Every fighter&rsquo;s story, one tap away.
         </h1>
         <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
@@ -120,23 +130,47 @@ export default async function PitchPage() {
           {tapeForEveryBout(event?.bouts.length ?? 0)}, and a broadcast video for the ones
           that matter. The room knows exactly who is walking out.
         </p>
+        <p className="text-chalk mt-5 max-w-2xl text-base leading-relaxed">{PITCH.free}</p>
 
-        {event ? (
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href={`/e/${event.slug}`}
-              className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
-            >
-              Open the programme
-            </Link>
-            <Link
-              href="/f/demo"
-              className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
-            >
-              See what a fighter gets
-            </Link>
-          </div>
-        ) : null}
+        <dl className="border-hairline mt-10 grid gap-6 border-t pt-6 sm:grid-cols-3">
+          {PITCH.differences.map((point) => (
+            <div key={point.label}>
+              <dt className="display text-chalk text-lg leading-tight">{point.label}</dt>
+              <dd className="text-ash mt-2 text-sm leading-relaxed">{point.body}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-10 flex flex-wrap gap-3">
+          {/* The promoter's own way in leads, because the reader of this page is
+              a promoter. The two below it open the demo, which is the argument
+              rather than the product they would be signing in to. */}
+          <Link
+            href="/promoter"
+            className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
+          >
+            {PITCH.signIn}
+          </Link>
+          {event ? (
+            <>
+              <Link
+                href={`/e/${event.slug}`}
+                className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+              >
+                Open the programme
+              </Link>
+              <Link
+                href="/f/demo"
+                className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+              >
+                See what a fighter gets
+              </Link>
+            </>
+          ) : null}
+        </div>
+        <p className="text-ash-dim mt-4 max-w-2xl text-sm leading-relaxed">
+          {PITCH.howToGetAnAccount}
+        </p>
       </section>
 
       {/* ------------------------------------------------------ no showcase */}

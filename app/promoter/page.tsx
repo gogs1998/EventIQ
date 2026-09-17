@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NewEventForm } from "@/app/promoter/NewEventForm";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
+import { FIRST_SHOW } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadPromoterEvents } from "@/lib/db/queries";
 import { daysUntilShow } from "@/lib/promoter";
@@ -43,9 +44,13 @@ export default async function PromoterHome() {
         </div>
       </header>
 
-      <section className="mt-8">
-        <h2 className="display text-2xl">Your shows</h2>
-        {events.length ? (
+      {/* Left out entirely on an account with nothing on it, rather than shown
+          as an empty list: the one thing to do next is the form below, and a
+          heading with a sentence under it saying there is nothing here is two
+          things between a new promoter and it. */}
+      {events.length ? (
+        <section className="mt-8">
+          <h2 className="display text-2xl">Your shows</h2>
           <div className="border-hairline divide-hairline mt-4 divide-y border">
             {events.map((event) => (
               <Link
@@ -70,15 +75,19 @@ export default async function PromoterHome() {
               </Link>
             ))}
           </div>
-        ) : (
-          <p className="text-ash mt-4 text-sm leading-relaxed">
-            No shows yet. Put a running order in below and you have a programme.
-          </p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mt-10">
-        <h2 className="display text-2xl">New show</h2>
+      <section className={events.length ? "mt-10" : "mt-8"}>
+        <h2 className="display text-2xl">
+          {events.length ? "New show" : FIRST_SHOW.heading}
+        </h2>
+        {/* The sentence names what the form takes. The line it replaces told a
+            promoter with no show at all to put a running order in below, and
+            below is a form asking for a venue, a date and a door time. */}
+        {events.length ? null : (
+          <p className="text-ash mt-3 max-w-2xl text-sm leading-relaxed">{FIRST_SHOW.lead}</p>
+        )}
         <NewEventForm />
       </section>
     </main>

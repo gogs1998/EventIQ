@@ -10,13 +10,19 @@ import {
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
+  EMPTY_SPONSORS,
   fewerLossesEdge,
+  FIRST_SHOW,
+  GETTING_STARTED,
   INVITE_CHANNEL,
   INVITE_SHARE,
   INVITE_STATE,
+  LOGIN_COPY,
   NO_SHOWCASE,
   NOT_FOUND,
+  NOTHING_SENT,
   PAGE_ERROR,
+  PITCH,
   PRIVACY,
   PROGRAMME_NOT_FOUND,
   programmeLinkNote,
@@ -28,6 +34,7 @@ import {
   renderCountLabel,
   RESET_COPY,
   SHOW_NOT_FOUND,
+  slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
   STYLISED,
@@ -68,6 +75,17 @@ const EMPTY_STRINGS = [
   NO_SHOWCASE.heading,
   NO_SHOWCASE.body,
   NO_SHOWCASE.action,
+  // The first-run copy is every bit as much a zero-bout string as the rest: a
+  // promoter reads all of it on an account and a card with nothing on either.
+  FIRST_SHOW.heading,
+  FIRST_SHOW.lead,
+  GETTING_STARTED.heading,
+  GETTING_STARTED.note,
+  ...Object.values(GETTING_STARTED.steps).flatMap((s) => [s.label, s.body, s.action]),
+  NOTHING_SENT,
+  EMPTY_SPONSORS,
+  RENDER_SECTION.empty,
+  slotsAvailableNote(0),
 ];
 
 const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
@@ -227,11 +245,155 @@ describe("the empty states", () => {
     expect(EMPTY_PROGRAMME.body).toContain("tale of the tape");
     expect(EMPTY_DASHBOARD.body).toContain("running order");
     expect(EMPTY_DASHBOARD.body).toContain("invite link");
-    expect(EMPTY_CARD_EDITOR).toContain("Add the first bout");
+    // The sentence that stands in for the list points at the form that fills
+    // it, which is directly under it once the event details above are shut.
+    expect(EMPTY_CARD_EDITOR).toContain("first bout");
+    expect(EMPTY_CARD_EDITOR).toContain("below");
+    expect(EMPTY_SPONSORS).toContain("Add one");
+    expect(RENDER_SECTION.empty).toContain("photographs");
   });
 
   it("does not tell a spectator whose fault the empty card is", () => {
     expect(EMPTY_PROGRAMME.body).not.toMatch(/promoter|they have not|has not been/i);
+  });
+});
+
+/**
+ * A promoter's first five minutes.
+ *
+ * Accounts are made by an operator, so nobody arrives here having chosen to and
+ * nobody has been walked through it. These are the only sentences in the product
+ * that tell somebody what to do next, which makes them the ones most likely to
+ * drift into promising how long it takes or into counting a card that has
+ * nothing on it. They are in EMPTY_STRINGS above for exactly that reason; what
+ * is here is that each one says its own step and stays in its own order.
+ */
+describe("the first-run copy", () => {
+  it("names the form the promoter is looking at, not the step after it", () => {
+    expect(FIRST_SHOW.lead).toMatch(/name and a date/);
+    // The line it replaced sent a promoter with no show to put a running order
+    // into a form that asks for a venue and a door time.
+    expect(FIRST_SHOW.lead).not.toMatch(/running order in below|put a running order in/i);
+  });
+
+  it("keeps the three steps in the order they have to happen in", () => {
+    const { bouts, invites, publish } = GETTING_STARTED.steps;
+    expect(bouts.body).toMatch(/invite link/);
+    expect(invites.body).toMatch(/chase list/);
+    expect(publish.body).toMatch(/programme/);
+    // Each step's action is a verb the promoter is about to do, not a
+    // description of what the software will do for them.
+    for (const step of [bouts, invites, publish]) {
+      expect(step.action.length).toBeLessThan(30);
+      expect(step.action).not.toMatch(/we |our |automatic/i);
+    }
+  });
+
+  it("says why the strip will not be there next month", () => {
+    expect(GETTING_STARTED.note).toMatch(/published/i);
+  });
+
+  /** It is the ordinary state of a card entered this morning, not a lapse. */
+  it("reports the unsent state without making it a failing", () => {
+    expect(NOTHING_SENT).not.toMatch(/still|yet to|overdue|behind|chase them/i);
+    expect(NOTHING_SENT).toMatch(/send one/i);
+  });
+});
+
+/**
+ * The pitch page's first screen.
+ *
+ * These are the sentences that get repeated in a meeting, which makes them the
+ * ones where an unverifiable claim does the most damage — the fabricated "last
+ * show" figures were the most dangerous thing in the demo for exactly that
+ * reason. Each of the three differences has to be something the reader can go
+ * and check on this instance, and none of them may promise a duration, invent a
+ * figure or characterise a competitor.
+ */
+describe("the pitch", () => {
+  const PITCH_STRINGS = [
+    PITCH.free,
+    PITCH.signIn,
+    PITCH.howToGetAnAccount,
+    ...PITCH.differences.flatMap((d) => [d.label, d.body]),
+  ];
+
+  it("says the price plainly and does not argue with itself about it", () => {
+    expect(PITCH.free).toMatch(/free for promoters/i);
+    expect(PITCH.free.length).toBeLessThan(120);
+    expect(PITCH.free).not.toMatch(/only|just|as little|from £|trial|limited/i);
+  });
+
+  it("names the three differences rather than describing a digital programme", () => {
+    const [own, video, sponsors] = PITCH.differences;
+    expect(own.body).toMatch(/their own|they sent/i);
+    expect(video.body).toMatch(/each bout|every bout/i);
+    expect(sponsors.body).toMatch(/count/i);
+  });
+
+  /**
+   * There is no self-serve signup, so the page has to say who makes an account.
+   * It must not name an address: an invented one is worse than sending somebody
+   * back to the person who showed them this, and there is no contact route in
+   * the repository for it to point at.
+   */
+  it("says how to get an account without inventing somewhere to write to", () => {
+    expect(PITCH.howToGetAnAccount).toMatch(/no sign-up form/i);
+    expect(PITCH.howToGetAnAccount).not.toMatch(/@|mailto:|https?:/i);
+  });
+
+  it("keeps the established tone and claims nothing it cannot show", () => {
+    for (const line of PITCH_STRINGS) {
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line).not.toMatch(/\b(he|she|him|her|his)\b/i);
+      // No figure that is not counted from a real card, and no competitor.
+      expect(line).not.toMatch(/\d+\s*%|\bmyfightcard\b|\brivals?\b/i);
+      expect(line.trim()).toBe(line);
+    }
+  });
+});
+
+/**
+ * The sign-in form, read by somebody using the product for the first time with
+ * two things from an operator and no idea which goes in the first box. It is
+ * also the one page in the promoter's side that anybody can open, so nothing on
+ * it may name a real promoter.
+ */
+describe("the sign-in copy", () => {
+  it("says what goes in the first box", () => {
+    expect(LOGIN_COPY.slugHint).toMatch(/short name/i);
+    expect(LOGIN_COPY.slugHint).toMatch(/set up|given/i);
+  });
+
+  it("prompts with nothing that is a real promoter on the instance", () => {
+    expect(LOGIN_COPY.slugPlaceholder).not.toMatch(/cage|county/i);
+  });
+
+  /** There is no reset form to link to, so it says who mints one. */
+  it("gives somebody locked out a route that exists", () => {
+    expect(LOGIN_COPY.lockedOut).toMatch(/set the account up/i);
+    expect(LOGIN_COPY.lockedOut).not.toMatch(/forgot|click here|link below/i);
+  });
+
+  it("does not blame the reader for being locked out", () => {
+    for (const line of Object.values(LOGIN_COPY)) {
+      expect(line).not.toMatch(/\b(he|she|him|her|his)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\byou forgot\b|\binvalid\b/i);
+    }
+  });
+});
+
+describe("slotsAvailableNote", () => {
+  it("agrees with itself about one slot and several", () => {
+    expect(slotsAvailableNote(1)).toBe("1 slot still available");
+    expect(slotsAvailableNote(11)).toBe("11 slots still available");
+  });
+
+  /** A sold-out card is the good news, so it is not reported as nought left. */
+  it("says the card is sold out rather than counting no slots", () => {
+    expect(slotsAvailableNote(0)).toBe("Every slot on the card is sold");
+    expect(slotsAvailableNote(0)).not.toMatch(/\d/);
   });
 });
 

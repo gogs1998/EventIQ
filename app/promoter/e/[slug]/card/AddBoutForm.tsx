@@ -9,10 +9,15 @@ import {
   inputClass,
 } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
+import { BOUT_ADDED } from "@/lib/copy";
 
 export function AddBoutForm({ slug }: { slug: string }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // What went on, so a promoter working down a matchmaking sheet can see the
+  // last line landed. The form clears itself on a success, which without this
+  // is indistinguishable from a form that refused and said nothing.
+  const [added, setAdded] = useState<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
 
   return (
@@ -27,9 +32,14 @@ export function AddBoutForm({ slug }: { slug: string }) {
       onSubmit={(submit) => {
         submit.preventDefault();
         const data = new FormData(submit.currentTarget);
+        // Read before the action runs: the form is cleared on the way back, so
+        // the names have to be in hand before there is anything to say about
+        // them.
+        const names = `${String(data.get("redName") ?? "").trim()} v ${String(data.get("blueName") ?? "").trim()}`;
         start(async () => {
           const result = await addBout(slug, data);
           setError(result.ok ? null : result.error);
+          setAdded(result.ok ? BOUT_ADDED(names) : null);
           // Cleared only where the bout went in, so a promoter working down a
           // sheet can type the next line straight away.
           if (result.ok) form.current?.reset();
@@ -58,6 +68,13 @@ export function AddBoutForm({ slug }: { slug: string }) {
         </div>
       </div>
 
+      {/* Filled in rather than hinted at. The action puts 70kg and three
+          three-minute rounds on any bout that arrives without them, so a
+          placeholder showing those numbers in grey was the difference between a
+          default and a surprise: a promoter who left the boxes alone got a bout
+          at a weight they had never agreed to and no sign that they had. Grade
+          stays empty, because there is no sensible guess at one — the action
+          stores nothing where it is blank and the programme says nothing. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Field label="Discipline">
           <select name="discipline" className={inputClass} defaultValue="MMA">
@@ -70,16 +87,26 @@ export function AddBoutForm({ slug }: { slug: string }) {
         </Field>
         <Field label="Weight kg">
           {/* Decimal, because catchweights are agreed at the half kilo. */}
-          <input name="weightKg" inputMode="decimal" className={inputClass} placeholder="70" />
+          <input
+            name="weightKg"
+            inputMode="decimal"
+            className={inputClass}
+            defaultValue="70"
+          />
         </Field>
         <Field label="Grade">
           <input name="classLabel" className={inputClass} placeholder="C CLASS" />
         </Field>
         <Field label="Rounds">
-          <input name="rounds" inputMode="numeric" className={inputClass} placeholder="3" />
+          <input name="rounds" inputMode="numeric" className={inputClass} defaultValue="3" />
         </Field>
         <Field label="Minutes">
-          <input name="roundMinutes" inputMode="numeric" className={inputClass} placeholder="3" />
+          <input
+            name="roundMinutes"
+            inputMode="numeric"
+            className={inputClass}
+            defaultValue="3"
+          />
         </Field>
       </div>
 
@@ -95,7 +122,7 @@ export function AddBoutForm({ slug }: { slug: string }) {
       >
         {pending ? "Adding…" : "Add the bout"}
       </button>
-      <ActionStatus error={error} />
+      <ActionStatus error={error} done={added} />
     </form>
   );
 }

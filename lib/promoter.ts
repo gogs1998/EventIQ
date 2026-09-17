@@ -166,6 +166,38 @@ export function eventProgress(card: Card, invites: Invites) {
   };
 }
 
+/** How many of the card's fighters have had their link sent, by any channel. */
+export function linksSent(card: Card, invites: Invites): number {
+  return allRows(card, invites).filter((row) => Boolean(row.invite?.sentAt)).length;
+}
+
+/** The three things that have to happen to a new show, in the only order they can. */
+export type FirstSteps = "bouts" | "invites" | "publish";
+
+/**
+ * Which step a show is on, or null once it is past all three.
+ *
+ * Published is the end of it rather than a fourth step, because a published show
+ * is a show that is doing its job: from there on the dashboard is a chase list
+ * and a set of counts, and a strip of instructions above them is furniture. It
+ * is the only condition that ends it — a promoter who publishes a card with
+ * nothing on it is told so by the empty-dashboard panel underneath, which is a
+ * better sentence for that state than "step one of three".
+ *
+ * Pure, and keyed on three numbers rather than on a card, so the dashboard's
+ * empty branch — which loads no invites at all — can ask it the same question.
+ */
+export function firstSteps(state: {
+  bouts: number;
+  sent: number;
+  published: boolean;
+}): FirstSteps | null {
+  if (state.published) return null;
+  if (state.bouts <= 0) return "bouts";
+  if (state.sent <= 0) return "invites";
+  return "publish";
+}
+
 export type BoutReadiness = {
   bout: Bout;
   red: ChaseRow;

@@ -200,10 +200,16 @@ export function BoutRow({
             ))}
           </div>
 
-          {/* Above "Remove this bout" on purpose. On a published card this is
-              almost always the one a promoter wants, and removing the row would
-              take the sponsor placement and the bout's figures with it. */}
+          {/* Both ways a bout leaves the card, under one heading and set quietly.
+              They used to be two full-width blocks in the same weight as "Save
+              the bout", which is the control ninety-nine visits to this row are
+              for — a promoter opening a line to correct a gym found a reason box
+              and two buttons that take a bout off it competing for the same
+              attention. Taking it off is still above removing it: on a published
+              card it is almost always the one wanted, and removing the row takes
+              the sponsor placement and the bout's figures with it. */}
           <div className="border-hairline grid gap-2 border-t pt-4">
+            <span className="label">If the bout comes off</span>
             {bout.cancelled ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -258,9 +264,8 @@ export function BoutRow({
             )}
             <p className="text-ash-dim text-[0.65rem] leading-relaxed">{WITHDRAWN.editorNote}</p>
             <ActionStatus error={offError} />
-          </div>
 
-          <div className="border-hairline grid gap-1.5 border-t pt-4">
+            <div className="mt-2 grid gap-1.5">
             <button
               type="button"
               disabled={pending}
@@ -279,6 +284,7 @@ export function BoutRow({
               Remove this bout
             </button>
             <ActionStatus error={removeError} />
+            </div>
           </div>
         </div>
       ) : null}

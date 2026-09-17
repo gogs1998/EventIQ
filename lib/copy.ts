@@ -75,6 +75,66 @@ export const NO_SHOWCASE = {
   action: "Promoter sign in",
 } as const;
 
+/* -------------------------------------------------------------------------
+ * The pitch page's first screen
+ *
+ * A promoter reading this has a paper programme that works and a printer they
+ * already pay. What has to be on the screen before they scroll is the price and
+ * the three things the paper cannot do — and the competition, which is a card
+ * viewer a promoter types into, cannot do either.
+ *
+ * Every line here is held to the no-unverifiable-claims rule harder than the
+ * rest of the page, because these are the sentences that get repeated in a
+ * meeting. Nothing about how long anything takes, no engagement figures, no
+ * comparison with a named competitor, and nothing about the product that is not
+ * already true on the instance the reader is looking at.
+ * ---------------------------------------------------------------------- */
+
+export const PITCH = {
+  /**
+   * The price, said plainly and early. It is the first question a promoter asks
+   * and the answer is the strongest thing on the page, so it does not need
+   * selling — a sentence that stated it and then argued with itself would read
+   * as though there were a catch.
+   */
+  free: "Free for promoters. Putting a show on EventIQ costs nothing.",
+  /**
+   * The three differences, each one a thing the reader can check on this very
+   * instance rather than a claim about what the product is like.
+   */
+  differences: [
+    {
+      label: "Fighters fill their own in",
+      body:
+        "Every fighter on the card gets a link to a form of their own. Their record, their " +
+        "photograph and their story are what they sent, not what somebody typed for them.",
+    },
+    {
+      label: "Every bout gets a video",
+      body:
+        "A vertical tale-of-the-tape for each bout, built from the two fighters' own " +
+        "photographs. It plays in the programme and the fighter posts it to their following.",
+    },
+    {
+      label: "Sponsors get a slot and a count",
+      body:
+        "Every bout carries a sponsor placement of its own, and every placement comes with " +
+        "a count of what was opened and tapped, taken from the programme itself.",
+    },
+  ],
+  /** The way in for a promoter, and the reason there is no form beside it. */
+  signIn: "Promoter sign in",
+  /**
+   * There is no self-serve signup and there is not going to be one for now, so
+   * this says who makes an account rather than pointing at a form that does not
+   * exist. It names no address, because inventing one would be worse than
+   * sending somebody back to the person who showed them this.
+   */
+  howToGetAnAccount:
+    "There is no sign-up form. Accounts are set up by hand — ask whoever showed you " +
+    "EventIQ and they will make you one.",
+} as const;
+
 /** The pitch page's hero line, which counts the card it is running on. */
 export function tapeForEveryBout(bouts: number): string {
   return bouts > 0
@@ -153,7 +213,103 @@ export const EMPTY_DASHBOARD = {
 } as const;
 
 /** The card editor, where the running order is actually typed. */
-export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. Add the first bout below.";
+export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. The first bout goes in below.";
+
+/* -------------------------------------------------------------------------
+ * A promoter's first five minutes
+ *
+ * Accounts are made by an operator, so the first thing anybody sees on their own
+ * account is an empty one — and the product cannot explain itself by being
+ * explored, because there is nothing there to explore. What it can do is say the
+ * one thing to do next and put the control for it on the same screen.
+ *
+ * The three steps after that are in the order they have to happen in and in no
+ * other: the bouts, because both corners get their link the moment a bout goes
+ * on; the links, because nothing a fighter sends exists until one is sent; then
+ * publishing, because until then nobody outside the account can read any of it.
+ * A promoter who publishes first gets a programme with nothing on it, which is
+ * the state bugs 22 and 28 are both about.
+ *
+ * None of these say how long anything takes and none of them count a card that
+ * has nothing on it — the same two rules as every string above.
+ * ---------------------------------------------------------------------- */
+
+export const FIRST_SHOW = {
+  heading: "Your first show",
+  /**
+   * The one sentence. It names the form underneath it rather than the running
+   * order, which is the step after: the line it replaces told a promoter with no
+   * show at all to put a running order into a form asking for a venue and a date.
+   */
+  lead:
+    "Nothing on this account yet. Give your first show a name and a date below, and the " +
+    "running order goes in after that.",
+} as const;
+
+/** The strip on the dashboard, which ticks itself off and then goes. */
+export const GETTING_STARTED = {
+  heading: "Getting started",
+  /** Why it will not be there next month. */
+  note: "This goes once the show is published.",
+  steps: {
+    bouts: {
+      label: "Add the running order",
+      body: "Both corners of every bout get an invite link the moment the bout goes on.",
+      action: "Add the bouts",
+    },
+    invites: {
+      label: "Send the links",
+      body:
+        "Each fighter fills their own details in from their phone. The chase list records " +
+        "which links went out, so it can tell a fighter who never looked from one who did.",
+      action: "Send the first link",
+    },
+    publish: {
+      label: "Publish the show",
+      body:
+        "Publishing puts the programme behind the code on the table. Until then it is yours " +
+        "to read and nobody else's.",
+      action: "Publish this show",
+    },
+  },
+} as const;
+
+/**
+ * The chase list before anything has been sent.
+ *
+ * Not an empty list — every fighter on the card is on it — but it is the state
+ * where none of the states mean anything yet, so it says what sending does
+ * rather than leaving a column of "not sent" to be read as a fault. It names no
+ * fighter and counts nobody.
+ */
+export const NOTHING_SENT =
+  "No links have gone out yet. Send one and this list starts telling you who has opened " +
+  "theirs and who has not.";
+
+/**
+ * What the card editor says once a bout has gone on.
+ *
+ * The form clears itself on a success so the next line off the matchmaking sheet
+ * can be typed straight in, and a form that empties and says nothing reads
+ * exactly like one that refused silently. It names the two corners because on a
+ * card being entered in one sitting that is the only way to tell this
+ * confirmation from the last one, and it says what the bout brought with it,
+ * which is the thing a promoter has no other way of knowing happened.
+ */
+export function BOUT_ADDED(corners: string): string {
+  return `${corners} is on the card. Both corners have an invite link.`;
+}
+
+/** The card editor's sponsor book with nothing in it. */
+export const EMPTY_SPONSORS =
+  "No sponsors on this account yet. Add one below and it becomes selectable against any " +
+  "bout on the card, and sits on the strip at the foot of the programme if you say so.";
+
+/** How much of the sponsor inventory is left to sell, said in the singular where it is one. */
+export function slotsAvailableNote(unsold: number): string {
+  if (unsold <= 0) return "Every slot on the card is sold";
+  return `${unsold} ${unsold === 1 ? "slot" : "slots"} still available`;
+}
 
 /* -------------------------------------------------------------------------
  * A bout that is off
@@ -431,6 +587,15 @@ export const RENDER_SECTION = {
     "made away from the site, on a machine with the video tools on it, so this panel reports " +
     "what has been made rather than making it. Whatever is on the programme stays there until " +
     "a new one is finished.",
+  /**
+   * Nothing on the card has a video yet, which is every card on its first
+   * afternoon. The panel already says so a bout at a time; this says it once, at
+   * the top, so a promoter reading down a column of "not made yet" knows it is
+   * the ordinary state of a new card rather than a queue that has stalled.
+   */
+  empty:
+    "None of these have been made yet. Each one is drawn from the two fighters' own " +
+    "photographs, so they come as the profiles come in.",
 } as const;
 
 export const RENDER_STATE_COPY = {
@@ -497,6 +662,30 @@ export function renderCountLabel(current: number, bouts: number): string {
  * minutes", which was a promise nobody could keep. The tone test carves out
  * exactly those two lines and holds everything else to the usual rule.
  * ---------------------------------------------------------------------- */
+
+/**
+ * The sign-in form.
+ *
+ * Read by somebody using the product for the first time, holding two things an
+ * operator sent them and no idea which of the two goes in the first box — the
+ * label said "Promoter" and the box was prompted with another promoter's real
+ * slug, on a page anybody can open.
+ *
+ * The last line is the only route back for a promoter who cannot get in. There
+ * is no "forgotten your password?" to link to, because a reset link is minted by
+ * hand (see the note above ACCOUNT_COPY), so it says who does it rather than
+ * pointing at a form that does not exist.
+ */
+export const LOGIN_COPY = {
+  slugLabel: "Promoter",
+  slugHint: "The short name you were given when your account was set up.",
+  slugPlaceholder: "your-promotion",
+  passwordLabel: "Password",
+  submit: "Sign in",
+  pending: "Checking…",
+  lockedOut:
+    "Passwords cannot be reset from this page. Whoever set the account up can issue a new one.",
+} as const;
 
 /**
  * The change-password page. `hint` states the floor in words; a test holds it to
@@ -583,6 +772,18 @@ export const UNDER_AGE = {
     "should speak to the promoter, who can take the details a different way. Nothing on this " +
     "form is stored while that is the age on it.",
 } as const;
+
+/**
+ * What `/f/demo` says about itself.
+ *
+ * It is a working form with a real card beside it and a submit button reading
+ * "Put me on the card", so it has to say what it is before a promoter has typed
+ * anything into it rather than only after. Said in one place because it is now
+ * said in two: at the top of the form and again under the button.
+ */
+export const PREVIEW_NOTE =
+  "This is the form a fighter gets, as a preview. Nothing typed here is saved and nobody " +
+  "is put on a card.";
 
 /** The line above the form once the tick has been given, and the link out of it. */
 export const CONSENT_GIVEN = {
@@ -779,8 +980,16 @@ export const INVITE_SHARE = {
   note:
     "Send it from your own phone or laptop. Either way the message goes out with their " +
     "link already in it, and the chase list records which one you used.",
-  whatsapp: "WhatsApp",
-  sms: "Text",
+  /**
+   * The one control on the row that matters, so it is a verb and it names the
+   * app it opens. It used to read "WhatsApp" in the same weight as four other
+   * controls beside it, which made the row a list of five things a promoter
+   * might do instead of one they are here to do.
+   */
+  whatsapp: "Send on WhatsApp",
+  sms: "Send by text",
+  /** Everything else, behind one disclosure rather than spread across the row. */
+  more: "Other ways, and the link itself",
   copy: "Copy link",
   /** Issues a fresh link. The old one stops working the moment this lands. */
   regenerate: "New link",
