@@ -153,6 +153,23 @@ That constraint buys both playback modes:
 
 The component now takes a `card` prop as well as `frame`, because the data comes from the database rather than from a module-level import. That is a widening of its inputs, not a loosening of the rule: it is still a pure function of its props.
 
+### Four compositions, one capture page
+
+The tape explains a bout to somebody who has already opened the programme. Three more sell it, and they are listed in [components/sequence/templates.ts](components/sequence/templates.ts) beside it:
+
+| Id | Length | What it is |
+| --- | --- | --- |
+| `tape` | 16s | The tale of the tape. The default, and the only one that is published |
+| `faceoff` | 12s | The main event promo. Both corners slam in, records count up, closing on the bout's sponsor |
+| `walkout` | 10s | One fighter, for that fighter to post. Takes a `corner`, so a bout makes two |
+| `social` | 6s | Four beats for a story or a reel, readable inside the middle 1080x1080 so a square crop keeps every word |
+
+The registry exists because a template's length has to be one number. The capture page reads it and reports it as `window.__duration`; the exporter captures exactly that many frames. Two copies of it would not fail — they would produce a video that ends early or holds a still for a second, which nobody notices until it is posted.
+
+`/render/[slug]/[bout]?template=<id>&corner=<red|blue>` chooses one, and `npm run render -- --template <id> --corner <corner>` is the same two flags on the command line. An unknown id is a 404 rather than the default, because falling back means a typo quietly capturing a different composition of a different length.
+
+**Only the tape may be published, and the script refuses the rest.** `render_jobs` holds one row and one `current_r2_key` per bout with no column saying which composition made it, so publishing a faceoff would write over the tape the programme plays and the dashboard would call it current. Putting one of the others into the queue means `template` in the fingerprint — which marks every existing render stale, correctly and expensively — plus `template` and `corner` on the job row and in its unique key, in `renderKeyFor`, and in what the dashboard and the programme read back. The ordered list is at the foot of templates.ts. Until then they are samples rendered to a file.
+
 ### Why not Remotion
 
 Remotion does exactly this and does it better. It was rejected on licensing, not technical grounds. It is free for individuals and organisations of up to three people; beyond that, **both** an automated render pipeline **and** embedding its Player fall under "Remotion for Automators" at $0.01 per render with a $100/month minimum. That is an affordable cost but a poor dependency to place directly on the core feature of a product with no customers yet. With ffmpeg and Chrome already present the capture loop is about 150 lines.

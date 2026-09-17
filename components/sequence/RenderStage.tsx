@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { boutOf, type Card } from "@/lib/card";
 import { captureState } from "@/lib/capture";
-import { TaleOfTheTape } from "./TaleOfTheTape";
+import type { Corner } from "@/lib/types";
+import { DEFAULT_TEMPLATE, TEMPLATES } from "./templates";
 import { SEQ } from "./timeline";
 
 declare global {
@@ -37,14 +38,33 @@ declare global {
  * The exporter navigates here once and then drives frames through
  * `window.__setFrame`, which is far quicker than reloading 480 times and
  * guarantees every frame comes from the same page state.
+ *
+ * Which composition it draws comes from components/sequence/templates.ts, and so
+ * does how long it runs: `window.__duration` is that template's frame count, so
+ * the exporter captures exactly its length without holding a second copy of the
+ * number. An unknown id has already been refused by the route before this
+ * renders — the fallback here is for the prop being left off, not for a typo.
  */
-export function RenderStage({ card, boutNumber }: { card: Card; boutNumber: number }) {
+export function RenderStage({
+  card,
+  boutNumber,
+  template = DEFAULT_TEMPLATE,
+  corner = "red",
+}: {
+  card: Card;
+  boutNumber: number;
+  template?: string;
+  /** Which fighter a one-corner template is about. Ignored by the rest. */
+  corner?: Corner;
+}) {
   const [frame, setFrame] = useState(0);
   const bout = boutOf(card, boutNumber);
+  const chosen = TEMPLATES[template] ?? TEMPLATES[DEFAULT_TEMPLATE];
+  const duration = chosen.frames;
 
   useEffect(() => {
     window.__setFrame = (next: number) => setFrame(next);
-    window.__duration = SEQ.duration;
+    window.__duration = duration;
 
     const broken: string[] = [];
     window.__brokenImages = broken;
@@ -97,9 +117,11 @@ export function RenderStage({ card, boutNumber }: { card: Card; boutNumber: numb
       delete window.__brokenImages;
       window.__ready = false;
     };
-  }, []);
+  }, [duration]);
 
   if (!bout) return <div>Unknown bout</div>;
+
+  const Composition = chosen.component;
 
   return (
     <>
@@ -110,7 +132,7 @@ export function RenderStage({ card, boutNumber }: { card: Card; boutNumber: numb
         id="stage"
         style={{ width: SEQ.width, height: SEQ.height, overflow: "hidden" }}
       >
-        <TaleOfTheTape card={card} bout={bout} frame={frame} />
+        <Composition card={card} bout={bout} frame={frame} corner={corner} />
       </div>
     </>
   );

@@ -5,6 +5,8 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --still 300
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish --env staging
+ *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template faceoff
+ *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template walkout --corner blue
  *
  * Before rendering anything it makes the cutouts that do not exist yet, because
  * a fighter's photograph arrives through a Worker and background removal cannot
@@ -96,6 +98,25 @@ const outDir = arg("out", ".renders");
 const quality = Number(arg("quality", 92));
 const slug = arg("slug");
 const publish = Boolean(arg("publish"));
+
+/**
+ * Which composition to capture, and which fighter where that matters.
+ *
+ * The ids live in components/sequence/templates.ts and are deliberately not
+ * copied here. That file imports .tsx components, which Node's type stripping
+ * cannot load, so the list is not importable from a plain script — and a second
+ * copy of it would be a list that goes stale the first time somebody adds a
+ * template. So the capture page is the authority on both questions: an unknown
+ * id comes back as a 404, which `openBout` already reports, and the frame count
+ * comes back through `window.__duration`, which is the registry's own number.
+ */
+const template = str(arg("template", "tape"), "tape");
+const corner = str(arg("corner", "red"), "red") === "blue" ? "blue" : "red";
+
+/** A flag given with no value comes back as `true`. Treat that as unset. */
+function str(value, fallback) {
+  return typeof value === "string" ? value : fallback;
+}
 // Everything defaults to the local Miniflare bindings, so a mistyped command
 // cannot overwrite a live show's video.
 const remote = Boolean(arg("remote"));
@@ -522,22 +543,37 @@ export async function withPage(fn) {
 }
 
 /**
+ * The capture page for one bout, in one template.
+ *
  * The show defaults to --slug because that is what this script is run with;
  * scripts/golden-frames.mjs passes its own rather than relying on the two
- * command lines happening to agree.
+ * command lines happening to agree. The query is left off entirely for the tape
+ * in the red corner, so the URL the golden frames are captured from is the one
+ * they have always been captured from.
  */
-export async function openBout(page, bout, eventSlug = slug) {
-  const url = `${base}/render/${eventSlug}/${bout}`;
+export function captureUrl(baseUrl, eventSlug, bout, templateId = "tape", cornerId = "red") {
+  const query = new URLSearchParams();
+  if (templateId !== "tape") query.set("template", templateId);
+  if (cornerId !== "red") query.set("corner", cornerId);
+  const suffix = query.size ? `?${query}` : "";
+  return `${baseUrl}/render/${eventSlug}/${bout}${suffix}`;
+}
+
+export async function openBout(page, bout, eventSlug = slug, templateId = template, cornerId = corner) {
+  const url = captureUrl(base, eventSlug, bout, templateId, cornerId);
   const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 120_000 });
 
   // A refused render key comes back as 404, deliberately — the page will not say
-  // whether the show exists. Checking the status here turns that into one clear
-  // line instead of a two-minute wait for window.__ready that never arrives.
+  // whether the show exists. So does a template id the registry does not carry,
+  // which is the other thing an operator can get wrong from the command line.
+  // Checking the status here turns either into one clear line instead of a
+  // two-minute wait for window.__ready that never arrives.
   if (response && !response.ok()) {
     throw new Error(
-      `${url} answered ${response.status()}. If the show and bout are right, the ` +
-        "render key is wrong: this script's RENDER_KEY must match the one the " +
-        "server has. See DEPLOY.md, Video rendering.",
+      `${url} answered ${response.status()}. If the show and bout are right, it is ` +
+        `either --template ${templateId} naming a composition that does not exist, or ` +
+        "the render key: this script's RENDER_KEY must match the one the server has. " +
+        "See DEPLOY.md, Video rendering.",
     );
   }
 
@@ -597,9 +633,21 @@ export async function seek(page, frame) {
   if (broken.length) throw new Error(brokenImageMessage(broken));
 }
 
+/**
+ * What a captured file is called.
+ *
+ * The template is always in it, including for the tape, so that four files for
+ * one bout sitting in .renders/ say which is which without anybody having to
+ * remember the order they were made in. The corner only where it is not the
+ * default, because it means nothing for the three templates that draw both.
+ */
+function outputName(bout) {
+  return `${slug}-bout-${bout}-${template}${corner === "red" ? "" : `-${corner}`}`;
+}
+
 async function renderStill(bout, frame) {
   await mkdir(".stills", { recursive: true });
-  const file = path.join(".stills", `bout-${bout}-frame-${frame}.png`);
+  const file = path.join(".stills", `${outputName(bout)}-frame-${frame}.png`);
   await withPage(async (page) => {
     await openBout(page, bout);
     await seek(page, frame);
@@ -610,7 +658,7 @@ async function renderStill(bout, frame) {
 
 async function renderBout(bout) {
   await mkdir(outDir, { recursive: true });
-  const out = path.join(outDir, `${slug}-bout-${bout}.mp4`);
+  const out = path.join(outDir, `${outputName(bout)}.mp4`);
 
   const ffmpeg = spawn("ffmpeg", [
     "-y",
@@ -758,6 +806,24 @@ async function main() {
   const still = arg("still");
   const boutArg = arg("bout");
 
+  /**
+   * Only the tape is published.
+   *
+   * `render_jobs` holds one row and one key per bout, with no column saying
+   * which composition made it, so publishing a faceoff would write over the
+   * tape the programme plays and the dashboard would report it as current. The
+   * other three are samples until that row learns about templates — the list of
+   * what that takes is at the foot of components/sequence/templates.ts — and
+   * refusing here is cheaper than finding out from a venue.
+   */
+  if (publish && template !== "tape") {
+    throw new Error(
+      `--template ${template} cannot be published: render_jobs has one video per bout ` +
+        "and no column saying which template made it, so this would replace the tale of " +
+        "the tape on the programme. Drop --publish to render a sample to a file.",
+    );
+  }
+
   if (still && boutArg) {
     if (!slug) throw new Error("Pass --slug <event-slug>");
     await renderStill(Number(boutArg), Number(still));
@@ -832,7 +898,10 @@ async function main() {
         "--stale takes the bouts that are queued, out of date, or worth another\n" +
         "attempt; --all takes every bout on the card.\n" +
         "Cutouts are made first unless --no-cutouts; --refresh-cutouts remakes\n" +
-        "the ones that already exist.",
+        "the ones that already exist.\n" +
+        "--template <id> renders a composition other than the tale of the tape,\n" +
+        "and --corner red|blue picks the fighter where the template is about one.\n" +
+        "Those are samples to a file: only the tape may be published.",
     );
     return 1;
   }

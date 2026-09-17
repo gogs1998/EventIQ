@@ -17,7 +17,13 @@ export default defineConfig({
           // because they run outside the Worker and outside the bundler. Their pure
           // parts still earn tests, so the suite reaches them where they live rather
           // than a copy of them being kept under lib/ to be testable.
-          include: ["lib/**/*.test.ts", "scripts/**/*.test.mjs"],
+          //
+          // components/ is in here for one reason. The video compositions are
+          // pure functions of a frame number and the exporter depends on that
+          // exactly; rendering one to markup twice is the only cheap check that
+          // none of them has started reading a clock. It is not a check of the
+          // picture — scripts/golden-frames.mjs is that, and says so.
+          include: ["lib/**/*.test.ts", "components/**/*.test.tsx", "scripts/**/*.test.mjs"],
           environment: "node",
         },
       },
