@@ -17,6 +17,7 @@ import {
   INVITE_CHANNEL,
   INVITE_SHARE,
   INVITE_STATE,
+  LOGIN_COPY,
   NO_SHOWCASE,
   NOT_FOUND,
   NOTHING_SENT,
@@ -349,6 +350,36 @@ describe("the pitch", () => {
       // No figure that is not counted from a real card, and no competitor.
       expect(line).not.toMatch(/\d+\s*%|\bmyfightcard\b|\brivals?\b/i);
       expect(line.trim()).toBe(line);
+    }
+  });
+});
+
+/**
+ * The sign-in form, read by somebody using the product for the first time with
+ * two things from an operator and no idea which goes in the first box. It is
+ * also the one page in the promoter's side that anybody can open, so nothing on
+ * it may name a real promoter.
+ */
+describe("the sign-in copy", () => {
+  it("says what goes in the first box", () => {
+    expect(LOGIN_COPY.slugHint).toMatch(/short name/i);
+    expect(LOGIN_COPY.slugHint).toMatch(/set up|given/i);
+  });
+
+  it("prompts with nothing that is a real promoter on the instance", () => {
+    expect(LOGIN_COPY.slugPlaceholder).not.toMatch(/cage|county/i);
+  });
+
+  /** There is no reset form to link to, so it says who mints one. */
+  it("gives somebody locked out a route that exists", () => {
+    expect(LOGIN_COPY.lockedOut).toMatch(/set the account up/i);
+    expect(LOGIN_COPY.lockedOut).not.toMatch(/forgot|click here|link below/i);
+  });
+
+  it("does not blame the reader for being locked out", () => {
+    for (const line of Object.values(LOGIN_COPY)) {
+      expect(line).not.toMatch(/\b(he|she|him|her|his)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\byou forgot\b|\binvalid\b/i);
     }
   });
 });

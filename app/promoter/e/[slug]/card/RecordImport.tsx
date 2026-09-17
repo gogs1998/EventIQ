@@ -83,9 +83,13 @@ export function RecordImport({
     // importer, a convenience, louder than the name and gym it sits under. A
     // native `details` rather than state, so the content stays in the document
     // and nothing has to be hydrated before the summary can be opened.
-    <details className="border-hairline bg-panel/30 border">
-      <summary className="label hover:text-chalk cursor-pointer px-3 py-2 transition-colors">
-        {RECORD_IMPORT.heading}
+    <details className="border-hairline bg-panel/30 group border">
+      <summary className="label hover:text-chalk flex cursor-pointer list-none items-center gap-2 px-3 py-2 transition-colors">
+        <span>{RECORD_IMPORT.heading}</span>
+        <span aria-hidden className="text-ash-dim ml-auto">
+          <span className="group-open:hidden">+</span>
+          <span className="hidden group-open:inline">−</span>
+        </span>
       </summary>
       <div className="grid gap-2 px-3 pb-3">
       <label htmlFor={boxId} className="sr-only">

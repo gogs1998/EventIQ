@@ -664,6 +664,30 @@ export function renderCountLabel(current: number, bouts: number): string {
  * ---------------------------------------------------------------------- */
 
 /**
+ * The sign-in form.
+ *
+ * Read by somebody using the product for the first time, holding two things an
+ * operator sent them and no idea which of the two goes in the first box — the
+ * label said "Promoter" and the box was prompted with another promoter's real
+ * slug, on a page anybody can open.
+ *
+ * The last line is the only route back for a promoter who cannot get in. There
+ * is no "forgotten your password?" to link to, because a reset link is minted by
+ * hand (see the note above ACCOUNT_COPY), so it says who does it rather than
+ * pointing at a form that does not exist.
+ */
+export const LOGIN_COPY = {
+  slugLabel: "Promoter",
+  slugHint: "The short name you were given when your account was set up.",
+  slugPlaceholder: "your-promotion",
+  passwordLabel: "Password",
+  submit: "Sign in",
+  pending: "Checking…",
+  lockedOut:
+    "Passwords cannot be reset from this page. Whoever set the account up can issue a new one.",
+} as const;
+
+/**
  * The change-password page. `hint` states the floor in words; a test holds it to
  * PASSWORD_MIN_LENGTH, because a policy that says twelve and enforces ten is a
  * refusal the promoter cannot act on.

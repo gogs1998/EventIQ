@@ -77,9 +77,27 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
         <h1 className="display mt-3 text-4xl">Edit {event.name}</h1>
       </header>
 
+      {/* Shut on a card with nothing on it. Every box in it was filled in on the
+          way here — the new-show form asks for exactly these — so on a
+          promoter's first visit it is a screenful of answers they have just
+          given, standing between them and the only thing this page is for. It
+          stays open on a card with a running order, where coming here to change
+          a venue or a door time is ordinary. */}
       <section className="mt-8">
-        <h2 className="display text-2xl">The show</h2>
-        <EventForm slug={event.slug} event={event} />
+        <details className="group" open={bouts.length > 0}>
+          {/* A summary with its marker taken off and nothing beside it reads as
+              a heading with a section missing, so it says what is inside and
+              carries the same +/− the bout rows use. */}
+          <summary className="flex cursor-pointer list-none items-baseline gap-3">
+            <span className="display text-2xl">The show</span>
+            <span className="label">Name, date, venue and times</span>
+            <span aria-hidden className="text-ash-dim ml-auto text-lg">
+              <span className="group-open:hidden">+</span>
+              <span className="hidden group-open:inline">−</span>
+            </span>
+          </summary>
+          <EventForm slug={event.slug} event={event} />
+        </details>
       </section>
 
       {/* The form goes above the running order on a card with nothing on it and

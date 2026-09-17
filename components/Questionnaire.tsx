@@ -757,9 +757,13 @@ export function Questionnaire({
                 held in state chosen once at mount rather than derived on every
                 render, because a value React recomputes is a value React would
                 use to close a panel the fighter had just opened. */}
-            <details open={noticeOpen}>
-              <summary className="display text-chalk cursor-pointer list-none text-xl">
-                {CONSENT_TEXT.heading}
+            <details className="group" open={noticeOpen}>
+              <summary className="flex cursor-pointer list-none items-baseline gap-3">
+                <span className="display text-chalk text-xl">{CONSENT_TEXT.heading}</span>
+                <span aria-hidden className="text-ash-dim ml-auto text-lg">
+                  <span className="group-open:hidden">+</span>
+                  <span className="hidden group-open:inline">−</span>
+                </span>
               </summary>
               <p className="text-ash mt-2 text-xs leading-relaxed">{CONSENT_TEXT.intro}</p>
 

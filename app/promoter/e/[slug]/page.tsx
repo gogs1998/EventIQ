@@ -315,18 +315,26 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
 
         {step ? <GettingStarted slug={event.slug} step={step} /> : null}
 
+        {/* What the rest of this page would be showing, and what fills it in.
+            The control that does it is the strip's first step immediately above
+            — this panel carried one too, and two buttons a centimetre apart
+            going to the same address read as two different things to do. */}
         <section className="mt-8">
           <div className="border-hairline border p-5">
             <h2 className="display text-2xl">{EMPTY_DASHBOARD.heading}</h2>
             <p className="text-ash mt-3 max-w-2xl text-sm leading-relaxed">
               {EMPTY_DASHBOARD.body}
             </p>
-            <Link
-              href={`/promoter/e/${event.slug}/card`}
-              className="border-hairline hover:border-chalk/40 display mt-5 inline-block border px-5 py-3 text-lg transition-colors"
-            >
-              Put the running order in
-            </Link>
+            {/* Where the strip has already gone, there is nothing above to point
+                at, so the panel keeps the way in. */}
+            {step ? null : (
+              <Link
+                href={`/promoter/e/${event.slug}/card`}
+                className="border-hairline hover:border-chalk/40 display mt-5 inline-block border px-5 py-3 text-lg transition-colors"
+              >
+                Put the running order in
+              </Link>
+            )}
           </div>
         </section>
 
