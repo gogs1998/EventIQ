@@ -15,18 +15,38 @@ import { cx } from "@/lib/cx";
  * layout without taking it out of the accessibility tree, which is why the forms
  * do not gain a blank row for it.
  */
-export function ActionStatus({ error, className }: { error?: string | null; className?: string }) {
+export function ActionStatus({
+  error,
+  done,
+  className,
+}: {
+  error?: string | null;
+  /**
+   * What went through, where the page around the form does not already show it.
+   * A form that clears itself and leaves no trace reads exactly like a form that
+   * refused silently, which is the failure this component was written for.
+   *
+   * It goes in the same live region as the refusal rather than in a second one
+   * beside it: a screen reader announces one region at a time, and two of them
+   * racing is how somebody hears "added" over the top of why it was not. A
+   * refusal wins where both are set, for the same reason.
+   */
+  done?: string | null;
+  className?: string;
+}) {
+  const said = error ?? done ?? "";
   return (
     <p
       role="status"
       aria-live="polite"
       className={cx(
-        "text-red-corner-hot text-xs leading-relaxed",
-        !error && "sr-only",
-        error && className,
+        "text-xs leading-relaxed",
+        error ? "text-red-corner-hot" : "text-gold",
+        !said && "sr-only",
+        said && className,
       )}
     >
-      {error ?? ""}
+      {said}
     </p>
   );
 }

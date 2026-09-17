@@ -7,7 +7,12 @@ import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { SponsorRow } from "@/app/promoter/e/[slug]/card/SponsorRow";
 import { boutsTopDown, cornersOf } from "@/lib/card";
-import { EMPTY_CARD_EDITOR, boutCountLabel, boutsOffLabel } from "@/lib/copy";
+import {
+  EMPTY_CARD_EDITOR,
+  EMPTY_SPONSORS,
+  boutCountLabel,
+  boutsOffLabel,
+} from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { currentPromoter } from "@/lib/session";
 import { loadOwnedCard } from "@/lib/visibility";
@@ -16,6 +21,28 @@ export const metadata: Metadata = {
   title: "Edit the card — EventIQ",
   robots: { index: false },
 };
+
+/**
+ * The add-bout form and the two sentences around it.
+ *
+ * One component rather than two copies of the markup, because the page draws it
+ * in one of two places depending on whether the card has anything on it — and
+ * the sentence under the heading differs: a promoter with an empty card is being
+ * told what a bout brings with it, and a promoter with fourteen already knows.
+ */
+function AddBout({ slug, empty = false }: { slug: string; empty?: boolean }) {
+  return (
+    <section className="mt-12">
+      <h2 className="display text-2xl">{empty ? "Add the first bout" : "Add a bout"}</h2>
+      <p className="text-ash mt-2 max-w-2xl text-xs leading-relaxed">
+        {empty
+          ? "Two names is enough to start with. Both fighters get an invite link straight away, and everything else on this bout can be filled in later."
+          : "Goes on top of the running order, so entering a card from the openers up matches the sheet. Both fighters get an invite link straight away."}
+      </p>
+      <AddBoutForm slug={slug} />
+    </section>
+  );
+}
 
 /**
  * The running order, editable.
@@ -55,6 +82,17 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
         <EventForm slug={event.slug} event={event} />
       </section>
 
+      {/* The form goes above the running order on a card with nothing on it and
+          below it once there is something to read.
+
+          On an empty card the list is one sentence, so the only thing on this
+          page worth the promoter's attention is the form — and it was under it,
+          off the bottom of a screenful of event details, with a sentence in the
+          gap pointing down at it. Once the card has bouts on it the reverse is
+          true: the list is what somebody came to read, and a form ahead of it
+          pushes fifteen rows down the page every time. */}
+      {bouts.length ? null : <AddBout slug={event.slug} empty />}
+
       <section className="mt-12">
         <div className="border-hairline mb-4 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">Running order</h2>
@@ -92,14 +130,7 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
         )}
       </section>
 
-      <section className="mt-12">
-        <h2 className="display text-2xl">Add a bout</h2>
-        <p className="text-ash mt-2 max-w-2xl text-xs leading-relaxed">
-          Goes on top of the running order, so entering a card from the openers up matches
-          the sheet. Both fighters get an invite link straight away.
-        </p>
-        <AddBoutForm slug={event.slug} />
-      </section>
+      {bouts.length ? <AddBout slug={event.slug} /> : null}
 
       <section className="mt-12">
         <h2 className="display text-2xl">Sponsors</h2>
@@ -119,7 +150,14 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
               <SponsorRow key={sponsor.id} slug={event.slug} sponsor={sponsor} />
             ))}
           </div>
-        ) : null}
+        ) : (
+          // An account with no sponsors on it used to get a heading, a blurb and
+          // then a form, with nothing saying that the empty space above the
+          // form was a book of sponsors rather than a section still loading.
+          <p className="border-hairline text-ash mt-4 max-w-2xl border p-3 text-xs leading-relaxed">
+            {EMPTY_SPONSORS}
+          </p>
+        )}
 
         <h3 className="label mt-8">Add a sponsor</h3>
         <AddSponsorForm slug={event.slug} />

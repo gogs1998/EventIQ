@@ -226,6 +226,20 @@ export const NOTHING_SENT =
   "No links have gone out yet. Send one and this list starts telling you who has opened " +
   "theirs and who has not.";
 
+/**
+ * What the card editor says once a bout has gone on.
+ *
+ * The form clears itself on a success so the next line off the matchmaking sheet
+ * can be typed straight in, and a form that empties and says nothing reads
+ * exactly like one that refused silently. It names the two corners because on a
+ * card being entered in one sitting that is the only way to tell this
+ * confirmation from the last one, and it says what the bout brought with it,
+ * which is the thing a promoter has no other way of knowing happened.
+ */
+export function BOUT_ADDED(corners: string): string {
+  return `${corners} is on the card. Both corners have an invite link.`;
+}
+
 /** The card editor's sponsor book with nothing in it. */
 export const EMPTY_SPONSORS =
   "No sponsors on this account yet. Add one below and it becomes selectable against any " +

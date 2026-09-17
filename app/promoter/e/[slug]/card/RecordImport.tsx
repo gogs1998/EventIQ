@@ -77,8 +77,18 @@ export function RecordImport({
   const fills = diff.filter((row) => row.fills);
 
   return (
-    <div className="border-hairline bg-panel/30 grid gap-2 border p-3">
-      <label htmlFor={boxId} className="label">
+    // Shut until it is wanted. Two of these are drawn per bout, and open they
+    // put a heading, two lines of blurb, a box and a button between the corner a
+    // promoter is typing into and the next thing on the page — which made the
+    // importer, a convenience, louder than the name and gym it sits under. A
+    // native `details` rather than state, so the content stays in the document
+    // and nothing has to be hydrated before the summary can be opened.
+    <details className="border-hairline bg-panel/30 border">
+      <summary className="label hover:text-chalk cursor-pointer px-3 py-2 transition-colors">
+        {RECORD_IMPORT.heading}
+      </summary>
+      <div className="grid gap-2 px-3 pb-3">
+      <label htmlFor={boxId} className="sr-only">
         {RECORD_IMPORT.heading}
       </label>
       <p className="text-ash-dim text-[0.65rem] leading-relaxed">{RECORD_IMPORT.blurb}</p>
@@ -193,6 +203,7 @@ export function RecordImport({
       ) : null}
 
       <ActionStatus error={error} />
-    </div>
+      </div>
+    </details>
   );
 }
