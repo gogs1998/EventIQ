@@ -23,7 +23,7 @@ export default defineConfig({
           // exactly; rendering one to markup twice is the only cheap check that
           // none of them has started reading a clock. It is not a check of the
           // picture — scripts/golden-frames.mjs is that, and says so.
-          include: ["lib/**/*.test.ts", "components/**/*.test.tsx", "scripts/**/*.test.mjs"],
+          include: ["lib/**/*.test.ts", "components/**/*.test.ts", "components/**/*.test.tsx", "scripts/**/*.test.mjs"],
           environment: "node",
         },
       },
