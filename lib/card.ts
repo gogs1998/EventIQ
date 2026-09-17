@@ -1,5 +1,5 @@
 import { buildHooks, buildTape, completeness, isRunning, type TapeRow } from "@/lib/tape";
-import type { Bout, FightEvent, Fighter, Sponsor } from "@/lib/types";
+import type { Bout, Corner, FightEvent, Fighter, Sponsor } from "@/lib/types";
 
 /**
  * One show, loaded whole.
@@ -101,6 +101,54 @@ export function featuredBout(card: Card): Bout | undefined {
 
 export function cornersOf(card: Card, bout: Bout): { red: Fighter; blue: Fighter } {
   return { red: fighterOf(card, bout.redId), blue: fighterOf(card, bout.blueId) };
+}
+
+/** Where one fighter stands on the card: the bout, and the corner they are in. */
+export type Entry = { bout: Bout; corner: Corner };
+
+/**
+ * Which bout is a fighter's, asked in exactly one place.
+ *
+ * Two surfaces ask it — the fighter's public profile and the fighter's own
+ * questionnaire — and they used to ask it differently. The profile walked
+ * `card.event.bouts` from the openers upwards and the questionnaire walked
+ * `boutsTopDown` from the main event down, so a fighter appearing twice on one
+ * card was shown one bout on their profile and a different one on their form,
+ * and the profile would also claim a bout that had lost a corner and that the
+ * programme therefore does not print.
+ *
+ * The order is the programme's own, main event first, so where a fighter is on
+ * two bouts both surfaces name the one the card gives the most prominence.
+ */
+function entryIn(bouts: Bout[], fighterId: string): Entry | undefined {
+  const bout = bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
+  if (!bout) return undefined;
+  return { bout, corner: bout.redId === fighterId ? "red" : "blue" };
+}
+
+/**
+ * A fighter's bout as the programme prints it, a withdrawal included.
+ *
+ * What the questionnaire asks. A fighter whose bout has come off still holds a
+ * working link, because the bout can go back on and because the control for
+ * asking for their details back lives on that page.
+ */
+export function entryOf(card: Card, fighterId: string): Entry | undefined {
+  return entryIn(boutsTopDown(card), fighterId);
+}
+
+/**
+ * The bout a fighter is still fighting, or nothing.
+ *
+ * What the public profile asks. A withdrawn bout keeps its number and its
+ * sponsor on the programme, where it is struck through and labelled, but it is
+ * not what anything leads on — and a profile heading a fighter's page with a
+ * bout nobody is going to see is exactly that. The page already has a state for
+ * a fighter with no bout, so it shows that rather than inventing a second way of
+ * saying a bout is off.
+ */
+export function runningEntryOf(card: Card, fighterId: string): Entry | undefined {
+  return entryIn(boutsRunning(card), fighterId);
 }
 
 export function tapeFor(card: Card, bout: Bout): TapeRow[] {

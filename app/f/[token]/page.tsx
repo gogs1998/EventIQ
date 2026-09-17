@@ -10,7 +10,7 @@ import {
   stylisedPortraitsOffered,
 } from "@/app/f/[token]/portrait-actions";
 import { Questionnaire } from "@/components/Questionnaire";
-import { boutsTopDown, cornersOf } from "@/lib/card";
+import { cornersOf, entryOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
 import { PRIVACY, REMOVAL } from "@/lib/copy";
@@ -49,14 +49,15 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   if (!card) notFound();
 
   // Through the running order, so a bout whose other corner is not on the card
-  // is a page that is not there rather than a fighter's own link answering 500.
-  const bout = boutsTopDown(card).find(
-    (b) => b.redId === row.fighter.id || b.blueId === row.fighter.id,
-  );
-  if (!bout) notFound();
+  // is a page that is not there rather than a fighter's own link answering 500,
+  // and through the same helper the public profile uses, so a fighter on two
+  // bouts of one card is not shown a different one on each.
+  const entry = entryOf(card, row.fighter.id);
+  if (!entry) notFound();
 
+  const { bout } = entry;
   const { red, blue } = cornersOf(card, bout);
-  const isRed = bout.redId === row.fighter.id;
+  const isRed = entry.corner === "red";
 
   // Recorded on the way in rather than from an effect in the browser. The
   // promoter's whole nudge decision turns on this timestamp, so it must not be

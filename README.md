@@ -4,6 +4,8 @@ Digital fight programmes for amateur MMA. Running at **https://eventiq.win**.
 
 > Picking this up cold? Read [HANDOVER.md](HANDOVER.md) first. It covers the reasoning behind each decision, what was tried and rejected, the open questions, and what to do next. This file covers how to run things, and [CLAUDE.md](CLAUDE.md) covers working in here: the rules that are load-bearing, the environment traps, and how the project got its shape.
 
+> Wondering whether this should serve other sports? [BEYOND-FIGHT-SPORT.md](BEYOND-FIGHT-SPORT.md) is the standing answer: wider within fight sport, where boxing, Muay Thai and K1 already work with no code written, and football only as a second vertical once a football customer exists.
+
 Spectators scan a QR code at the venue and open the full running order for that show. Every bout expands into a tale of the tape, and the ones that matter come with a broadcast-style video built from the fighters' own photos.
 
 The show data is real — a database, real fighter questionnaires, a promoter login, real interaction counting. The **content** is invented: Cage County 12 is a made-up show with made-up fighters, seeded so there is something to demonstrate.
