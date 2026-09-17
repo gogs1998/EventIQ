@@ -17,7 +17,12 @@ export default defineConfig({
           // because they run outside the Worker and outside the bundler. Their pure
           // parts still earn tests, so the suite reaches them where they live rather
           // than a copy of them being kept under lib/ to be testable.
-          include: ["lib/**/*.test.ts", "scripts/**/*.test.mjs"],
+          //
+          // components/sequence/ is here for the same reason: a composition is a
+          // pure function of a frame number, which is exactly the shape of thing
+          // this project tests, and the alternative was a test under lib/ about a
+          // component that lives somewhere else.
+          include: ["lib/**/*.test.ts", "components/**/*.test.ts", "scripts/**/*.test.mjs"],
           environment: "node",
         },
       },
