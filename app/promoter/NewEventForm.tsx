@@ -37,7 +37,11 @@ export function NewEventForm() {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Show name">
-          <input name="name" className={inputClass} placeholder="Cage County 13" required />
+          {/* Not another promoter's next show, which is what this prompted with.
+              The demo card's name is the one thing on this instance that names
+              somebody else's account, and this is the first box a new promoter
+              ever types into. */}
+          <input name="name" className={inputClass} placeholder="Fight Night 1" required />
         </Field>
         <Field label="Date">
           <input name="date" type="date" className={inputClass} required />
