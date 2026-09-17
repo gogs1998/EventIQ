@@ -75,6 +75,66 @@ export const NO_SHOWCASE = {
   action: "Promoter sign in",
 } as const;
 
+/* -------------------------------------------------------------------------
+ * The pitch page's first screen
+ *
+ * A promoter reading this has a paper programme that works and a printer they
+ * already pay. What has to be on the screen before they scroll is the price and
+ * the three things the paper cannot do — and the competition, which is a card
+ * viewer a promoter types into, cannot do either.
+ *
+ * Every line here is held to the no-unverifiable-claims rule harder than the
+ * rest of the page, because these are the sentences that get repeated in a
+ * meeting. Nothing about how long anything takes, no engagement figures, no
+ * comparison with a named competitor, and nothing about the product that is not
+ * already true on the instance the reader is looking at.
+ * ---------------------------------------------------------------------- */
+
+export const PITCH = {
+  /**
+   * The price, said plainly and early. It is the first question a promoter asks
+   * and the answer is the strongest thing on the page, so it does not need
+   * selling — a sentence that stated it and then argued with itself would read
+   * as though there were a catch.
+   */
+  free: "Free for promoters. Putting a show on EventIQ costs nothing.",
+  /**
+   * The three differences, each one a thing the reader can check on this very
+   * instance rather than a claim about what the product is like.
+   */
+  differences: [
+    {
+      label: "Fighters fill their own in",
+      body:
+        "Every fighter on the card gets a link to a form of their own. Their record, their " +
+        "photograph and their story are what they sent, not what somebody typed for them.",
+    },
+    {
+      label: "Every bout gets a video",
+      body:
+        "A vertical tale-of-the-tape for each bout, built from the two fighters' own " +
+        "photographs. It plays in the programme and the fighter posts it to their following.",
+    },
+    {
+      label: "Sponsors get a slot and a count",
+      body:
+        "Every bout carries a sponsor placement of its own, and every placement comes with " +
+        "a count of what was opened and tapped, taken from the programme itself.",
+    },
+  ],
+  /** The way in for a promoter, and the reason there is no form beside it. */
+  signIn: "Promoter sign in",
+  /**
+   * There is no self-serve signup and there is not going to be one for now, so
+   * this says who makes an account rather than pointing at a form that does not
+   * exist. It names no address, because inventing one would be worse than
+   * sending somebody back to the person who showed them this.
+   */
+  howToGetAnAccount:
+    "There is no sign-up form. Accounts are set up by hand — ask whoever showed you " +
+    "EventIQ and they will make you one.",
+} as const;
+
 /** The pitch page's hero line, which counts the card it is running on. */
 export function tapeForEveryBout(bouts: number): string {
   return bouts > 0

@@ -21,6 +21,7 @@ import {
   NOT_FOUND,
   NOTHING_SENT,
   PAGE_ERROR,
+  PITCH,
   PRIVACY,
   PROGRAMME_NOT_FOUND,
   programmeLinkNote,
@@ -295,6 +296,60 @@ describe("the first-run copy", () => {
   it("reports the unsent state without making it a failing", () => {
     expect(NOTHING_SENT).not.toMatch(/still|yet to|overdue|behind|chase them/i);
     expect(NOTHING_SENT).toMatch(/send one/i);
+  });
+});
+
+/**
+ * The pitch page's first screen.
+ *
+ * These are the sentences that get repeated in a meeting, which makes them the
+ * ones where an unverifiable claim does the most damage — the fabricated "last
+ * show" figures were the most dangerous thing in the demo for exactly that
+ * reason. Each of the three differences has to be something the reader can go
+ * and check on this instance, and none of them may promise a duration, invent a
+ * figure or characterise a competitor.
+ */
+describe("the pitch", () => {
+  const PITCH_STRINGS = [
+    PITCH.free,
+    PITCH.signIn,
+    PITCH.howToGetAnAccount,
+    ...PITCH.differences.flatMap((d) => [d.label, d.body]),
+  ];
+
+  it("says the price plainly and does not argue with itself about it", () => {
+    expect(PITCH.free).toMatch(/free for promoters/i);
+    expect(PITCH.free.length).toBeLessThan(120);
+    expect(PITCH.free).not.toMatch(/only|just|as little|from £|trial|limited/i);
+  });
+
+  it("names the three differences rather than describing a digital programme", () => {
+    const [own, video, sponsors] = PITCH.differences;
+    expect(own.body).toMatch(/their own|they sent/i);
+    expect(video.body).toMatch(/each bout|every bout/i);
+    expect(sponsors.body).toMatch(/count/i);
+  });
+
+  /**
+   * There is no self-serve signup, so the page has to say who makes an account.
+   * It must not name an address: an invented one is worse than sending somebody
+   * back to the person who showed them this, and there is no contact route in
+   * the repository for it to point at.
+   */
+  it("says how to get an account without inventing somewhere to write to", () => {
+    expect(PITCH.howToGetAnAccount).toMatch(/no sign-up form/i);
+    expect(PITCH.howToGetAnAccount).not.toMatch(/@|mailto:|https?:/i);
+  });
+
+  it("keeps the established tone and claims nothing it cannot show", () => {
+    for (const line of PITCH_STRINGS) {
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line).not.toMatch(/\b(he|she|him|her|his)\b/i);
+      // No figure that is not counted from a real card, and no competitor.
+      expect(line).not.toMatch(/\d+\s*%|\bmyfightcard\b|\brivals?\b/i);
+      expect(line.trim()).toBe(line);
+    }
   });
 });
 
