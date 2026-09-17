@@ -43,10 +43,10 @@
   "dependencies": {
     "@opennextjs/cloudflare": "1.20.3",
     "drizzle-orm": "^0.45.2",
-    "next": "16.3.3",
+    "next": "16.3.4",
     "qrcode": "^1.5.4",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260826.1",
