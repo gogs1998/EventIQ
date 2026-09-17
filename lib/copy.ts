@@ -884,8 +884,16 @@ export const INVITE_SHARE = {
   note:
     "Send it from your own phone or laptop. Either way the message goes out with their " +
     "link already in it, and the chase list records which one you used.",
-  whatsapp: "WhatsApp",
-  sms: "Text",
+  /**
+   * The one control on the row that matters, so it is a verb and it names the
+   * app it opens. It used to read "WhatsApp" in the same weight as four other
+   * controls beside it, which made the row a list of five things a promoter
+   * might do instead of one they are here to do.
+   */
+  whatsapp: "Send on WhatsApp",
+  sms: "Send by text",
+  /** Everything else, behind one disclosure rather than spread across the row. */
+  more: "Other ways, and the link itself",
   copy: "Copy link",
   /** Issues a fresh link. The old one stops working the moment this lands. */
   regenerate: "New link",

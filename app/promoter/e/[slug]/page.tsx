@@ -428,10 +428,17 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
 
         {chase.length ? (
           <div className="border-hairline divide-hairline divide-y border">
+            {/* Name, state, one action, in that order and in that order of
+                weight. It used to be name, a truncated token, five controls of
+                the same size, a badge, a bar and a sixth control — which on a
+                phone wrapped into a block of small type where the send was
+                indistinguishable from the revoke. The state sits directly under
+                the name now rather than in a column on the far side, because on
+                a 390-wide screen there is no far side. */}
             {chase.map((row) => (
               <div
                 key={`${row.bout.number}-${row.fighter.id}`}
-                className="p-3 sm:flex sm:items-center sm:gap-4"
+                className="grid gap-2.5 p-3 sm:flex sm:items-center sm:gap-4"
               >
                 <div className="min-w-0 sm:flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -444,38 +451,40 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                       <span className="text-red-corner-hot"> · behind on {row.behind.length}</span>
                     ) : null}
                   </div>
-                  {row.invite ? (
-                    <div className="mt-2">
-                      <InviteLink
-                        slug={event.slug}
-                        fighterId={row.fighter.id}
-                        token={row.invite.token}
-                        message={nudgeMessage(row, event, SITE_URL)}
-                        state={linkState(row.invite)}
-                      />
-                    </div>
-                  ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge className={INVITE_STYLE[row.status]}>{INVITE_LABEL[row.status]}</Badge>
+                    {/* When and how, beside the state rather than inside it. A
+                        promoter deciding whether to ring somebody wants both. */}
+                    {sentNote(row.invite) ? (
+                      <span className="text-ash-dim font-mono text-[0.5rem] uppercase tracking-[0.1em]">
+                        {sentNote(row.invite)}
+                      </span>
+                    ) : null}
+                    <Meter score={row.score} />
+                  </div>
                 </div>
 
-                <div className="mt-2.5 flex items-center justify-between gap-2 sm:mt-0 sm:justify-start sm:gap-4">
-                  <div className="shrink-0">
-                    <Badge className={INVITE_STYLE[row.status]}>{INVITE_LABEL[row.status]}</Badge>
-                    {/* When and how, under the state rather than in it. A promoter
-                        deciding whether to ring somebody wants both, and the badge
-                        is a fixed width so the column lines up. */}
-                    {sentNote(row.invite) ? (
-                      <div className="text-ash-dim mt-1 w-[7.5rem] text-center font-mono text-[0.5rem] uppercase tracking-[0.1em]">
-                        {sentNote(row.invite)}
-                      </div>
-                    ) : null}
+                {row.invite ? (
+                  <div className="sm:w-52 sm:shrink-0">
+                    <InviteLink
+                      slug={event.slug}
+                      fighterId={row.fighter.id}
+                      name={row.fighter.name}
+                      token={row.invite.token}
+                      message={nudgeMessage(row, event, SITE_URL)}
+                      state={linkState(row.invite)}
+                    />
                   </div>
-                  <Meter score={row.score} />
+                ) : (
+                  // No invite row at all, which is a fighter added before the
+                  // bout created one. The message is still worth having, so the
+                  // one control that needs no link stays.
                   <NudgeButton
                     name={row.fighter.name}
                     message={nudgeMessage(row, event, SITE_URL)}
                     compact
                   />
-                </div>
+                )}
               </div>
             ))}
           </div>
