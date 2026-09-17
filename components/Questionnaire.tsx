@@ -13,6 +13,7 @@ import { CONSENT_TEXT, CONSENT_VERSION, oldEnough } from "@/lib/consent";
 import {
   ACTION_ERRORS,
   CONSENT_GIVEN,
+  PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
   STYLISED,
@@ -257,6 +258,12 @@ export function Questionnaire({
 
   // The age is asked before anything else because a fighter under the minimum is
   // not asked anything else at all, and the tick is what opens the rest of it.
+  // Chosen once, at mount: a fighter coming back to a form they already agreed
+  // to gets the notice shut, and a fighter seeing it for the first time gets it
+  // open. Held in state rather than derived so that a re-render — one a
+  // keystroke away, on a form that saves as it is typed — cannot shut a panel
+  // the fighter has just opened to read again.
+  const [noticeOpen] = useState(() => !(consent?.at && consent.version === CONSENT_VERSION));
   const tooYoung = oldEnough(num(draft.age)) === false;
   const open = draft.consented && !tooYoung;
 
@@ -659,15 +666,21 @@ export function Questionnaire({
         ) : null}
 
         <div className="mt-4">
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <span className="label">Profile</span>
-            <span className="tnum display text-chalk text-lg">{score}%</span>
-          </div>
-          <div className="bg-panel h-1.5 w-full overflow-hidden">
-            <div
-              className="bg-red-corner h-full transition-all duration-500"
-              style={{ width: `${score}%` }}
-            />
+          {/* The bar and the figure are in the fixed strip at the foot of the
+              screen on a phone, a hundred pixels below this one and saying the
+              same number, which read as the page having drawn itself twice. The
+              sentence under it is not in the strip, so that stays. */}
+          <div className="hidden lg:block">
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <span className="label">Profile</span>
+              <span className="tnum display text-chalk text-lg">{score}%</span>
+            </div>
+            <div className="bg-panel h-1.5 w-full overflow-hidden">
+              <div
+                className="bg-red-corner h-full transition-all duration-500"
+                style={{ width: `${score}%` }}
+              />
+            </div>
           </div>
           {missing.length ? (
             <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
@@ -683,6 +696,16 @@ export function Questionnaire({
 
       {/* ---------------------------------------------------------- form */}
       <div>
+        {/* A promoter looking at /f/demo is looking at a working form with a
+            real fighter's card beside it, and the only thing that said so was a
+            line of grey type at the foot of it — past the photograph control,
+            the record boxes and a submit button reading "Put me on the card".
+            It says so before any of that now. */}
+        {mode === "preview" ? (
+          <p className="border-gold/40 bg-gold/5 text-chalk mb-6 border p-3 text-xs leading-relaxed">
+            {PREVIEW_NOTE}
+          </p>
+        ) : null}
         <header>
           <span className="label">{eventName}</span>
           <h1 className="display mt-2 text-4xl">
@@ -723,25 +746,43 @@ export function Questionnaire({
               order, because a fighter under the minimum is asked nothing else
               and nothing they type reaches the database until the box is on. */}
           <section className="border-hairline bg-panel/40 border p-4 sm:p-5">
-            <h2 className="display text-chalk text-xl">{CONSENT_TEXT.heading}</h2>
-            <p className="text-ash mt-2 text-xs leading-relaxed">{CONSENT_TEXT.intro}</p>
+            {/* Five headed paragraphs, and on a phone they are a screen and a
+                half of reading between a fighter who agreed last week and the
+                questions they came back to finish. Shut on a return visit and
+                open on a first one, so the notice is read before it is agreed to
+                and is never read twice by accident.
 
-            <dl className="mt-4 grid gap-3">
-              {CONSENT_TEXT.points.map((point) => (
-                <div key={point.label}>
-                  <dt className="label">{point.label}</dt>
-                  <dd className="text-ash mt-1 text-xs leading-relaxed">{point.body}</dd>
-                </div>
-              ))}
-            </dl>
+                The heading is the summary rather than a line above it, so the
+                notice names itself whether it is open or shut — and `open` is
+                held in state chosen once at mount rather than derived on every
+                render, because a value React recomputes is a value React would
+                use to close a panel the fighter had just opened. */}
+            <details open={noticeOpen}>
+              <summary className="display text-chalk cursor-pointer list-none text-xl">
+                {CONSENT_TEXT.heading}
+              </summary>
+              <p className="text-ash mt-2 text-xs leading-relaxed">{CONSENT_TEXT.intro}</p>
 
-            <Link
-              href="/privacy"
-              className="text-ash-dim hover:text-chalk mt-3 inline-block text-[0.7rem] underline transition-colors"
-            >
-              {CONSENT_TEXT.privacyLink}
-            </Link>
+              <dl className="mt-4 grid gap-3">
+                {CONSENT_TEXT.points.map((point) => (
+                  <div key={point.label}>
+                    <dt className="label">{point.label}</dt>
+                    <dd className="text-ash mt-1 text-xs leading-relaxed">{point.body}</dd>
+                  </div>
+                ))}
+              </dl>
 
+              <Link
+                href="/privacy"
+                className="text-ash-dim hover:text-chalk mt-3 inline-block text-[0.7rem] underline transition-colors"
+              >
+                {CONSENT_TEXT.privacyLink}
+              </Link>
+            </details>
+
+            {/* Outside the disclosure, both of them. The age is the field the
+                gate reads and the tick is the gate, and neither may be a thing a
+                fighter has to go looking for. */}
             <div className="border-hairline mt-5 border-t pt-4">
               <Field
                 label={CONSENT_TEXT.age.label}
@@ -1215,7 +1256,7 @@ export function Questionnaire({
 
           {mode === "preview" ? (
             <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
-              Preview of what a fighter gets. Nothing typed here is saved.
+              {PREVIEW_NOTE}
             </p>
           ) : (
             <p className="text-ash-dim text-center text-[0.7rem] leading-relaxed">
@@ -1232,8 +1273,17 @@ export function Questionnaire({
           {/* Taking it back, and reachable whether or not the form above is
               open: a fighter who wants their details gone should not have to
               agree to anything first. Two presses, because it clears a profile
-              and takes a photograph down and neither comes back. */}
-          {remove && !tooYoung ? (
+              and takes a photograph down and neither comes back.
+
+              Drawn only once there is a consent on the invite, because until
+              there is, nothing a fighter sent is stored — lib/consent.ts sees to
+              that — and this offers to clear a photograph, a record and a story
+              that do not exist. A fighter opening their link for the first time
+              was being shown a control to undo something they had not done.
+              The tick counts as well as the stored consent, so it appears the
+              moment there is anything to take back rather than on the next
+              visit. */}
+          {remove && !tooYoung && (consent?.at || draft.consented) ? (
             <section className="border-hairline border-t pt-6">
               <h2 className="display text-chalk text-xl">{REMOVAL.heading}</h2>
               <p className="text-ash mt-2 text-xs leading-relaxed">{REMOVAL.body}</p>

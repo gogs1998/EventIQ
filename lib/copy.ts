@@ -689,6 +689,18 @@ export const UNDER_AGE = {
     "form is stored while that is the age on it.",
 } as const;
 
+/**
+ * What `/f/demo` says about itself.
+ *
+ * It is a working form with a real card beside it and a submit button reading
+ * "Put me on the card", so it has to say what it is before a promoter has typed
+ * anything into it rather than only after. Said in one place because it is now
+ * said in two: at the top of the form and again under the button.
+ */
+export const PREVIEW_NOTE =
+  "This is the form a fighter gets, as a preview. Nothing typed here is saved and nobody " +
+  "is put on a card.";
+
 /** The line above the form once the tick has been given, and the link out of it. */
 export const CONSENT_GIVEN = {
   label: "Agreed",
