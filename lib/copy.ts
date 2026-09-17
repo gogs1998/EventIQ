@@ -213,7 +213,7 @@ export const EMPTY_DASHBOARD = {
 } as const;
 
 /** The card editor, where the running order is actually typed. */
-export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. The first bout goes in above.";
+export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. The first bout goes in below.";
 
 /* -------------------------------------------------------------------------
  * A promoter's first five minutes

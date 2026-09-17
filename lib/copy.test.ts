@@ -245,10 +245,10 @@ describe("the empty states", () => {
     expect(EMPTY_PROGRAMME.body).toContain("tale of the tape");
     expect(EMPTY_DASHBOARD.body).toContain("running order");
     expect(EMPTY_DASHBOARD.body).toContain("invite link");
-    // The add-bout form sits above the list on an empty card, so the sentence
-    // that stands in for the list points up at it rather than down at nothing.
+    // The sentence that stands in for the list points at the form that fills
+    // it, which is directly under it once the event details above are shut.
     expect(EMPTY_CARD_EDITOR).toContain("first bout");
-    expect(EMPTY_CARD_EDITOR).toContain("above");
+    expect(EMPTY_CARD_EDITOR).toContain("below");
     expect(EMPTY_SPONSORS).toContain("Add one");
     expect(RENDER_SECTION.empty).toContain("photographs");
   });

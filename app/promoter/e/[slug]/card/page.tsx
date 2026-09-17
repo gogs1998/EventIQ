@@ -100,17 +100,6 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
         </details>
       </section>
 
-      {/* The form goes above the running order on a card with nothing on it and
-          below it once there is something to read.
-
-          On an empty card the list is one sentence, so the only thing on this
-          page worth the promoter's attention is the form — and it was under it,
-          off the bottom of a screenful of event details, with a sentence in the
-          gap pointing down at it. Once the card has bouts on it the reverse is
-          true: the list is what somebody came to read, and a form ahead of it
-          pushes fifteen rows down the page every time. */}
-      {bouts.length ? null : <AddBout slug={event.slug} empty />}
-
       <section className="mt-12">
         <div className="border-hairline mb-4 flex items-end justify-between border-b pb-2">
           <h2 className="display text-2xl">Running order</h2>
@@ -148,7 +137,13 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
         )}
       </section>
 
-      {bouts.length ? <AddBout slug={event.slug} /> : null}
+      {/* Always here, and never moved above the list on an empty card, however
+          tempting that is. Moving it changes where it sits among its siblings,
+          which remounts it — and it is the component that says a bout went on,
+          so the first bout of a card announced itself and vanished in the same
+          frame. What brings it up the page on an empty card instead is the event
+          details above being shut and the list above it being one sentence. */}
+      <AddBout slug={event.slug} empty={bouts.length === 0} />
 
       <section className="mt-12">
         <h2 className="display text-2xl">Sponsors</h2>
