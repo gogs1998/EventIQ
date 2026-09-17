@@ -62,12 +62,24 @@ export function parseWeightKg(value: string): number | undefined {
   return kg > 0 && kg <= WEIGHT_LIMIT_KG ? kg : undefined;
 }
 
-export function boutClassLine(bout: Bout): string {
-  const parts = [weightLabel(bout.weightKg)];
+/**
+ * How a bout is graded, without the weight: women's where it is, the class the
+ * promoter graded it at, and the discipline.
+ *
+ * Split out of `boutClassLine` because the social cut sets the weight itself at
+ * ten times the size, and following a slab reading 84KG with "84kg · Amateur ·
+ * MMA" states the same number twice in one beat.
+ */
+export function boutGrading(bout: Bout): string {
+  const parts: string[] = [];
   if (bout.womens) parts.push("Women's");
   if (bout.classLabel) parts.push(bout.classLabel);
   parts.push(DISCIPLINE_LABEL[bout.discipline]);
   return parts.join(" · ");
+}
+
+export function boutClassLine(bout: Bout): string {
+  return `${weightLabel(bout.weightKg)} · ${boutGrading(bout)}`;
 }
 
 export function boutFormat(bout: Bout): string {
