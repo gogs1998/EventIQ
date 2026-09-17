@@ -153,7 +153,89 @@ export const EMPTY_DASHBOARD = {
 } as const;
 
 /** The card editor, where the running order is actually typed. */
-export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. Add the first bout below.";
+export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. The first bout goes in above.";
+
+/* -------------------------------------------------------------------------
+ * A promoter's first five minutes
+ *
+ * Accounts are made by an operator, so the first thing anybody sees on their own
+ * account is an empty one — and the product cannot explain itself by being
+ * explored, because there is nothing there to explore. What it can do is say the
+ * one thing to do next and put the control for it on the same screen.
+ *
+ * The three steps after that are in the order they have to happen in and in no
+ * other: the bouts, because both corners get their link the moment a bout goes
+ * on; the links, because nothing a fighter sends exists until one is sent; then
+ * publishing, because until then nobody outside the account can read any of it.
+ * A promoter who publishes first gets a programme with nothing on it, which is
+ * the state bugs 22 and 28 are both about.
+ *
+ * None of these say how long anything takes and none of them count a card that
+ * has nothing on it — the same two rules as every string above.
+ * ---------------------------------------------------------------------- */
+
+export const FIRST_SHOW = {
+  heading: "Your first show",
+  /**
+   * The one sentence. It names the form underneath it rather than the running
+   * order, which is the step after: the line it replaces told a promoter with no
+   * show at all to put a running order into a form asking for a venue and a date.
+   */
+  lead:
+    "Nothing on this account yet. Give your first show a name and a date below, and the " +
+    "running order goes in after that.",
+} as const;
+
+/** The strip on the dashboard, which ticks itself off and then goes. */
+export const GETTING_STARTED = {
+  heading: "Getting started",
+  /** Why it will not be there next month. */
+  note: "This goes once the show is published.",
+  steps: {
+    bouts: {
+      label: "Add the running order",
+      body: "Both corners of every bout get an invite link the moment the bout goes on.",
+      action: "Add the bouts",
+    },
+    invites: {
+      label: "Send the links",
+      body:
+        "Each fighter fills their own details in from their phone. The chase list records " +
+        "which links went out, so it can tell a fighter who never looked from one who did.",
+      action: "Send the first link",
+    },
+    publish: {
+      label: "Publish the show",
+      body:
+        "Publishing puts the programme behind the code on the table. Until then it is yours " +
+        "to read and nobody else's.",
+      action: "Publish this show",
+    },
+  },
+} as const;
+
+/**
+ * The chase list before anything has been sent.
+ *
+ * Not an empty list — every fighter on the card is on it — but it is the state
+ * where none of the states mean anything yet, so it says what sending does
+ * rather than leaving a column of "not sent" to be read as a fault. It names no
+ * fighter and counts nobody.
+ */
+export const NOTHING_SENT =
+  "No links have gone out yet. Send one and this list starts telling you who has opened " +
+  "theirs and who has not.";
+
+/** The card editor's sponsor book with nothing in it. */
+export const EMPTY_SPONSORS =
+  "No sponsors on this account yet. Add one below and it becomes selectable against any " +
+  "bout on the card, and sits on the strip at the foot of the programme if you say so.";
+
+/** How much of the sponsor inventory is left to sell, said in the singular where it is one. */
+export function slotsAvailableNote(unsold: number): string {
+  if (unsold <= 0) return "Every slot on the card is sold";
+  return `${unsold} ${unsold === 1 ? "slot" : "slots"} still available`;
+}
 
 /* -------------------------------------------------------------------------
  * A bout that is off
@@ -431,6 +513,15 @@ export const RENDER_SECTION = {
     "made away from the site, on a machine with the video tools on it, so this panel reports " +
     "what has been made rather than making it. Whatever is on the programme stays there until " +
     "a new one is finished.",
+  /**
+   * Nothing on the card has a video yet, which is every card on its first
+   * afternoon. The panel already says so a bout at a time; this says it once, at
+   * the top, so a promoter reading down a column of "not made yet" knows it is
+   * the ordinary state of a new card rather than a queue that has stalled.
+   */
+  empty:
+    "None of these have been made yet. Each one is drawn from the two fighters' own " +
+    "photographs, so they come as the profiles come in.",
 } as const;
 
 export const RENDER_STATE_COPY = {

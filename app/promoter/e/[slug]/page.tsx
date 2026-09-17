@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { GettingStarted } from "@/app/promoter/e/[slug]/GettingStarted";
 import { InviteLink } from "@/app/promoter/e/[slug]/InviteLink";
 import { PublishToggle } from "@/app/promoter/e/[slug]/PublishToggle";
 import { RenderAgainButton } from "@/app/promoter/e/[slug]/RenderAgainButton";
@@ -14,10 +15,12 @@ import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
 import {
   EMPTY_DASHBOARD,
   INVITE_SHARE,
+  NOTHING_SENT,
   RENDER_SECTION,
   RENDER_STATE_COPY,
   boutCountLabel,
   renderCountLabel,
+  slotsAvailableNote,
   sponsorTapNote,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
@@ -28,7 +31,9 @@ import {
   chaseList,
   daysUntilShow,
   eventProgress,
+  firstSteps,
   linkState,
+  linksSent,
   nudgeMessage,
   sentNote,
   sponsorFor,
@@ -215,7 +220,9 @@ function Head({
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-2">
+      {/* Addressed, because the getting-started strip's last step points here
+          rather than describing where the control is. */}
+      <div id="publish" className="mt-6 flex scroll-mt-4 flex-wrap items-center gap-2">
         <PublishToggle slug={event.slug} published={published} />
         <Link
           href={`/e/${event.slug}`}
@@ -298,9 +305,15 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
    * in and where to fix it, and the rest arrives with the first bout.
    */
   if (!event.bouts.length) {
+    // No invites are loaded on this branch and none need to be: with no bouts on
+    // the card there is nobody to have sent a link to, so the answer is the
+    // first step whatever the invite table says.
+    const step = firstSteps({ bouts: 0, sent: 0, published: card.published });
     return (
       <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
         <Head event={event} published={card.published} />
+
+        {step ? <GettingStarted slug={event.slug} step={step} /> : null}
 
         <section className="mt-8">
           <div className="border-hairline border p-5">
@@ -345,6 +358,11 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   // below works from: nothing is rendered for a bout that is off, so counting it
   // in the total would report a card as permanently short of a video.
   const rendered = bouts.filter(({ bout }) => renders[bout.number]).length;
+  // Counted over every fighter on the card rather than over the chase list,
+  // because a link that went out to somebody who has since finished their
+  // profile is still a link that went out.
+  const sent = linksSent(card, invites);
+  const step = firstSteps({ bouts: bouts.length, sent, published: card.published });
 
   // Null where the promoter has not run a show before, which the panel says
   // rather than filling the space with something.
@@ -353,6 +371,8 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   return (
     <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
       <Head event={event} published={card.published} />
+
+      {step ? <GettingStarted slug={event.slug} step={step} /> : null}
 
       {/* ------------------------------------------------------------ stats */}
       <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -370,7 +390,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         <Stat
           label="Bout sponsors sold"
           value={`${inventory.sold.length}/${event.bouts.length}`}
-          sub={`${inventory.unsold.length} slots still available`}
+          sub={slotsAvailableNote(inventory.unsold.length)}
           tone={inventory.unsold.length > 0 ? "warn" : "good"}
         />
         <Stat
@@ -381,17 +401,30 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
       </section>
 
       {/* ------------------------------------------------------------ chase */}
-      <section className="mt-10">
+      {/* Addressed, because the getting-started strip's second step points here
+          and a step whose control is off the bottom of the page is an
+          instruction rather than an action. */}
+      <section id="chase" className="mt-10 scroll-mt-4">
         <div className="border-hairline mb-3 flex flex-wrap items-end justify-between gap-2 border-b pb-2">
           <h2 className="display text-2xl">Who to chase</h2>
           <span className="label">{chase.length} outstanding</span>
         </div>
-        <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">
+        <p className="text-ash mb-3 max-w-2xl text-xs leading-relaxed">
           Top of the card first, because a gap in the main event costs more than a gap in
           bout two. The message names their bout, their opponent and their own link, and
           — only where it is true — that their opponent has already sent theirs.{" "}
           {INVITE_SHARE.note}
         </p>
+        {/* Every row reading "not sent" is the ordinary state of a card entered
+            this morning, so it is said once as a state rather than left to be
+            read off a column of red badges as a list of things gone wrong. */}
+        {sent === 0 && chase.length ? (
+          <p className="border-hairline text-ash mb-5 border p-3 text-xs leading-relaxed">
+            {NOTHING_SENT}
+          </p>
+        ) : (
+          <div className="mb-5" />
+        )}
 
         {chase.length ? (
           <div className="border-hairline divide-hairline divide-y border">
@@ -520,7 +553,16 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
             )}
           </span>
         </div>
-        <p className="text-ash mb-5 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
+        <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
+        {/* Said once at the top rather than only a bout at a time, so a column
+            of "not made yet" reads as a new card rather than as a stalled queue. */}
+        {rendered === 0 ? (
+          <p className="text-ash-dim mb-5 max-w-2xl text-xs leading-relaxed">
+            {RENDER_SECTION.empty}
+          </p>
+        ) : (
+          <div className="mb-5" />
+        )}
 
         <div className="border-hairline divide-hairline divide-y border">
           {/* Every bout on the running order, withdrawn ones included. They keep

@@ -10,12 +10,16 @@ import {
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
   EMPTY_PROGRAMME,
+  EMPTY_SPONSORS,
   fewerLossesEdge,
+  FIRST_SHOW,
+  GETTING_STARTED,
   INVITE_CHANNEL,
   INVITE_SHARE,
   INVITE_STATE,
   NO_SHOWCASE,
   NOT_FOUND,
+  NOTHING_SENT,
   PAGE_ERROR,
   PRIVACY,
   PROGRAMME_NOT_FOUND,
@@ -28,6 +32,7 @@ import {
   renderCountLabel,
   RESET_COPY,
   SHOW_NOT_FOUND,
+  slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
   STYLISED,
@@ -68,6 +73,17 @@ const EMPTY_STRINGS = [
   NO_SHOWCASE.heading,
   NO_SHOWCASE.body,
   NO_SHOWCASE.action,
+  // The first-run copy is every bit as much a zero-bout string as the rest: a
+  // promoter reads all of it on an account and a card with nothing on either.
+  FIRST_SHOW.heading,
+  FIRST_SHOW.lead,
+  GETTING_STARTED.heading,
+  GETTING_STARTED.note,
+  ...Object.values(GETTING_STARTED.steps).flatMap((s) => [s.label, s.body, s.action]),
+  NOTHING_SENT,
+  EMPTY_SPONSORS,
+  RENDER_SECTION.empty,
+  slotsAvailableNote(0),
 ];
 
 const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
@@ -227,11 +243,71 @@ describe("the empty states", () => {
     expect(EMPTY_PROGRAMME.body).toContain("tale of the tape");
     expect(EMPTY_DASHBOARD.body).toContain("running order");
     expect(EMPTY_DASHBOARD.body).toContain("invite link");
-    expect(EMPTY_CARD_EDITOR).toContain("Add the first bout");
+    // The add-bout form sits above the list on an empty card, so the sentence
+    // that stands in for the list points up at it rather than down at nothing.
+    expect(EMPTY_CARD_EDITOR).toContain("first bout");
+    expect(EMPTY_CARD_EDITOR).toContain("above");
+    expect(EMPTY_SPONSORS).toContain("Add one");
+    expect(RENDER_SECTION.empty).toContain("photographs");
   });
 
   it("does not tell a spectator whose fault the empty card is", () => {
     expect(EMPTY_PROGRAMME.body).not.toMatch(/promoter|they have not|has not been/i);
+  });
+});
+
+/**
+ * A promoter's first five minutes.
+ *
+ * Accounts are made by an operator, so nobody arrives here having chosen to and
+ * nobody has been walked through it. These are the only sentences in the product
+ * that tell somebody what to do next, which makes them the ones most likely to
+ * drift into promising how long it takes or into counting a card that has
+ * nothing on it. They are in EMPTY_STRINGS above for exactly that reason; what
+ * is here is that each one says its own step and stays in its own order.
+ */
+describe("the first-run copy", () => {
+  it("names the form the promoter is looking at, not the step after it", () => {
+    expect(FIRST_SHOW.lead).toMatch(/name and a date/);
+    // The line it replaced sent a promoter with no show to put a running order
+    // into a form that asks for a venue and a door time.
+    expect(FIRST_SHOW.lead).not.toMatch(/running order in below|put a running order in/i);
+  });
+
+  it("keeps the three steps in the order they have to happen in", () => {
+    const { bouts, invites, publish } = GETTING_STARTED.steps;
+    expect(bouts.body).toMatch(/invite link/);
+    expect(invites.body).toMatch(/chase list/);
+    expect(publish.body).toMatch(/programme/);
+    // Each step's action is a verb the promoter is about to do, not a
+    // description of what the software will do for them.
+    for (const step of [bouts, invites, publish]) {
+      expect(step.action.length).toBeLessThan(30);
+      expect(step.action).not.toMatch(/we |our |automatic/i);
+    }
+  });
+
+  it("says why the strip will not be there next month", () => {
+    expect(GETTING_STARTED.note).toMatch(/published/i);
+  });
+
+  /** It is the ordinary state of a card entered this morning, not a lapse. */
+  it("reports the unsent state without making it a failing", () => {
+    expect(NOTHING_SENT).not.toMatch(/still|yet to|overdue|behind|chase them/i);
+    expect(NOTHING_SENT).toMatch(/send one/i);
+  });
+});
+
+describe("slotsAvailableNote", () => {
+  it("agrees with itself about one slot and several", () => {
+    expect(slotsAvailableNote(1)).toBe("1 slot still available");
+    expect(slotsAvailableNote(11)).toBe("11 slots still available");
+  });
+
+  /** A sold-out card is the good news, so it is not reported as nought left. */
+  it("says the card is sold out rather than counting no slots", () => {
+    expect(slotsAvailableNote(0)).toBe("Every slot on the card is sold");
+    expect(slotsAvailableNote(0)).not.toMatch(/\d/);
   });
 });
 

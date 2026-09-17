@@ -8,8 +8,10 @@ import {
   chaseList,
   daysUntilShow,
   eventProgress,
+  firstSteps,
   inviteStatus,
   linkState,
+  linksSent,
   nudgeMessage,
   sentNote,
   sponsorInventory,
@@ -353,5 +355,57 @@ describe("linkState", () => {
 
   it("treats a row from before expiry existed as live", () => {
     expect(linkState(base, now)).toBe("live");
+  });
+});
+
+/**
+ * The three steps a new show goes through, and the only order they can happen
+ * in.
+ *
+ * A promoter's account is made for them by an operator, so the first dashboard
+ * anybody sees is one nobody has explained. Sending links before there are bouts
+ * sends nothing, and publishing before either is a programme with an empty
+ * running order — the state bugs 22 and 28 both came out of. Keyed on three
+ * numbers rather than on a card, so the dashboard's empty branch, which loads no
+ * invites at all, can ask the same question.
+ */
+describe("firstSteps", () => {
+  it("asks for the running order before anything else", () => {
+    expect(firstSteps({ bouts: 0, sent: 0, published: false })).toBe("bouts");
+    expect(firstSteps({ bouts: 0, sent: 3, published: false })).toBe("bouts");
+  });
+
+  it("asks for the links once there are bouts to send them for", () => {
+    expect(firstSteps({ bouts: 6, sent: 0, published: false })).toBe("invites");
+  });
+
+  it("asks for the publish last, because nobody can read it until then", () => {
+    expect(firstSteps({ bouts: 6, sent: 1, published: false })).toBe("publish");
+  });
+
+  /**
+   * Published is the end of it rather than a fourth step. From there the
+   * dashboard is a chase list and a set of counts, and a strip of instructions
+   * over them is furniture.
+   */
+  it("stops once the show is published, whatever state the card is in", () => {
+    expect(firstSteps({ bouts: 6, sent: 12, published: true })).toBeNull();
+    expect(firstSteps({ bouts: 0, sent: 0, published: true })).toBeNull();
+  });
+});
+
+describe("linksSent", () => {
+  /** A link that went to somebody who has since finished is still a link sent. */
+  it("counts every fighter on the card whose link has gone out", () => {
+    expect(linksSent(card, invites)).toBe(
+      Object.values(invites).filter((invite) => invite.sentAt).length,
+    );
+  });
+
+  it("counts nobody where nothing has been sent", () => {
+    const untouched: Invites = Object.fromEntries(
+      Object.keys(invites).map((id) => [id, { fighterId: id } satisfies Invite]),
+    );
+    expect(linksSent(card, untouched)).toBe(0);
   });
 });
