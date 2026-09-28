@@ -1446,3 +1446,20 @@ export const SHOWS_META = {
 
 /** The pitch page's way through to the list, and the programme footer's. */
 export const SHOWS_LINK = "See every show on EventIQ";
+
+/**
+ * The gallery of screenshots on the pitch page.
+ *
+ * Three of the five tiles are addresses on the showcase card, and they used to
+ * be written out against the demo's own slug — so on any instance the demo is
+ * not named on, "tap any of them to open the real page" was three links to a
+ * 404. The slug comes off the card now, and where there is no card the sentence
+ * stops inviting a tap: the same rule as every other count-bearing line here.
+ */
+export const GALLERY = {
+  label: "Every screen in it",
+  heading: "What it looks like",
+  linked: "Screenshots of the working demo, not mockups. Tap any of them to open the real page.",
+  /** No show on display, so there is nothing behind them to open. */
+  unlinked: "Screenshots of the working demo, not mockups.",
+} as const;

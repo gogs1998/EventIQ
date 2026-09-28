@@ -6,6 +6,7 @@ import { cardCompleteness, featuredBout } from "@/lib/card";
 import {
   chaseHeading,
   chaseNote,
+  GALLERY,
   NO_SHOWCASE,
   PITCH,
   PRIVACY,
@@ -289,14 +290,16 @@ export default async function PitchPage() {
       {/* ---------------------------------------------------------- gallery */}
       <section className="border-hairline border-t">
         <div className="mx-auto max-w-5xl px-5 py-14">
-          <span className="label">Every screen in it</span>
-          <h2 className="display mt-4 text-3xl">What it looks like</h2>
+          <span className="label">{GALLERY.label}</span>
+          <h2 className="display mt-4 text-3xl">{GALLERY.heading}</h2>
           <p className="text-ash mt-4 max-w-2xl text-sm leading-relaxed">
-            Screenshots of the working demo, not mockups. Tap any of them to open the
-            real page.
+            {event ? GALLERY.linked : GALLERY.unlinked}
           </p>
           <div className="mt-8">
-            <ScreenGallery />
+            {/* The addresses come off the card on display rather than off the
+                demo's own slug, which is what three of these were written
+                against. */}
+            <ScreenGallery slug={event?.slug} fighterId={main?.redId} />
           </div>
         </div>
       </section>

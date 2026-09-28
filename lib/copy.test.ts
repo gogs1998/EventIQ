@@ -19,6 +19,7 @@ import {
   FIGHTER_MATCH,
   FIGHTER_PROFILE,
   FIRST_SHOW,
+  GALLERY,
   GETTING_STARTED,
   INVITE_CHANNEL,
   INVITE_SHARE,
@@ -776,6 +777,29 @@ describe("the fighter's record importer copy", () => {
   it("names the profile it found, and says so where the page had no name on it", () => {
     expect(FIGHTER_IMPORT.found("Owen Pryce", "Sherdog")).toBe("Found Owen Pryce on Sherdog");
     expect(FIGHTER_IMPORT.found(undefined, "Sherdog")).toBe("Found a profile on Sherdog");
+  });
+});
+
+/**
+ * The gallery on the pitch page, which is five pictures of the demo and three
+ * links into the card on display.
+ *
+ * The addresses used to be written against the demo's own slug, so on an
+ * instance naming a different show — or none — the invitation to tap was three
+ * links to a 404. The sentence is the half of that which is copy: no tap where
+ * there is nothing to tap, the same rule `programmeLinkNote` keeps.
+ */
+describe("the gallery copy", () => {
+  it("invites the tap only where there is somewhere for it to go", () => {
+    expect(GALLERY.linked).toMatch(/tap any of them/i);
+    expect(GALLERY.unlinked).not.toMatch(/tap|open|link/i);
+  });
+
+  it("says the pictures are of the real thing either way", () => {
+    for (const line of [GALLERY.linked, GALLERY.unlinked]) {
+      expect(line).toMatch(/not mockups/i);
+      expect(line).not.toMatch(/\b0\b|undefined|!/);
+    }
   });
 });
 
