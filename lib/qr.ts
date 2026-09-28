@@ -15,6 +15,10 @@ import { create } from "qrcode";
  * So: the encoder synchronously, and the modules drawn as one SVG path. Never as
  * text. A URL printed in the corner of a video is not a thing anybody can use,
  * and a code drawn out of characters is not a code.
+ *
+ * `create` rather than any of the package's renderers: a text string in and a
+ * bit matrix out, no I/O and no canvas, which is what makes it safe to call
+ * while React is rendering a frame.
  */
 
 /** Error correction. `M` is what the printed table card uses; one code, one look. */

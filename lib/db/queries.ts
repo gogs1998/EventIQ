@@ -1102,13 +1102,6 @@ export function analyticsFrom(
   return { totals, taps };
 }
 
-/** Both aggregations for one show, over both tables, in one round trip. */
-export async function analyticsFor(db: Db, eventId: string): Promise<Analytics> {
-  const [liveKinds, liveTaps, foldedKinds, foldedTaps] = await db.batch([
-    ...analyticsStatements(db, eventId),
-  ]);
-  return analyticsFrom([...liveKinds, ...foldedKinds], [...liveTaps, ...foldedTaps]);
-}
 
 // ------------------------------------------------- fighters across shows
 

@@ -1,11 +1,4 @@
-import {
-  buildHooks,
-  buildTape,
-  completeness,
-  isRunning,
-  lastName,
-  type TapeRow,
-} from "@/lib/tape";
+import { completeness, isRunning, lastName } from "@/lib/tape";
 import type { Bout, FightEvent, Fighter, Sponsor } from "@/lib/types";
 
 /**
@@ -126,15 +119,6 @@ export function promoTitle(card: Card, bout: Bout): string {
   return `${lastName(red)} v ${lastName(blue)} — ${card.event.name}`;
 }
 
-export function tapeFor(card: Card, bout: Bout): TapeRow[] {
-  const { red, blue } = cornersOf(card, bout);
-  return buildTape(red, blue);
-}
-
-export function hooksFor(card: Card, bout: Bout): string[] {
-  const { red, blue } = cornersOf(card, bout);
-  return buildHooks(bout, red, blue);
-}
 
 /**
  * The emptiest profile on the card, with the bout and the opponent around it.

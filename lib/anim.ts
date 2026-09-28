@@ -22,8 +22,6 @@ export const linear: Easing = (t) => t;
 export const easeOutCubic: Easing = (t) => 1 - Math.pow(1 - t, 3);
 export const easeInCubic: Easing = (t) => t * t * t;
 export const easeOutExpo: Easing = (t) => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t));
-export const easeInOutCubic: Easing = (t) =>
-  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
 /** Overshoots then settles. Used for anything that should feel like it lands hard. */
 export const easeOutBack: Easing = (t) => {
@@ -67,4 +65,3 @@ export function staggered(index: number, start: number, perItem: number): number
   return start + index * perItem;
 }
 
-export const secondsToFrames = (seconds: number): number => Math.round(seconds * FPS);

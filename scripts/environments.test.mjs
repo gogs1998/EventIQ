@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ENVIRONMENTS, environmentFrom, wranglerEnvArgs } from "./environments.mjs";
+import { environmentFrom, wranglerEnvArgs } from "./environments.mjs";
 
 /**
  * There are two places this runs, and a script has to be able to say which.
