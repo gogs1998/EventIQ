@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { FighterPortrait } from "@/components/FighterPortrait";
+import { SponsorLink } from "@/components/SponsorLink";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
@@ -149,26 +150,27 @@ function FighterDetail({
         </Link>
       </div>
 
+      {/* Through `SponsorLink`, which is the one component that decides what
+          tapping a sponsor does. This was its own anchor and had drifted: a
+          sponsor's own site opened over the top of the programme rather than in
+          a tab beside it, so a spectator two bouts into the card lost their
+          place to a tap — and the same sponsor on the show strip and on the
+          fighter's page opened a new tab. A sponsor with no address at all was
+          an `href="#"`, which is a link that jumps to the top of the page and
+          counts a tap for it. */}
       {sponsors.length ? (
         <div className="mt-3">
           <span className="label">Backed by</span>
           <div className="mt-1.5 flex flex-wrap gap-4">
-            {sponsors.map((s) => (
-              <a
-                key={s.id}
-                href={s.url ?? "#"}
-                onClick={() =>
-                  track({
-                    slug: card.event.slug,
-                    kind: "sponsor_tap",
-                    sponsorId: s.id,
-                    fighterId: fighter.id,
-                    boutNumber: bout.number,
-                  })
-                }
-              >
-                <SponsorLockup sponsor={s} size="sm" />
-              </a>
+            {sponsors.map((sponsor) => (
+              <SponsorLink
+                key={sponsor.id}
+                slug={card.event.slug}
+                sponsor={sponsor}
+                size="sm"
+                fighterId={fighter.id}
+                boutNumber={bout.number}
+              />
             ))}
           </div>
         </div>
