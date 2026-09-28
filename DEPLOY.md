@@ -645,6 +645,16 @@ answers and a checklist does not.
 7. **Staging provisioned and stood up** — database, bucket, fourteen migrations,
    three secrets, a deploy and a seed. [Standing it up](#standing-it-up).
 
+**This log stops on 8 September and the migration chain has not.** It ends at
+`0013`; the repository is on `0015` and will be past that by the time somebody
+reads this, and the "fourteen migrations" staging went up with is the same
+figure a day old. Nothing is missing from production because of it — `npm run
+deploy` applies pending migrations before the Worker goes up, exactly so the
+schema cannot lag the code that expects it — but this is a record of one
+afternoon rather than a running inventory. **`wrangler d1 migrations list
+eventiq --remote` is the answer to "what has been applied here", not the list
+above.**
+
 Two things went wrong on the way and both are fixed in the repository rather
 than in the account. The deploy script's D1 migration calls were missing
 `--env`, so the first staging provisioning run tried to migrate production's

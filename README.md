@@ -17,8 +17,10 @@ Amateur shows run on paper. A real programme from a real event gives you a fight
 | Route | What it is |
 | --- | --- |
 | `/` | The pitch page. The recorded walkthrough, the main event video, and a gallery of every screen |
+| `/shows` | Every published show, upcoming and past, filterable by city |
 | `/e/[slug]` | The programme. 15 bouts, main event first, tap any bout for the tape |
 | `/e/[slug]/f/[fighter]` | A fighter profile, deep-linkable from an Instagram bio |
+| `/fighters/[id]` | The same fighter's permanent page, across every published card they have been on |
 | `/e/[slug]/qr` | The printable table card |
 | `/f/[token]` | A fighter's questionnaire, reached by their own invite link |
 | `/f/demo` | The questionnaire as a walkthrough, saving nothing |
@@ -79,7 +81,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `/tmp/e2e`.
+Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `eventiq-e2e` under the system temp directory, or wherever `--shots` says; not `/tmp`, because two of the three platforms these scripts run on have not got one.
 
 ## Staging
 
@@ -292,7 +294,7 @@ npm run shots -- --review /promoter            # full-page PNG at 390 and 1280, 
 node scripts/deploy.mjs --check    # what the current token can and cannot do
 ```
 
-**Live at https://eventiq.win.** `npm run e2e -- --base https://eventiq.win` walks the whole product against it. Note that it writes as it goes, so it is not something to point at a card a promoter is using.
+**Live at https://eventiq.win.** The walkthrough above goes at [staging](#staging) rather than here: it writes as it goes, so pointed at production it would edit the card the whole pitch is built on and need a re-seed and an R2 delete afterwards. Against production, `curl` the health endpoint and open the programme.
 
 ## What is real and what is not
 
