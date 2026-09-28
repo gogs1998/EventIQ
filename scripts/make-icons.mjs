@@ -26,10 +26,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
+import { chromeOrThrow } from "./chrome.mjs";
 
 const run = promisify(execFile);
-
-const CHROME = process.env.CHROME_PATH ?? "/usr/local/bin/google-chrome";
 
 const RED = "#e8121f";
 const BLUE = "#1668f0";
@@ -157,7 +156,7 @@ async function main() {
   console.log("vector   app/icon.svg");
 
   const browser = await puppeteer.launch({
-    executablePath: CHROME,
+    executablePath: chromeOrThrow("No Chrome found, and every raster icon is a screenshot of one."),
     args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
   });
 

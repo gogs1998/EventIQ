@@ -1,11 +1,36 @@
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { chromeCandidates, resolveChrome } from "./chrome.mjs";
 
 /**
- * The shared browser lookup. Four scripts launch Chrome and this is the only
+ * The shared browser lookup. Six scripts launch Chrome and this is the only
  * thing that says where it is, so a machine that is not the one this was
  * written on is exactly what these are for.
  */
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+describe("every script that launches a browser", () => {
+  /**
+   * make-icons.mjs was written after the lookup was consolidated and kept
+   * `process.env.CHROME_PATH ?? "/usr/local/bin/google-chrome"` anyway, so on
+   * any machine that is not one particular Linux box `npm run icons` failed on
+   * a spawn rather than on a browser being somewhere else. A seventh script
+   * would do the same; this is what stops it.
+   */
+  it("asks chrome.mjs where it is, rather than writing a path down", () => {
+    const wrong = readdirSync(HERE)
+      .filter((file) => file.endsWith(".mjs") && !file.startsWith("chrome."))
+      .flatMap((file) => {
+        const source = readFileSync(path.join(HERE, file), "utf8");
+        if (!source.includes("executablePath")) return [];
+        return source.includes("chromeOrThrow") ? [] : [file];
+      });
+    expect(wrong).toEqual([]);
+  });
+});
 
 describe("resolveChrome", () => {
   /**

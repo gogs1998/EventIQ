@@ -1,14 +1,16 @@
 /**
  * Where Chrome is, on whatever machine this is.
  *
- * Four scripts drive a browser — the renderer, the end-to-end walk, the gallery
- * screenshots and the sales recording — and three of them used to carry their
- * own answer. Two of those answers were the single hardcoded path
- * "/usr/local/bin/google-chrome", so every machine that was not one particular
- * Linux box needed CHROME_PATH exported before anything would run, and nothing
- * said so: puppeteer failed to launch and the message was about a spawn rather
- * than about a browser being somewhere else. The renderer's version of this is
- * the one that had already been fixed, so it is the one that moved here.
+ * Six scripts drive a browser — the bout renderer, the show renderer, the
+ * end-to-end walk, the gallery screenshots, the icon rasteriser and the sales
+ * recording — and most of them used to carry their own answer. Several of those
+ * answers were the single hardcoded path "/usr/local/bin/google-chrome", so
+ * every machine that was not one particular Linux box needed CHROME_PATH
+ * exported before anything would run, and nothing said so: puppeteer failed to
+ * launch and the message was about a spawn rather than about a browser being
+ * somewhere else. The renderer's version of this is the one that had already
+ * been fixed, so it is the one that moved here — and make-icons.mjs, written
+ * after that move, kept the hardcoded path for a wave longer than the rest.
  *
  * The list per platform is candidates, not a preference between browsers: any
  * of them drives the same protocol. CHROME_PATH wins over all of it, because a
