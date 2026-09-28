@@ -8,6 +8,7 @@ import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { SponsorRow } from "@/app/promoter/e/[slug]/card/SponsorRow";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import {
+  ADD_BOUT,
   EMPTY_CARD_EDITOR,
   EMPTY_SPONSORS,
   boutCountLabel,
@@ -33,11 +34,9 @@ export const metadata: Metadata = {
 function AddBout({ slug, empty = false }: { slug: string; empty?: boolean }) {
   return (
     <section className="mt-12">
-      <h2 className="display text-2xl">{empty ? "Add the first bout" : "Add a bout"}</h2>
+      <h2 className="display text-2xl">{empty ? ADD_BOUT.firstHeading : ADD_BOUT.heading}</h2>
       <p className="text-ash mt-2 max-w-2xl text-xs leading-relaxed">
-        {empty
-          ? "Two names is enough to start with. Both fighters get an invite link straight away, and everything else on this bout can be filled in later."
-          : "Goes on top of the running order, so entering a card from the openers up matches the sheet. Both fighters get an invite link straight away."}
+        {empty ? ADD_BOUT.first : ADD_BOUT.another}
       </p>
       <AddBoutForm slug={slug} />
     </section>

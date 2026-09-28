@@ -27,10 +27,8 @@ import { PRIVACY } from "@/lib/copy";
  * and scripts/retention.mjs cannot drift apart.
  */
 export const metadata: Metadata = {
-  title: "Privacy notice — EventIQ",
-  description:
-    "What EventIQ collects from fighters on a digital fight programme, where it is shown, how " +
-    "long it is kept and how to have it removed.",
+  title: `${PRIVACY.title} — EventIQ`,
+  description: PRIVACY.description,
 };
 
 export default function PrivacyPage() {

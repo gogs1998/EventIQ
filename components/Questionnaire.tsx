@@ -13,6 +13,7 @@ import { CONSENT_TEXT, CONSENT_VERSION, oldEnough } from "@/lib/consent";
 import {
   ACTION_ERRORS,
   CONSENT_GIVEN,
+  FIGHTER_IMPORT,
   PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
@@ -1103,12 +1104,9 @@ export function Questionnaire({
           >
             <div className="border-hairline bg-panel/40 border p-4">
               <label htmlFor="record-import" className="label mb-2 block">
-                Fought before?
+                {FIGHTER_IMPORT.label}
               </label>
-              <p className="text-ash mb-3 text-xs leading-relaxed">
-                Paste your Sherdog page and we&rsquo;ll pull your record across so you
-                don&rsquo;t have to type it.
-              </p>
+              <p className="text-ash mb-3 text-xs leading-relaxed">{FIGHTER_IMPORT.blurb}</p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   id="record-import"
@@ -1118,7 +1116,7 @@ export function Questionnaire({
                     setImportUrl(e.target.value);
                     if (importStatus !== "idle") setImportStatus("idle");
                   }}
-                  placeholder="sherdog.com/fighter/Owen-Pryce-123456"
+                  placeholder={FIGHTER_IMPORT.placeholder}
                   inputMode="url"
                   autoComplete="off"
                 />
@@ -1128,14 +1126,14 @@ export function Questionnaire({
                   disabled={importStatus === "loading" || !importUrl.trim()}
                   className="border-chalk/60 hover:bg-chalk hover:text-ink display shrink-0 border px-5 py-2.5 text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {importStatus === "loading" ? "Looking…" : "Look it up"}
+                  {importStatus === "loading" ? FIGHTER_IMPORT.looking : FIGHTER_IMPORT.look}
                 </button>
               </div>
 
               {importStatus === "error" && importOutcome && !importOutcome.ok ? (
                 <p className="text-red-corner-hot mt-3 text-xs leading-relaxed">
                   {importOutcome.kind === "not-a-profile"
-                    ? "That doesn't look like a Sherdog or Tapology fighter page. It should look like sherdog.com/fighter/Your-Name-12345. No record online? Just fill the boxes in below."
+                    ? FIGHTER_IMPORT.notAProfile
                     : importOutcome.reason}
                 </p>
               ) : null}
@@ -1143,16 +1141,16 @@ export function Questionnaire({
               {importStatus === "done" && importedTape ? (
                 <div className="border-gold/40 bg-gold/5 mt-3 border p-3">
                   <p className="text-chalk text-xs leading-relaxed">
-                    Found {importedTape.name ?? "a profile"} on {sourceLabel}
+                    {FIGHTER_IMPORT.found(importedTape.name, sourceLabel ?? "")}
                     {importedTape.recordKind === "professional"
-                      ? ", and that's the professional record, not the amateur one"
+                      ? FIGHTER_IMPORT.professional
                       : null}
-                    . <span className="text-gold">Check it before you submit</span> —
-                    records on there go out of date, and yours is the version that goes in
-                    front of the room.
+                    . <span className="text-gold">{FIGHTER_IMPORT.check}</span> —{" "}
+                    {FIGHTER_IMPORT.caution}
                   </p>
                   <p className="text-ash-dim mt-2 text-[0.7rem] leading-relaxed">
-                    Still yours to answer: {importedTape.notCovered.join(", ").toLowerCase()}.
+                    {FIGHTER_IMPORT.stillYours}:{" "}
+                    {importedTape.notCovered.join(", ").toLowerCase()}.
                   </p>
                 </div>
               ) : null}

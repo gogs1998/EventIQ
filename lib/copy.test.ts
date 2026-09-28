@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_COPY,
   ACTION_ERRORS,
+  ADD_BOUT,
   APP_ERROR,
   boutCountLabel,
   boutsOffLabel,
@@ -12,6 +13,7 @@ import {
   EMPTY_PROGRAMME,
   EMPTY_SPONSORS,
   fewerLossesEdge,
+  FIGHTER_IMPORT,
   FIGHTER_MATCH,
   FIGHTER_PROFILE,
   FIRST_SHOW,
@@ -667,6 +669,90 @@ describe("the record importer copy", () => {
   /** A bad link is told what a good one looks like, never just that it failed. */
   it("shows what a working link looks like", () => {
     expect(RECORD_IMPORT.notAProfile).toContain("sherdog.com/fighter/");
+  });
+});
+
+/**
+ * The same importer on the fighter's own form.
+ *
+ * These were typed into components/Questionnaire.tsx rather than kept here, and
+ * the one sentence nothing could test was the one that said "we'll pull your
+ * record across" — the product speaks to a fighter as itself nowhere else on
+ * that page, and there is no "we" for a fighter to have met.
+ */
+describe("the fighter's record importer copy", () => {
+  const FIGHTER_IMPORT_STRINGS = Object.values(FIGHTER_IMPORT).filter(
+    (value): value is string => typeof value === "string",
+  );
+
+  it("keeps the established tone", () => {
+    for (const line of FIGHTER_IMPORT_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  /** There is no "we" here. The fighter is talking to a form, not to a company. */
+  it("never speaks as us", () => {
+    for (const line of FIGHTER_IMPORT_STRINGS) {
+      expect(line).not.toMatch(/\bwe'?(ll|ve|re)?\b|\bour\b|\bus\b/i);
+    }
+  });
+
+  /** A record off somebody else's page is never presented as settled. */
+  it("says the numbers are the fighter's to confirm", () => {
+    expect(FIGHTER_IMPORT.check).toMatch(/check it/i);
+    expect(FIGHTER_IMPORT.caution).toMatch(/out of date/i);
+    expect(FIGHTER_IMPORT.blurb).toMatch(/stays as you left it/i);
+  });
+
+  /** The box is a convenience, so a refusal points back at the boxes below it. */
+  it("shows what a working link looks like and where to go without one", () => {
+    expect(FIGHTER_IMPORT.notAProfile).toContain("sherdog.com/fighter/");
+    expect(FIGHTER_IMPORT.notAProfile).toMatch(/boxes below/i);
+  });
+
+  it("names the profile it found, and says so where the page had no name on it", () => {
+    expect(FIGHTER_IMPORT.found("Owen Pryce", "Sherdog")).toBe("Found Owen Pryce on Sherdog");
+    expect(FIGHTER_IMPORT.found(undefined, "Sherdog")).toBe("Found a profile on Sherdog");
+  });
+});
+
+/**
+ * The two sentences over the add-bout form.
+ *
+ * A bout has two corners, and everywhere else in the product says so. The line
+ * over an empty card said "both fighters", which is the same thing right up
+ * until the same person is matched twice on one card.
+ */
+describe("the add-bout copy", () => {
+  it("says corners, the way the rest of the product does", () => {
+    for (const line of [ADD_BOUT.first, ADD_BOUT.another]) {
+      expect(line).toMatch(/both corners/i);
+      expect(line).not.toMatch(/both fighters/i);
+      expect(line).toMatch(/invite link/i);
+    }
+  });
+
+  it("tells a promoter with an empty card the least they have to type", () => {
+    expect(ADD_BOUT.first).toMatch(/two names/i);
+    expect(ADD_BOUT.first).toMatch(/later/i);
+  });
+});
+
+/**
+ * The sign-in page, which is the one screen a promoter sees before anything of
+ * theirs is on it. Both of these were typed into the page.
+ */
+describe("the sign-in copy", () => {
+  it("names what is behind the form rather than selling it", () => {
+    expect(LOGIN_COPY.heading).toBe("Promoter sign in");
+    expect(LOGIN_COPY.lead).toMatch(/chase list/i);
+    expect(LOGIN_COPY.lead).not.toMatch(/!|best|easy|simply|just\b/i);
   });
 });
 

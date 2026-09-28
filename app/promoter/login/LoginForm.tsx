@@ -13,10 +13,8 @@ export function LoginForm({ next }: { next: string }) {
 
   return (
     <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-20">
-      <h1 className="display text-4xl">Promoter sign in</h1>
-      <p className="text-ash mt-3 text-sm leading-relaxed">
-        Your card, your chase list and your sponsor sheet.
-      </p>
+      <h1 className="display text-4xl">{LOGIN_COPY.heading}</h1>
+      <p className="text-ash mt-3 text-sm leading-relaxed">{LOGIN_COPY.lead}</p>
 
       <form action={submit} className="mt-8 grid gap-5">
         <input type="hidden" name="next" value={next} />

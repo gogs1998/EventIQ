@@ -215,6 +215,27 @@ export const EMPTY_DASHBOARD = {
 /** The card editor, where the running order is actually typed. */
 export const EMPTY_CARD_EDITOR = "Nothing on the running order yet. The first bout goes in below.";
 
+/**
+ * The two sentences over the add-bout form, which differ by whether the card has
+ * anything on it: a promoter with an empty card is being told what a bout brings
+ * with it, and a promoter with fourteen already knows.
+ *
+ * Both were typed into the page. The one over an empty card said "both fighters
+ * get an invite link", where everywhere else in the product says corners — a bout
+ * has two of those and the difference matters on a card where the same person is
+ * matched twice.
+ */
+export const ADD_BOUT = {
+  firstHeading: "Add the first bout",
+  heading: "Add a bout",
+  first:
+    "Two names is enough to start with. Both corners get an invite link straight away, and " +
+    "everything else on this bout can be filled in later.",
+  another:
+    "Goes on top of the running order, so entering a card from the openers up matches the " +
+    "sheet. Both corners get an invite link straight away.",
+} as const;
+
 /* -------------------------------------------------------------------------
  * A promoter's first five minutes
  *
@@ -376,6 +397,43 @@ export const RECORD_IMPORT = {
   notAProfile:
     "That does not look like a Sherdog or Tapology fighter page. It should look like " +
     "sherdog.com/fighter/Name-12345.",
+} as const;
+
+/**
+ * The same importer on the fighter's own form.
+ *
+ * Two boxes, one feature, and the words were typed out again in
+ * components/Questionnaire.tsx rather than being here where the tone tests can
+ * reach them — which is how it came to say "we'll pull your record across". The
+ * product does not speak as "we" to a fighter anywhere else on that page, and
+ * the one sentence that did was the one nobody could test.
+ *
+ * It is its own block rather than a reuse of RECORD_IMPORT because the reader is
+ * different: the promoter is filling somebody else in and is told what is still
+ * empty, and the fighter is filling themselves in and is told their typing wins.
+ * What the two genuinely share is shared, so a working link can only ever be
+ * described one way.
+ */
+export const FIGHTER_IMPORT = {
+  label: "Fought before?",
+  blurb:
+    "Paste your Sherdog page and your record comes across, so there is nothing to type. " +
+    "Anything you have already answered stays as you left it.",
+  placeholder: RECORD_IMPORT.placeholder,
+  look: RECORD_IMPORT.look,
+  looking: RECORD_IMPORT.looking,
+  /** The refusal, plus the way on: this box is a convenience and never a gate. */
+  notAProfile: `${RECORD_IMPORT.notAProfile} No record online? The boxes below take whatever you type.`,
+  /** Set apart in the sentence below, because it is the instruction in it. */
+  check: "Check it before you submit",
+  caution:
+    "records on these pages go out of date, and yours is the version that goes in front of " +
+    "the room.",
+  /** Only where the page gave a professional record to an amateur card. */
+  professional: ", and that is the professional record rather than the amateur one",
+  stillYours: "Still yours to answer",
+  /** Where the page had a name on it and where it did not. */
+  found: (name: string | undefined, source: string) => `Found ${name ?? "a profile"} on ${source}`,
 } as const;
 
 /**
@@ -798,6 +856,14 @@ export function renderCountLabel(current: number, bouts: number): string {
  * pointing at a form that does not exist.
  */
 export const LOGIN_COPY = {
+  heading: "Promoter sign in",
+  /**
+   * What is behind the form, named as the three things a promoter came for. It
+   * was typed into the page rather than kept here, which is how the one line on
+   * the sign-in screen ended up being the only sentence in the product nothing
+   * held to the tone rules.
+   */
+  lead: "Your card, your chase list and your sponsor sheet.",
   slugLabel: "Promoter",
   slugHint: "The short name you were given when your account was set up.",
   slugPlaceholder: "your-promotion",
@@ -987,6 +1053,14 @@ export const PRIVACY = {
     "This explains what EventIQ collects from fighters on a digital fight programme, where it " +
     "is shown, how long it is kept and how to have it removed. It is written for the person " +
     "filling in the questionnaire.",
+  /**
+   * What an unfurled link and a search result say. The same sentence as the
+   * intro, which is the point of it being here: it was typed out a second time
+   * in the page's metadata, where nothing holds it to the notice it describes.
+   */
+  description:
+    "What EventIQ collects from fighters on a digital fight programme, where it is shown, how " +
+    "long it is kept and how to have it removed.",
   sections: [
     {
       heading: "Who is responsible for it",

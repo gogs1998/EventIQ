@@ -5,7 +5,7 @@ import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card";
-import { EMPTY_PROGRAMME, SHOWS_LINK, boutCountLabel } from "@/lib/copy";
+import { EMPTY_PROGRAMME, SHOWS_LINK, boutCountLabel, programmeLinkNote } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
 import { sportsEventJsonLd } from "@/lib/jsonld";
@@ -157,8 +157,12 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
             certainly the promoter who owns it. */}
         {bouts.length ? (
           <>
+            {/* The invitation to tap is `programmeLinkNote`, the same sentence
+                the pitch page uses about this card, rather than a second copy
+                of it here — a count-bearing line typed into a page is a line
+                nothing holds to the zero-bout rule. */}
             <p className="text-ash mb-4 px-2 text-xs leading-relaxed">
-              Main event first. Tap any bout for the tale of the tape.
+              Main event first. {programmeLinkNote(bouts.length)}
             </p>
 
             <div className="grid gap-3">
