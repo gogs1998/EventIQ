@@ -9,6 +9,7 @@ import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-res
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
+import { ownedEvent } from "@/lib/db/owned";
 import {
   fightersNamed,
   nameOnAnotherPromotion,
@@ -31,7 +32,7 @@ import {
 import { withinPromoterImportLimit } from "@/lib/rate-limit";
 import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
-import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
+import { type OwnedCard } from "@/lib/visibility";
 import { hasSlug, slugify } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
 
@@ -53,31 +54,15 @@ import { parseWeightKg } from "@/lib/tape";
  * it stays outside the wrapper.
  */
 
-type Owned = { promoter: Promoter; card: OwnedCard };
-
 /**
- * The show and the promoter who owns it, or the sentence to show instead.
- *
- * The check itself is `loadOwnedCard` in lib/visibility.ts, beside the publish
- * gate, rather than a where clause written out here. There were five copies of
- * it and five copies of a rule is exactly what section 14 keeps recording. The
- * branded `OwnedCard` is the other half: it can only be made by that function,
- * so nothing in this file can come to hold a card nobody checked.
- *
- * A show that is not this promoter's and a show that does not exist still answer
- * identically, so guessing a slug tells you nothing. It reads the session rather
- * than calling `requirePromoter`, because "signed out" is a thing a promoter can
- * act on and was previously indistinguishable from a crash.
+ * The show and the promoter who owns it comes from `ownedEvent` in
+ * lib/db/owned.ts, which is where the three "use server" files that all need it
+ * can share one copy — everything a server module exports is an endpoint, so
+ * they cannot pass it between themselves. The check inside it is `loadOwnedCard`
+ * in lib/visibility.ts, beside the publish gate, and the branded `OwnedCard` is
+ * the other half: it can only be made by that function, so nothing in this file
+ * can come to hold a card nobody checked.
  */
-async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
-  const promoter = await currentPromoter();
-  if (!promoter) return refuse(ACTION_ERRORS.signedOut);
-
-  const card = await loadOwnedCard(db, slug, promoter.id);
-  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
-
-  return done({ promoter, card });
-}
 
 function text(form: FormData, key: string, max = 200): string {
   return String(form.get(key) ?? "").slice(0, max).trim();

@@ -7,11 +7,10 @@ import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-res
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
+import { ownedEvent } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { currentPromoter, type Promoter } from "@/lib/session";
-import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
 
 /**
  * Everything the promoter can do to a sponsor and its emblem.
@@ -31,26 +30,6 @@ import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
  * card actions do. A slug is a name, not a capability, and neither is a sponsor
  * id typed into a form.
  */
-
-type Owned = { promoter: Promoter; card: OwnedCard };
-
-/**
- * The show and the promoter who owns it, or the sentence to show instead.
- *
- * The same shape as the other "use server" files, and for the same reason it is
- * not shared between them: everything a server module exports is an endpoint.
- * The rule itself is `loadOwnedCard` in lib/visibility.ts, beside the publish
- * gate, so this is one call and not a fourth copy of the where clause.
- */
-async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
-  const promoter = await currentPromoter();
-  if (!promoter) return refuse(ACTION_ERRORS.signedOut);
-
-  const card = await loadOwnedCard(db, slug, promoter.id);
-  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
-
-  return done({ promoter, card });
-}
 
 /**
  * A sponsor of this promoter's, with the emblem key it currently points at.

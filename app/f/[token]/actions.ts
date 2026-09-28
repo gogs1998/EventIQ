@@ -10,7 +10,7 @@ import { isLinkPreviewBot } from "@/lib/bots";
 import { CONSENT_VERSION, consentGate, hasConsented } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { getDb, getMedia, inviteSecret, type Db } from "@/lib/db";
-import { loadInviteByToken } from "@/lib/db/queries";
+import { inviteFor } from "@/lib/db/owned";
 import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
@@ -33,19 +33,12 @@ import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questio
  * all of them are sentences now, and the stack goes to the log.
  */
 
-type Invite = Awaited<ReturnType<typeof loadInviteByToken>>;
-
-type Found = { db: Db; row: NonNullable<Invite> };
-
-async function inviteFor(token: string): Promise<ActionResult<Found>> {
-  const db = await getDb();
-  const row = await loadInviteByToken(db, token);
-  // A regenerated link, a revoked one, one that has lapsed and one that was
-  // never issued all answer the same way, which is also the only true thing that
-  // can be said to somebody holding any of them.
-  if (!row) return refuse(ACTION_ERRORS.unknownInvite);
-  return done({ db, row });
-}
+/**
+ * The invite behind a token is `inviteFor` in lib/db/owned.ts, shared with the
+ * other two "use server" files under this directory — everything a server module
+ * exports is an endpoint, so the three of them cannot pass a helper between
+ * themselves and each had a copy of it.
+ */
 
 /**
  * Columns written from a draft. Kept in one place so save and submit agree.

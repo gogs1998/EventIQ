@@ -6,8 +6,8 @@ import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { flagOn, hasConsented } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
-import { getAi, getDb, getMedia, readVar } from "@/lib/db";
-import { loadInviteByToken } from "@/lib/db/queries";
+import { getAi, getMedia, readVar } from "@/lib/db";
+import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { mediaKeyOf, stylisedBelongsTo, stylisedKey } from "@/lib/portrait";
@@ -72,12 +72,6 @@ const STYLISED_HEIGHT = 768;
 
 /** The same ceiling the upload has. A model input is not the place to relax it. */
 const MAX_SOURCE_BYTES = 4 * 1024 * 1024;
-
-async function inviteFor(token: string) {
-  const db = await getDb();
-  const row = await loadInviteByToken(db, token);
-  return row ? { db, row } : null;
-}
 
 /** Off unless a deployment turned it on and there is a model to reach. */
 async function offered(): Promise<boolean> {
@@ -151,7 +145,7 @@ export async function makeStylisedPortrait(
     ACTION_ERRORS.portraitNotMade,
     async () => {
       const found = await inviteFor(token);
-      if (!found) return refuse(ACTION_ERRORS.unknownInvite);
+      if (!found.ok) return found;
       const { fighter, invite } = found.row;
 
       if (!hasConsented(invite)) return refuse(ACTION_ERRORS.consentNeeded);
@@ -221,7 +215,7 @@ export async function approveStylisedPortrait(
     ACTION_ERRORS.portraitNotMade,
     async () => {
       const found = await inviteFor(token);
-      if (!found) return refuse(ACTION_ERRORS.unknownInvite);
+      if (!found.ok) return found;
       const { db, row } = found;
       const { fighter, invite, event } = row;
 
@@ -266,7 +260,7 @@ export async function discardStylisedPortrait(
     ACTION_ERRORS.portraitNotMade,
     async () => {
       const found = await inviteFor(token);
-      if (!found) return refuse(ACTION_ERRORS.unknownInvite);
+      if (!found.ok) return found;
       const { db, row } = found;
       const { fighter, event } = row;
 

@@ -3,13 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
-import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
+import { DONE, attempt, type ActionResult } from "@/lib/action-result";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { newToken } from "@/lib/auth";
-import { getDb, inviteSecret, type Db } from "@/lib/db";
+import { getDb, inviteSecret } from "@/lib/db";
+import { ownedEvent } from "@/lib/db/owned";
 import { INVITE_TTL_MS, isSentChannel, sealedColumns } from "@/lib/invite-token";
-import { currentPromoter, type Promoter } from "@/lib/session";
-import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
 import type { SentChannel } from "@/lib/types";
 
 /**
@@ -26,27 +25,6 @@ import type { SentChannel } from "@/lib/types";
  * card actions do. A slug is a name, not a capability.
  */
 
-type Owned = { promoter: Promoter; card: OwnedCard };
-
-/**
- * The show and the promoter who owns it, or the sentence to show instead.
- *
- * The where clause used to be written out again here rather than shared with
- * app/promoter/actions.ts, because everything exported from a "use server"
- * module is an endpoint and a helper cannot be passed between two of them
- * without also publishing it to the internet. `loadOwnedCard` is in
- * lib/visibility.ts, which is not a server module, so the copies are gone and
- * the rule is where the publish gate is.
- */
-async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
-  const promoter = await currentPromoter();
-  if (!promoter) return refuse(ACTION_ERRORS.signedOut);
-
-  const card = await loadOwnedCard(db, slug, promoter.id);
-  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
-
-  return done({ promoter, card });
-}
 
 /**
  * Records that the promoter has sent the link, and how.

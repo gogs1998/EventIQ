@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
-import { DONE, attempt, refuse, type ActionResult } from "@/lib/action-result";
+import { DONE, attempt, type ActionResult } from "@/lib/action-result";
 import { clearedFighterColumns } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
-import { getDb, getMedia } from "@/lib/db";
-import { loadInviteByToken } from "@/lib/db/queries";
+import { getMedia } from "@/lib/db";
+import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { logError } from "@/lib/log";
 import { mediaKeyOf } from "@/lib/portrait";
@@ -22,21 +22,12 @@ import { mediaKeyOf } from "@/lib/portrait";
  * person a fighter no longer wants to talk to.
  *
  * It is in its own file because it is the other half of the questionnaire's
- * story and it changes for its own reasons. The one thing it takes from
- * app/f/[token]/actions.ts is nothing at all — it re-reads the invite itself,
- * the same way everything on this route does, because the token is the whole of
- * the authorisation and re-reading it is what stops a fighter writing to
- * somebody else's row.
+ * story and it changes for its own reasons. It re-reads the invite itself, the
+ * same way everything on this route does, because the token is the whole of the
+ * authorisation and re-reading it is what stops a fighter writing to somebody
+ * else's row — through `inviteFor` in lib/db/owned.ts, which is where the three
+ * "use server" files here share the one copy of that lookup.
  */
-
-/** The same six lines as actions.ts, and deliberately not shared through it. */
-async function inviteFor(token: string) {
-  const db = await getDb();
-  const row = await loadInviteByToken(db, token);
-  // A revoked link, a regenerated one and a made-up one all answer alike, which
-  // is the only true thing that can be said to somebody holding any of them.
-  return row ? { db, row } : null;
-}
 
 /**
  * Clears everything the fighter sent, takes their pictures out of the bucket,
@@ -59,7 +50,7 @@ export async function removeMyDetails(token: string): Promise<ActionResult> {
     ACTION_ERRORS.detailsNotRemoved,
     async () => {
       const found = await inviteFor(token);
-      if (!found) return refuse(ACTION_ERRORS.unknownInvite);
+      if (!found.ok) return found;
       const { db, row } = found;
       const { invite, fighter, event } = row;
 
