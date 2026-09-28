@@ -72,12 +72,16 @@ export function ChangePasswordForm() {
 
       <p className="text-ash-dim text-xs leading-relaxed">{ACCOUNT_COPY.hint}</p>
 
-      <ActionStatus error={result && !result.ok ? result.error : null} />
-      {result?.ok ? (
-        <p role="status" className="text-gold text-xs leading-relaxed">
-          {ACCOUNT_COPY.changed}
-        </p>
-      ) : null}
+      {/* Both answers through the one live region. The confirmation used to be a
+          second `role="status"` that was mounted at the moment it had something
+          to say — which a screen reader does not announce, because a region has
+          to have been in the document before it changed — and two regions beside
+          each other race whichever way round they are read. ActionStatus says
+          exactly this in its own note and already takes both. */}
+      <ActionStatus
+        error={result && !result.ok ? result.error : null}
+        done={result?.ok ? ACCOUNT_COPY.changed : null}
+      />
 
       <button
         type="submit"

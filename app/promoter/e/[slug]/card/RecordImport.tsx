@@ -5,7 +5,6 @@ import { applyFighterRecord, lookupFighterRecord } from "@/app/promoter/actions"
 import { inputClass } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
 import { RECORD_IMPORT } from "@/lib/copy";
-import { cx } from "@/lib/cx";
 import { SOURCE_LABEL, type ImportOutcome, type RecordFill } from "@/lib/fighter-import";
 
 /**
@@ -193,20 +192,22 @@ export function RecordImport({
         </div>
       ) : null}
 
-      {applied ? (
-        <p
-          className={cx(
-            "text-[0.7rem] leading-relaxed",
-            applied.length ? "text-gold" : "text-ash-dim",
-          )}
-        >
-          {applied.length
-            ? `${RECORD_IMPORT.applied}: ${applied.join(", ").toLowerCase()}.`
-            : RECORD_IMPORT.nothing}
-        </p>
-      ) : null}
-
-      <ActionStatus error={error} />
+      {/* What was written goes through the same live region as a refusal rather
+          than into a paragraph that appears at the moment it has something to
+          say. A region mounted with its text is a region nobody hears, and this
+          is the one control on the row whose whole result is a sentence: the
+          boxes it fills are on the form above, not in front of the promoter. */}
+      <ActionStatus
+        error={error}
+        done={
+          applied === null
+            ? null
+            : applied.length
+              ? `${RECORD_IMPORT.applied}: ${applied.join(", ").toLowerCase()}.`
+              : RECORD_IMPORT.nothing
+        }
+        className="text-[0.7rem]"
+      />
       </div>
     </details>
   );
