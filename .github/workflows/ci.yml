@@ -52,3 +52,16 @@ jobs:
       # that compiles and cannot be rendered. The end-to-end suite is not here:
       # it drives a real browser against a running server and writes as it goes.
       - run: npm run build
+
+      # db/schema.ts is the single description and db/migrations is generated
+      # from it. The database suite catches a column in the schema that no
+      # migration creates — it compares what the chain lands on against the
+      # schema — but nothing caught the snapshots under db/migrations/meta
+      # drifting, and a stale snapshot is the next migration generated against
+      # the wrong baseline. This runs the generator and fails if it wanted to
+      # write anything.
+      - name: The migrations match db/schema.ts
+        run: |
+          npm run db:generate
+          git diff --exit-code -- db/migrations ||
+            { echo "::error::db/schema.ts has changed without a migration. Run npm run db:generate and commit what it writes."; exit 1; }

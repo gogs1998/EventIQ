@@ -124,13 +124,13 @@
       "invocation_logs": true
     }
   },
-  // Which Worker answered, in the one place an unauthenticated caller can read
-  // it: /api/health. The end-to-end suite writes as it goes — it adds a bout,
-  // removes it and fills a fighter's profile in — so "which environment am I
-  // pointed at" is a question that has to be answerable before it starts rather
-  // than afterwards. See .github/workflows/e2e-staging.yml.
   // A second Worker, with its own database and its own bucket, for the suite
   // that writes and for anything else worth trying before eventiq.win sees it.
+  // That suite adds a bout, removes it and fills a fighter's profile in, so
+  // "which environment am I pointed at" has to be answerable before it starts
+  // rather than afterwards — `EVENTIQ_ENV` above is what /api/health reports,
+  // from a var rather than from the hostname. See
+  // .github/workflows/e2e-staging.yml.
   //
   // Everything a binding is has to be repeated here: wrangler inherits the
   // build settings — main, the compatibility date and flags, the assets
