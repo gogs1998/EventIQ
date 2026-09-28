@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { digestsMatch, RENDER_KEY_HEADER, secretDigest, secretMatches } from "@/lib/auth";
 import { getDb, readSecret, type Db } from "@/lib/db";
 import {
+  eventOwner,
   eventVisibility,
   eventsOfPromoter,
   eventsShowingPortrait,
@@ -362,7 +363,12 @@ export type MediaKey =
   /** `renders/<slug>/…`, the mp4 for one bout of that show. */
   | { kind: "render"; slug: string }
   /** `sponsors/<promoterId>/…`, an emblem the promoter uploaded. */
-  | { kind: "sponsor"; promoterId: string };
+  | { kind: "sponsor"; promoterId: string }
+  /**
+   * `posters/<eventId>/…`, a bout poster the promoter pasted a card in from.
+   * The only shape here that is never public: see `posterVisibleTo`.
+   */
+  | { kind: "poster"; eventId: string };
 
 /**
  * The three prefixes that hold a picture of a fighter: the photograph they
@@ -392,7 +398,32 @@ export function parseMediaKey(key: string): MediaKey | null {
   if (segments.length === 3 && segments[0] === "sponsors") {
     return { kind: "sponsor", promoterId: segments[1] };
   }
+  // A poster names its show the same way, and is the one object here that never
+  // goes out to anybody but the promoter — the rule is `posterVisibleTo`.
+  if (segments.length === 3 && segments[0] === "posters") {
+    return { kind: "poster", eventId: segments[1] };
+  }
   return null;
+}
+
+/**
+ * A bout poster, which only the promoter who pasted it may read.
+ *
+ * Every other shape of key here is on a page somebody is meant to see, so
+ * publishing the show opens it. A poster is not on any page: it is the
+ * promoter's working material, it is where the crops on their fighters came
+ * from, and it can carry faces and sponsors that are on no card of ours. So this
+ * does not go through `mediaVisibleTo` — publishing a show must not open it, and
+ * a rule that says so by exception inside that function is a rule the next
+ * prefix would inherit by accident.
+ *
+ * It is never public in the cache sense either, whatever the show's state.
+ */
+export function posterVisibleTo(
+  event: { promoterId: string } | null,
+  viewerId: string | null | undefined,
+): { visible: boolean; public: boolean } {
+  return { visible: !!event && !!viewerId && event.promoterId === viewerId, public: false };
 }
 
 export type MediaSubject = {
@@ -501,6 +532,12 @@ export async function mediaVisibility(
   const refused = { visible: false, public: false };
   const target = parseMediaKey(key);
   if (!target) return refused;
+
+  // Answered first and on its own, because the answer is "the promoter, and
+  // nobody else" rather than a softer version of the card's own rule.
+  if (target.kind === "poster") {
+    return posterVisibleTo(await eventOwner(db, target.eventId), (await currentPromoter())?.id);
+  }
 
   // A sponsor's emblem goes behind the promoter's own shows: it is on the
   // strip, on a bout card and inside the videos, so it is as public as the
