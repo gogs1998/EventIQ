@@ -773,6 +773,22 @@ export async function eventsShowingPortrait(db: Db, path: string) {
 }
 
 /**
+ * Who owns one show, by its row id rather than its slug.
+ *
+ * The same narrow shape as `eventVisibility` and for the same reason: a poster
+ * names the show it was pasted onto in its own key, and deciding who may read it
+ * must not cost a whole card.
+ */
+export async function eventOwner(db: Db, eventId: string) {
+  const [row] = await db
+    .select({ published: schema.events.published, promoterId: schema.events.promoterId })
+    .from(schema.events)
+    .where(eq(schema.events.id, eventId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * Every show a promoter has, for an object that belongs to the promoter rather
  * than to one card — a sponsor's emblem, which is on the strip of every show
  * they place it on. One published show is enough, for the same reason it is
@@ -1230,6 +1246,30 @@ export async function fightersNamed(
 ): Promise<FighterMatch[]> {
   const wanted = matchableName(name).toLowerCase();
   if (!wanted) return [];
+  return (await fightersNamedAny(db, [name], promoterId)).get(wanted) ?? [];
+}
+
+/**
+ * The same question asked about a whole matchmaking sheet at once.
+ *
+ * One query rather than one per corner, because the sheet import asks this about
+ * thirty names in a single preview and thirty round trips to D1 is the
+ * difference between a preview that appears and one a promoter waits for. The
+ * rule is unchanged and deliberately not restated: both callers run through the
+ * fold below, so the promoter scoping and the all-three-or-none record cannot
+ * come to differ between the corner a promoter typed and the corner they pasted.
+ *
+ * Keyed by the lowered, whitespace-collapsed name, which is what the comparison
+ * is made on — so a caller looks its answer up the same way the query found it.
+ */
+export async function fightersNamedAny(
+  db: Db,
+  names: readonly string[],
+  promoterId: string,
+): Promise<Map<string, FighterMatch[]>> {
+  const wanted = [...new Set(names.map((name) => matchableName(name).toLowerCase()))].filter(Boolean);
+  const found = new Map<string, FighterMatch[]>();
+  if (!wanted.length) return found;
 
   const rows = await db
     .select({
@@ -1249,7 +1289,10 @@ export async function fightersNamed(
     )
     .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
     .where(
-      and(eq(schema.events.promoterId, promoterId), sql`lower(${schema.fighters.name}) = ${wanted}`),
+      and(
+        eq(schema.events.promoterId, promoterId),
+        inArray(sql`lower(${schema.fighters.name})`, wanted),
+      ),
     )
     .orderBy(desc(schema.events.date));
 
@@ -1257,10 +1300,13 @@ export async function fightersNamed(
   // shows is three rows, the first of which is the latest; picking the event
   // *name* off a max(date) relies on a bare-column rule of SQLite's that reads
   // like a bug to anybody who meets it later.
-  const matches = new Map<string, FighterMatch>();
+  const seen = new Set<string>();
   for (const row of rows) {
-    if (matches.has(row.id)) continue;
-    matches.set(row.id, {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    const key = matchableName(row.name).toLowerCase();
+    const matches = found.get(key) ?? [];
+    matches.push({
       id: row.id,
       name: row.name,
       gym: row.gym,
@@ -1272,8 +1318,38 @@ export async function fightersNamed(
           : undefined,
       lastShow: { name: row.eventName, date: row.date },
     });
+    found.set(key, matches);
   }
-  return [...matches.values()];
+  return found;
+}
+
+/**
+ * Fighters are shared across shows, so ids have to be unique globally rather
+ * than within one card. A readable id keeps the profile URL something a fighter
+ * will actually put in an Instagram bio, which is the whole point of it.
+ *
+ * `taken` carries the ids this same call has already settled on but not yet
+ * written. Both corners go in one batch now, so the database cannot report the
+ * first one while the second is being chosen — which is the card where two
+ * namesakes are matched against each other.
+ */
+export async function uniqueFighterId(
+  db: Db,
+  name: string,
+  taken: string[] = [],
+): Promise<string> {
+  const base = slugify(name) || "fighter";
+  for (let n = 0; n < 20; n += 1) {
+    const id = n === 0 ? base : `${base}-${n + 1}`;
+    if (taken.includes(id)) continue;
+    const [clash] = await db
+      .select({ id: schema.fighters.id })
+      .from(schema.fighters)
+      .where(eq(schema.fighters.id, id))
+      .limit(1);
+    if (!clash) return id;
+  }
+  return newId(base);
 }
 
 /**

@@ -5,6 +5,7 @@ import { AddBoutForm } from "@/app/promoter/e/[slug]/card/AddBoutForm";
 import { AddSponsorForm } from "@/app/promoter/e/[slug]/card/AddSponsorForm";
 import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
+import { ImportSheetPanel } from "@/app/promoter/e/[slug]/card/ImportSheetPanel";
 import { SponsorRow } from "@/app/promoter/e/[slug]/card/SponsorRow";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import {
@@ -136,6 +137,19 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
           <p className="text-ash max-w-2xl text-sm leading-relaxed">{EMPTY_CARD_EDITOR}</p>
         )}
       </section>
+
+      {/* Before the one-at-a-time form rather than after it, because the card is
+          already written down somewhere before anybody opens this and typing it
+          again a bout at a time is the step a promoter gives up in the middle
+          of. Both doors stay: a line the sheet could not read has to have
+          somewhere to go, and that somewhere is the form underneath.
+
+          Whether it starts open is passed in rather than written here, and the
+          panel holds it from then on. Drawn as `open={bouts.length === 0}` it
+          was a controlled attribute of a server render, so the refresh that
+          follows an import — the card now having bouts on it — snapped the panel
+          shut over the top of the sentence saying what had just gone on. */}
+      <ImportSheetPanel slug={event.slug} startOpen={bouts.length === 0} />
 
       {/* Always here, and never moved above the list on an empty card, however
           tempting that is. Moving it changes where it sits among its siblings,

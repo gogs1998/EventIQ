@@ -8,10 +8,10 @@ import {
   Field,
   inputClass,
 } from "@/app/promoter/e/[slug]/card/fields";
+import { MatchPanel } from "@/app/promoter/e/[slug]/card/MatchPanel";
 import { ActionStatus } from "@/components/ActionStatus";
-import { BOUT_ADDED, FIGHTER_MATCH } from "@/lib/copy";
+import { BOUT_ADDED } from "@/lib/copy";
 import { NEW_FIGHTER } from "@/lib/fighter-match";
-import { formatEventDateShort } from "@/lib/tape";
 
 /** Long enough for a name to be typed out, short enough to be there on the pause. */
 const LOOKUP_DELAY_MS = 600;
@@ -22,106 +22,6 @@ type Corner = "red" | "blue";
 type CornerState = { looking: boolean; lookup: FighterLookup | null; choice: string };
 
 const EMPTY: CornerState = { looking: false, lookup: null, choice: "" };
-
-/**
- * The panel under a corner whose name is already on one of this promoter's
- * cards.
- *
- * It is a question, not a notification, and nothing is chosen for the promoter:
- * two people with one name is ordinary in this sport, so `addBout` holds the
- * bout until one of these is answered rather than merging on a guess. The
- * reasoning is in lib/fighter-match.ts.
- *
- * The cross-promotion case draws no candidate at all. All it can say is that the
- * name is known here — the gym, the record and the promotion belong to a card
- * this promoter cannot see, and the way to settle it is to let the fighter
- * confirm from the link this show sends them.
- */
-function MatchPanel({
-  corner,
-  name,
-  state,
-  onChoose,
-}: {
-  corner: Corner;
-  name: string;
-  state: CornerState;
-  onChoose: (choice: string) => void;
-}) {
-  if (state.looking && !state.lookup) {
-    return <p className="text-ash-dim mt-1 text-xs">{FIGHTER_MATCH.looking}</p>;
-  }
-
-  const lookup = state.lookup;
-  if (!lookup) return null;
-
-  if (!lookup.candidates.length) {
-    return lookup.elsewhere ? (
-      <p className="border-hairline text-ash mt-1 border p-3 text-xs leading-relaxed">
-        {FIGHTER_MATCH.elsewhere}
-      </p>
-    ) : null;
-  }
-
-  return (
-    <div
-      role="group"
-      aria-label={FIGHTER_MATCH.heading(name)}
-      className="border-gold/40 bg-gold/5 mt-1 border p-3"
-    >
-      <p className="display text-chalk text-sm">{FIGHTER_MATCH.heading(name)}</p>
-      <p className="text-ash mt-1.5 text-xs leading-relaxed">{FIGHTER_MATCH.body}</p>
-
-      <div className="mt-3 grid gap-2">
-        {lookup.candidates.map((candidate) => (
-          <label key={candidate.id} className="flex cursor-pointer items-start gap-2.5">
-            <input
-              type="radio"
-              name={`${corner}Match`}
-              value={candidate.id}
-              checked={state.choice === candidate.id}
-              onChange={() => onChoose(candidate.id)}
-              className="accent-chalk mt-0.5 h-4 w-4"
-            />
-            <span className="text-xs leading-relaxed">
-              <span className="text-chalk">{FIGHTER_MATCH.same}</span>
-              <span className="text-ash">
-                {" — "}
-                {candidate.gym}
-                {". "}
-                {/* Never a 0-0-0 where nobody has given a record: that is the
-                    isDebut rule, said in a panel a promoter reads. */}
-                {candidate.record
-                  ? `${candidate.record.w}-${candidate.record.l}-${candidate.record.d}`
-                  : FIGHTER_MATCH.noRecord}
-                {". "}
-                {candidate.lastShow
-                  ? FIGHTER_MATCH.lastShow(
-                      candidate.lastShow.name,
-                      formatEventDateShort(candidate.lastShow.date),
-                    )
-                  : FIGHTER_MATCH.noShow}
-                .
-              </span>
-            </span>
-          </label>
-        ))}
-
-        <label className="flex cursor-pointer items-start gap-2.5">
-          <input
-            type="radio"
-            name={`${corner}Match`}
-            value={NEW_FIGHTER}
-            checked={state.choice === NEW_FIGHTER}
-            onChange={() => onChoose(NEW_FIGHTER)}
-            className="accent-chalk mt-0.5 h-4 w-4"
-          />
-          <span className="text-chalk text-xs leading-relaxed">{FIGHTER_MATCH.different}</span>
-        </label>
-      </div>
-    </div>
-  );
-}
 
 export function AddBoutForm({ slug }: { slug: string }) {
   const [pending, start] = useTransition();
@@ -255,9 +155,11 @@ export function AddBoutForm({ slug }: { slug: string }) {
                 </Field>
               )}
               <MatchPanel
-                corner={corner}
+                group={`${corner}Match`}
                 name={names[corner].trim()}
-                state={state}
+                lookup={state.lookup}
+                looking={state.looking}
+                choice={state.choice}
                 onChoose={(choice) => setCorner(corner, { choice })}
               />
             </div>
