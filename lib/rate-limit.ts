@@ -67,7 +67,12 @@ export function callerKey(headers: HeaderReader): string {
   return "unattributed";
 }
 
-/** Keep in step with the ratelimits block in wrangler.jsonc. */
+/**
+ * The bindings, by the names wrangler.jsonc declares them under. A name changed
+ * in one file and not the other is a limiter that is simply absent, which in
+ * production is a refusal — so lib/wrangler-config.test.ts holds the two lists
+ * together rather than this comment asking somebody to.
+ */
 type Limiter = "IMPORT_LOOKUPS" | "LOGIN_ATTEMPTS" | "TRACK_WRITES";
 
 async function within(name: Limiter, key: string): Promise<boolean> {
