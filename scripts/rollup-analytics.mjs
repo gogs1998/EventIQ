@@ -47,9 +47,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. A destructive script that ignored the flag would
+// answer `--env staging --remote --apply` by deleting production's counting.
+const { database: DATABASE } = environmentFrom(process.argv, (message) => {
+  console.error(message);
+  process.exit(1);
+});
 
 /**
  * How long a day is left alone. Two days rather than two hours because the value

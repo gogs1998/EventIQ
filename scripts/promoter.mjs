@@ -40,6 +40,7 @@ import {
 } from "@/lib/auth";
 import { RESET_TOKEN_TTL_MS, resetExpiry } from "@/lib/password-reset";
 import { lit, row } from "@/lib/seed";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
 const USAGE = `
@@ -65,6 +66,12 @@ const argv = process.argv.slice(2);
 const command = argv[0];
 const remote = argv.includes("--remote");
 
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. This one creates accounts and sets passwords, so a
+// flag it ignored would answer `--env staging --remote` by making a promoter on
+// the live database. The database name was written out inline here.
+const TARGET = environmentFrom(process.argv, (message) => die(message));
+
 /** The value after a flag, or null. Flags are `--name value`, never `--name=value`. */
 function flag(name) {
   const at = argv.indexOf(`--${name}`);
@@ -88,7 +95,7 @@ function d1(sql, { json = false } = {}) {
     "wrangler",
     "d1",
     "execute",
-    "eventiq",
+    TARGET.database,
     remote ? "--remote" : "--local",
     ...(json ? ["--json"] : []),
     "--command",
@@ -282,9 +289,16 @@ async function resetLink() {
   console.log("Setting a password with it signs that account out everywhere.");
 }
 
-/** Where the link the operator pastes has to point. */
+/**
+ * Where the link the operator pastes has to point. The deployed address comes
+ * off the environment rather than being written out, so a reset link minted
+ * against staging does not send that promoter to eventiq.win.
+ */
 function site() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? (remote ? "https://eventiq.win" : "http://localhost:3000");
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    (remote ? `https://${TARGET.domain}` : "http://localhost:3000")
+  );
 }
 
 const COMMANDS = { list, create, "set-password": setPassword, "reset-link": resetLink };

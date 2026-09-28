@@ -31,9 +31,17 @@ import { execFileSync } from "node:child_process";
 // computed by the same function the Worker checks it with. A second
 // implementation of "what is stored" is a key that silently never matches.
 import { newId, newToken, secretDigest } from "../lib/auth.ts";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. A row here is a credential that opens a promoter's
+// drafts, so `--env staging` has to mean staging's table rather than quietly
+// minting against the live one.
+const { database: DATABASE } = environmentFrom(process.argv, (message) => {
+  console.error(message);
+  process.exit(1);
+});
 
 const [command] = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
 

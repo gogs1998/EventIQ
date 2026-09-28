@@ -55,10 +55,17 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { mediaKeyOf } from "@/lib/portrait";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. This one deletes objects out of the bucket, so a flag
+// it ignored would answer `--env staging --remote --apply` by comparing
+// production's rows against production's bucket and deleting from there.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (message) => {
+  console.error(message);
+  process.exit(1);
+});
 
 /** Where Miniflare keeps the local bucket's object index. */
 const LOCAL_R2_STATE = path.join(".wrangler", "state", "v3", "r2", "miniflare-R2BucketObject");

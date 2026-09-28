@@ -54,11 +54,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RETENTION_DAYS, clearedFighterColumns } from "@/lib/consent";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 import { foldBefore } from "./rollup-analytics.mjs";
 
-const DATABASE = "eventiq";
-const BUCKET = "eventiq-media";
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. This one clears a fighter's answers and deletes their
+// photograph out of the bucket, so a flag it ignored would answer
+// `--env staging --remote --apply` by doing that to production's fighters.
+const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (message) => {
+  console.error(message);
+  process.exit(1);
+});
 
 /**
  * A month, and the same month `PRUNE_AFTER_MS` in lib/record-import means. Kept

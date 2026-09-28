@@ -30,9 +30,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { INVITE_TTL_MS, inviteSecretFrom, sealedColumns } from "@/lib/invite-token";
 import { devVars } from "./dev-vars.mjs";
+import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
-const DATABASE = "eventiq";
+// `--env`, the same flag every other script that reaches Cloudflare takes, and
+// production without it. This one rewrites every invite row, so a flag it
+// ignored would answer `--env staging --remote` by sealing production's.
+const { database: DATABASE } = environmentFrom(process.argv, (message) => {
+  console.error(message);
+  process.exit(1);
+});
 
 const args = process.argv.slice(2);
 const remote = args.includes("--remote");
