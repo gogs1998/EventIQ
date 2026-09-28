@@ -189,5 +189,16 @@ export default nextConfig;
 // credentials at all. The cost is that the AI binding is simply absent here,
 // which is the case app/f/[token]/portrait-actions.ts already answers with "not
 // available here". Set a token and turn this back on to exercise it for real.
+//
+// The rejection is caught and printed rather than left to float, because this
+// is the call that hands `next dev` its bindings: if it fails, the server comes
+// up and every page then 500s on its first query with nothing pointing here.
+// That is the failure the paragraph above describes having already happened.
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-void initOpenNextCloudflareForDev({ remoteBindings: false });
+void initOpenNextCloudflareForDev({ remoteBindings: false }).catch((error: unknown) => {
+  console.error(
+    "The Cloudflare bindings did not start, so every page that reads the database will " +
+      "answer 500. See the note in next.config.ts.",
+    error,
+  );
+});

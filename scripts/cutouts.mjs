@@ -425,7 +425,12 @@ async function recordCutout(fighter, key, scope) {
       "delete",
       `${BUCKET}/${fighter.cutout.slice("/media/".length)}`,
       scope,
-    ]).catch(() => {});
+      // The new cutout is already on the row, so a failure here leaves an object
+      // nothing points at rather than breaking anything — but silently is how a
+      // bucket grows. `npm run r2:orphans` is what reclaims it.
+    ]).catch((error) =>
+      console.log(`  left ${fighter.cutout} in the bucket: ${error.message}`),
+    );
   }
 }
 
