@@ -199,7 +199,7 @@ export default async function PitchPage() {
         <section className="border-hairline border-t">
           <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
             <div>
-              <TapePlayer card={card} bout={main} mp4={renders[main.number]} />
+              <TapePlayer card={card} bout={main} renders={renders[main.number]} />
             </div>
             <div>
               <span className="label">Every bout becomes this</span>

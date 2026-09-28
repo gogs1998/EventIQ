@@ -141,7 +141,7 @@ describe("brokenImageMessage", () => {
 
 describe("claimSql", () => {
   const sql = (over = {}) =>
-    claimSql("ev_1", 15, "abcdef0123456789", { now: 1000, force: false, ...over });
+    claimSql("ev_1", 15, "tape", "abcdef0123456789", { now: 1000, force: false, ...over });
 
   /** The lease is the whole reason two runners can be pointed at one card. */
   it("will not take a bout whose lease is still running", () => {
@@ -191,8 +191,24 @@ describe("claimSql", () => {
   });
 
   it("addresses the row the app addresses", () => {
-    expect(sql()).toContain("'rj_ev_1_15'");
-    expect(sql()).toContain("ON CONFLICT (event_id, bout_number)");
+    expect(sql()).toContain("'rj_ev_1_15_tape'");
+    expect(sql()).toContain("ON CONFLICT (event_id, bout_number, template)");
+  });
+
+  /**
+   * A bout is two rows, and a claim takes one of them. Without the template in
+   * the conflict target and in the id, claiming the promo would take the tale of
+   * the tape's row and the runner would publish twelve seconds of promo over the
+   * video the programme plays.
+   */
+  it("claims one composition of the bout rather than the bout", () => {
+    const promo = claimSql("ev_1", 15, "faceoff", "abcdef0123456789", {
+      now: 1000,
+      force: false,
+    });
+    expect(promo).toContain("'rj_ev_1_15_faceoff'");
+    expect(promo).toContain("'faceoff'");
+    expect(promo).not.toContain("'rj_ev_1_15_tape'");
   });
 
   /**

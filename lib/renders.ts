@@ -25,10 +25,45 @@ export function renderUrl(key: string): string {
   return key.startsWith("/") ? key : `/media/${key}`;
 }
 
-export type Renders = Record<number, string>;
+/**
+ * The compositions made for every bout and published to the programme.
+ *
+ * The registry in components/sequence/templates.ts is the authority on what a
+ * template *is* — it holds the component and the frame count — but it imports
+ * .tsx, which the renderer's plain Node cannot load, and this list has to be
+ * readable from both sides. So the list lives here and the registry is held to
+ * it by a test rather than the other way round.
+ *
+ * `walkout` and `social` are deliberately not in it. A walkout is one video per
+ * corner and the job row carries no corner, and nothing on the site plays
+ * either, so both stay samples rendered to a file.
+ */
+export const PUBLISHED_TEMPLATES = ["tape", "faceoff"] as const;
 
-export function mp4For(renders: Renders, boutNumber: number): string | undefined {
-  return renders[boutNumber];
+export type PublishedTemplate = (typeof PUBLISHED_TEMPLATES)[number];
+
+export function isPublishedTemplate(id: string): id is PublishedTemplate {
+  return (PUBLISHED_TEMPLATES as readonly string[]).includes(id);
+}
+
+/**
+ * What one bout has, keyed by template.
+ *
+ * It used to be one URL per bout, because there was one video. A bout has two
+ * now — the tale of the tape, which the programme plays, and the promo, which it
+ * offers — so the shape has to say which is which rather than leaving a caller
+ * to guess what a bare string was.
+ */
+export type BoutRenders = Partial<Record<PublishedTemplate, string>>;
+
+export type Renders = Record<number, BoutRenders>;
+
+export function mp4For(
+  renders: Renders,
+  boutNumber: number,
+  template: PublishedTemplate = "tape",
+): string | undefined {
+  return renders[boutNumber]?.[template];
 }
 
 // --------------------------------------------------------------- fingerprint
@@ -49,8 +84,15 @@ export function mp4For(renders: Renders, boutNumber: number): string | undefined
  * strip belongs to the programme page — so naming it here would make every bout
  * on the card stale the moment a sponsor was added to something that appears in
  * no video.
+ *
+ * `template` is first because it is the largest thing on screen: the tape and
+ * the promo are two different sixteen and twelve seconds of the same two people.
+ * Adding it marked every render made before it stale in one go, which is correct
+ * and is a card's worth of rendering per show — see the rendering section of
+ * DEPLOY.md, which says to expect it once.
  */
 export const RENDER_INPUT_FIELDS = [
+  "template",
   "eventName",
   "eventDate",
   "eventVenue",
@@ -149,9 +191,25 @@ export async function renderFingerprint(inputs: RenderInputs): Promise<string> {
  * with a year of immutable caching, so a re-render written over the old key
  * would leave every phone that had already played the bout holding last week's
  * video with no way of finding out. A new key is a new URL and cannot be stale.
+ *
+ * The template is in it for the same reason at a smaller scale: a bout has more
+ * than one video now, and two of them publishing over each other would be that
+ * failure again.
+ *
+ * **Keys written before the template existed are not renamed.** They are
+ * `renders/<slug>/bout-<n>-<hash8>.mp4`, they are in the bucket, and phones have
+ * them cached; nothing anywhere reads a key back to work out what it is, so both
+ * shapes are served by the same route and the older shape simply stops being
+ * minted. Each is replaced the next time its bout renders, which the template
+ * joining the fingerprint has already asked for.
  */
-export function renderKeyFor(slug: string, boutNumber: number, hash: string): string {
-  return `renders/${slug}/bout-${boutNumber}-${hash.slice(0, 8)}.mp4`;
+export function renderKeyFor(
+  slug: string,
+  boutNumber: number,
+  template: PublishedTemplate,
+  hash: string,
+): string {
+  return `renders/${slug}/bout-${boutNumber}-${template}-${hash.slice(0, 8)}.mp4`;
 }
 
 // ----------------------------------------------------------------- the queue

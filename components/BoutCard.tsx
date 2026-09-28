@@ -20,6 +20,7 @@ import {
   lastName,
   leadName,
 } from "@/lib/tape";
+import type { BoutRenders } from "@/lib/renders";
 import type { Bout, Corner, Fighter } from "@/lib/types";
 
 function FighterSide({
@@ -176,7 +177,16 @@ function FighterDetail({
   );
 }
 
-export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: string }) {
+export function BoutCard({
+  card,
+  bout,
+  renders,
+}: {
+  card: Card;
+  bout: Bout;
+  /** The bout's videos, by template. Absent until something has rendered one. */
+  renders?: BoutRenders;
+}) {
   const [open, setOpen] = useState(false);
   const red = fighterOf(card, bout.redId);
   const blue = fighterOf(card, bout.blueId);
@@ -336,7 +346,7 @@ export function BoutCard({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: st
 
           <div>
             <div className="label mb-2">Watch the tape</div>
-            <TapePlayer card={card} bout={bout} mp4={mp4} />
+            <TapePlayer card={card} bout={bout} renders={renders} />
           </div>
 
           <div className="grid gap-4">

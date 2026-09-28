@@ -402,7 +402,56 @@ describe("loadRenders", () => {
     });
 
     expect(await loadRenders(db, published.eventId)).toEqual({
-      1: "/media/renders/cage-county-12/1-abc.mp4",
+      1: { tape: "/media/renders/cage-county-12/1-abc.mp4" },
+    });
+  });
+
+  /**
+   * A bout is two videos and they arrive separately: the promo of a bout whose
+   * tape is still being made has to reach the programme, and the tape of a bout
+   * whose promo failed must not disappear with it.
+   */
+  it("hands back each composition under its own name", async () => {
+    const { db, published } = await twoPromoters();
+    await db.insert(schema.renderJobs).values([
+      {
+        id: "rj_1_tape",
+        eventId: published.eventId,
+        boutNumber: 1,
+        template: "tape",
+        status: "done",
+        // A key minted before the template was in it. It is still an object in
+        // the bucket and is still served: nothing reads a key to work out what
+        // it is, which is what lets both shapes live side by side.
+        currentR2Key: "renders/cage-county-12/bout-1-abcdef01.mp4",
+        requestedAt: Date.now(),
+      },
+      {
+        id: "rj_1_faceoff",
+        eventId: published.eventId,
+        boutNumber: 1,
+        template: "faceoff",
+        status: "failed",
+        currentR2Key: "renders/cage-county-12/bout-1-faceoff-abcdef01.mp4",
+        requestedAt: Date.now(),
+      },
+      {
+        id: "rj_2_faceoff",
+        eventId: published.eventId,
+        boutNumber: 2,
+        template: "faceoff",
+        status: "done",
+        currentR2Key: "renders/cage-county-12/bout-2-faceoff-abcdef01.mp4",
+        requestedAt: Date.now(),
+      },
+    ]);
+
+    expect(await loadRenders(db, published.eventId)).toEqual({
+      1: {
+        tape: "/media/renders/cage-county-12/bout-1-abcdef01.mp4",
+        faceoff: "/media/renders/cage-county-12/bout-1-faceoff-abcdef01.mp4",
+      },
+      2: { faceoff: "/media/renders/cage-county-12/bout-2-faceoff-abcdef01.mp4" },
     });
   });
 

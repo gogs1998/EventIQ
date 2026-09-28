@@ -15,12 +15,15 @@ import { SEQ } from "./timeline";
  * page and the exporter does not fail: it produces a video that ends early or
  * holds an empty frame for a second, which nobody notices until it is posted.
  *
- * `tape` is the default and is the only one that is published. The other three
- * are local samples for the owner to choose from — they are deliberately not in
- * the render fingerprint, not in `render_jobs` and not on the dashboard, because
- * a template id in the fingerprint changes what every existing row hashes to and
- * that is a migration rather than a flag. What it would take is written at the
- * bottom of this file.
+ * `tape` is the default. It and `faceoff` are the two the queue makes for every
+ * bout and the programme carries: that list is `PUBLISHED_TEMPLATES` in
+ * lib/renders.ts, which is where it lives because the renderer is plain Node and
+ * cannot import this file's .tsx. The registry is held to it by a test rather
+ * than keeping a second copy.
+ *
+ * `walkout` and `social` stay local samples. A walkout is one video per corner
+ * and `render_jobs` carries no corner, and nothing on the site plays either, so
+ * queueing them would be rendering for nobody.
  */
 
 export type TemplateProps = {
@@ -87,22 +90,15 @@ export function templateOf(id: string | undefined): Template | undefined {
 }
 
 /**
- * What putting one of these into the queue would need, in order:
+ * What putting `walkout` or `social` into the queue would still need.
  *
- * 1. `template` in RENDER_INPUT_FIELDS (lib/renders.ts). It is on screen, so it
- *    belongs in the fingerprint — but every existing `current_hash` was made
- *    without it, so adding it marks all fifteen bouts of every card stale at
- *    once. That is correct and it is also a quarter of an hour of rendering per
- *    show, so it wants doing deliberately rather than as a side effect.
- * 2. A `template` column on `render_jobs`, in the unique key beside
- *    `bout_number` — and `corner` with it, because a walkout is two videos for
- *    one bout and one row cannot hold both keys. `renderJobId` and `claimSql`
- *    both address a row by `(event_id, bout_number)` today.
- * 3. `renderKeyFor` carrying the template and the corner, so the four videos of
- *    one bout do not publish over each other.
- * 4. `loadRenders` and the dashboard reading a template per row rather than one
- *    video per bout, and the programme deciding which one it plays.
+ * The first four steps are done: `template` is in the fingerprint, on the job
+ * row and in its unique key, in `renderKeyFor`, and in what the programme and
+ * the dashboard read back. What is left is the one thing only a walkout needs:
  *
- * None of that is needed to render a sample locally, which is why none of it is
- * here yet.
+ * - **A `corner` beside `template` in the unique key**, because a walkout is two
+ *   videos for one bout and one row cannot hold both keys — and in the
+ *   fingerprint and the published key with it. `social` needs none of that and
+ *   is out of the queue only because nothing on the site plays it; giving it a
+ *   place on the programme is the whole of its work.
  */

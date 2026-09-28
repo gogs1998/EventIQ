@@ -395,20 +395,26 @@ export async function buildSeed({
   // The renders that already exist. They predate the bucket and are committed
   // under public/, so the job records where they are rather than claiming the
   // renderer produced them: the app only ever asks this table what is playable.
+  //
+  // Only the tale of the tape. The promo is the second composition of every bout
+  // and none of them has ever been rendered, so the seed says nothing about it
+  // and the dashboard reads it as not made yet — which is true, and is the state
+  // the panel is written for.
   for (const boutNumber of renderedBouts) {
     statements.push(
       row("render_jobs", {
-        id: `rj_${event.slug}_${boutNumber}`,
+        id: `rj_${event.slug}_${boutNumber}_tape`,
         event_id: eventId,
         bout_number: boutNumber,
+        template: "tape",
         status: "done",
         current_r2_key: `/renders/bout-${boutNumber}.mp4`,
         // The pair a successful publish writes: the video, and the fingerprint
         // it was made from. These were left null, so the demo dashboard opened
         // on five videos reading as worth remaking — about the five renders the
         // pitch is built on, made from exactly the card being seeded beside them.
-        current_hash: hashes[boutNumber],
-        input_hash: hashes[boutNumber],
+        current_hash: hashes[boutNumber].tape,
+        input_hash: hashes[boutNumber].tape,
         requested_at: now,
         finished_at: now,
       }),

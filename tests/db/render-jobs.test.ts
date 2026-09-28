@@ -39,34 +39,56 @@ const jobsOf = (db: ReturnType<typeof platform>["db"], eventId: string) =>
     .select()
     .from(schema.renderJobs)
     .where(eq(schema.renderJobs.eventId, eventId))
-    .orderBy(schema.renderJobs.boutNumber);
+    .orderBy(schema.renderJobs.boutNumber, schema.renderJobs.template);
+
+/** The bout numbers with the duplicates collapsed: a bout is two rows now. */
+const boutsOf = (rows: readonly { boutNumber: number }[]) => [
+  ...new Set(rows.map((row) => row.boutNumber)),
+];
 
 describe("enqueueRender", () => {
   it("queues every bout of a fifteen-bout card, which one insert cannot", async () => {
     const { db, show } = await fullCard();
 
-    expect(await enqueueRender(db, show.eventId, "all")).toBe(15);
+    // Thirty rows: a bout is the tale of the tape and the promo, and they are
+    // separate jobs so that one failing leaves the other alone.
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(30);
 
     const rows = await jobsOf(db, show.eventId);
-    expect(rows.map((row) => row.boutNumber)).toEqual([...Array(15)].map((_, at) => at + 1));
+    expect(boutsOf(rows)).toEqual([...Array(15)].map((_, at) => at + 1));
     expect(rows.every((row) => row.status === "queued")).toBe(true);
     expect(rows.every((row) => row.inputHash)).toBe(true);
   });
 
-  it("addresses the row the renderer will claim", async () => {
+  /**
+   * Both compositions, every time. A promoter pressing "Render again" means the
+   * bout rather than half of it, and a programme offering a promo a week behind
+   * the tape would be worse than one offering none.
+   */
+  it("queues both of a bout's videos, with a digest each", async () => {
+    const { db, show } = await fullCard(2);
+    expect(await enqueueRender(db, show.eventId, [2])).toBe(2);
+
+    const rows = await jobsOf(db, show.eventId);
+    expect(rows.map((row) => row.template)).toEqual(["faceoff", "tape"]);
+    expect(rows[0].inputHash).not.toBe(rows[1].inputHash);
+  });
+
+  it("addresses the rows the renderer will claim", async () => {
     const { db, show } = await fullCard(2);
     await enqueueRender(db, show.eventId, [2]);
 
     const rows = await jobsOf(db, show.eventId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].id).toBe(renderJobId(show.eventId, 2));
+    expect(rows.map((row) => row.id).sort()).toEqual(
+      [renderJobId(show.eventId, 2, "tape"), renderJobId(show.eventId, 2, "faceoff")].sort(),
+    );
   });
 
   it("queues the bouts it was asked for and no others", async () => {
     const { db, show } = await fullCard(15);
 
-    expect(await enqueueRender(db, show.eventId, [3, 7])).toBe(2);
-    expect((await jobsOf(db, show.eventId)).map((row) => row.boutNumber)).toEqual([3, 7]);
+    expect(await enqueueRender(db, show.eventId, [3, 7])).toBe(4);
+    expect(boutsOf(await jobsOf(db, show.eventId))).toEqual([3, 7]);
   });
 
   it("ignores a bout number that is not on the card", async () => {
@@ -82,8 +104,8 @@ describe("enqueueRender", () => {
       .set({ cancelled: true })
       .where(and(eq(schema.bouts.eventId, show.eventId), eq(schema.bouts.number, 2)));
 
-    expect(await enqueueRender(db, show.eventId, "all")).toBe(2);
-    expect((await jobsOf(db, show.eventId)).map((row) => row.boutNumber)).toEqual([1, 3]);
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(4);
+    expect(boutsOf(await jobsOf(db, show.eventId))).toEqual([1, 3]);
     // Asked for by name, it is still not queued: the fingerprints are the one
     // place that decides, so the two cannot come apart.
     expect(await enqueueRender(db, show.eventId, [2])).toBe(0);
@@ -98,6 +120,7 @@ describe("enqueueRender", () => {
     const { db, show } = await fullCard(2);
     await enqueueRender(db, show.eventId, [1]);
     const before = (await jobsOf(db, show.eventId))[0];
+    expect(before.template).toBe("faceoff");
 
     await db
       .update(schema.renderJobs)
@@ -109,7 +132,7 @@ describe("enqueueRender", () => {
       .set({ photo: "/media/fighters/new-one.jpg", updatedAt: Date.now() + 1 })
       .where(eq(schema.fighters.id, show.fighterIds[0]));
 
-    expect(await enqueueRender(db, show.eventId, [1], Date.now() + 5000)).toBe(1);
+    expect(await enqueueRender(db, show.eventId, [1], Date.now() + 5000)).toBe(2);
 
     const after = (await jobsOf(db, show.eventId))[0];
     expect(after.status).toBe("queued");

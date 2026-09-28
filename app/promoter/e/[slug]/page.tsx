@@ -5,10 +5,11 @@ import { GettingStarted } from "@/app/promoter/e/[slug]/GettingStarted";
 import { InviteLink } from "@/app/promoter/e/[slug]/InviteLink";
 import { PublishToggle } from "@/app/promoter/e/[slug]/PublishToggle";
 import { RenderAgainButton } from "@/app/promoter/e/[slug]/RenderAgainButton";
+import { SendVideo } from "@/app/promoter/e/[slug]/SendVideo";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
-import { boutsTopDown } from "@/lib/card";
+import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadDashboardRows, rendersFrom, type AnalyticsTotals } from "@/lib/db/queries";
 import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
@@ -18,10 +19,13 @@ import {
   NOTHING_SENT,
   RENDER_SECTION,
   RENDER_STATE_COPY,
+  VIDEO_SHARE,
   boutCountLabel,
   renderCountLabel,
+  shareCountLabel,
   slotsAvailableNote,
   sponsorTapNote,
+  videoReadyMessage,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
@@ -39,11 +43,16 @@ import {
   sponsorFor,
   sponsorInventory,
 } from "@/lib/promoter";
-import { renderState, type RenderState } from "@/lib/renders";
+import {
+  PUBLISHED_TEMPLATES,
+  renderState,
+  type PublishedTemplate,
+  type RenderState,
+} from "@/lib/renders";
 import { currentPromoter } from "@/lib/session";
 import { loadOwnedCard } from "@/lib/visibility";
 import { SITE_URL } from "@/lib/site";
-import { boutBillingLabel, boutClassLine, formatEventDate, lastName } from "@/lib/tape";
+import { boutBillingLabel, boutClassLine, firstName, formatEventDate, lastName } from "@/lib/tape";
 import type { FightEvent, InviteStatus } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -185,6 +194,19 @@ const RENDER_STYLE: Record<PanelState, string> = {
   failed: "text-ash border-hairline",
   missing: "text-ash-dim border-hairline",
   withdrawn: "text-ash-dim border-hairline",
+};
+
+/**
+ * What the two compositions are called on this page.
+ *
+ * Words rather than ids, because a promoter did not choose the ids and "faceoff"
+ * is not a thing anybody says. They match what the programme calls them, so a
+ * promoter reading this panel and a spectator reading the card are looking at
+ * the same two videos under the same two names.
+ */
+const RENDER_TEMPLATE_LABEL: Record<PublishedTemplate, string> = {
+  tape: "Tale of the tape",
+  faceoff: VIDEO_SHARE.promo,
 };
 
 const STATE_STYLE = {
@@ -348,7 +370,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   // subquery that names the last show. The fingerprints are worked out from the
   // card already in hand, so what used to be six more queries is now none, and
   // they are hashed while the batch is in flight.
-  const [{ invites, jobRows, analytics, previous, previousAnalytics }, fingerprints] =
+  const [{ invites, jobRows, analytics, shares, previous, previousAnalytics }, fingerprints] =
     await Promise.all([
       loadDashboardRows(db, card.eventId, promoter.id, event.date),
       boutFingerprints(card),
@@ -365,7 +387,11 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   // Counted over the bouts still going ahead, the same list the video panel
   // below works from: nothing is rendered for a bout that is off, so counting it
   // in the total would report a card as permanently short of a video.
-  const rendered = bouts.filter(({ bout }) => renders[bout.number]).length;
+  //
+  // The tale of the tape rather than both, because this is the stat that answers
+  // "can a spectator watch every bout" and the promo is an extra rather than a
+  // second requirement. The panel below reports both, a bout at a time.
+  const rendered = bouts.filter(({ bout }) => renders[bout.number]?.tape).length;
   // Counted over every fighter on the card rather than over the chase list,
   // because a link that went out to somebody who has since finished their
   // profile is still a link that went out.
@@ -559,18 +585,21 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           <h2 className="display text-2xl">{RENDER_SECTION.heading}</h2>
           <span className="label">
             {renderCountLabel(
-              bouts.filter(
-                ({ bout }) =>
-                  renderState(
-                    jobs[bout.number] ?? null,
-                    fingerprints[bout.number] ?? "",
-                  ) === "current",
+              bouts.filter(({ bout }) =>
+                PUBLISHED_TEMPLATES.every(
+                  (id) =>
+                    renderState(
+                      jobs[bout.number]?.[id] ?? null,
+                      fingerprints[bout.number]?.[id] ?? "",
+                    ) === "current",
+                ),
               ).length,
               bouts.length,
             )}
           </span>
         </div>
         <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
+        <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{VIDEO_SHARE.note}</p>
         {/* Said once at the top rather than only a bout at a time, so a column
             of "not made yet" reads as a new card rather than as a stalled queue. */}
         {rendered === 0 ? (
@@ -586,44 +615,103 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
               their number on the programme, so a promoter who took bout seven
               off should find it here saying why rather than simply gone. */}
           {boutsTopDown(card).map((bout) => {
-            const job = jobs[bout.number] ?? null;
-            const state: PanelState = bout.cancelled
-              ? "withdrawn"
-              : renderState(job, fingerprints[bout.number] ?? "");
-            const copy = RENDER_STATE_COPY[state];
+            const boutJobs = jobs[bout.number] ?? {};
+            const boutRenders = renders[bout.number] ?? {};
+            // Both compositions, each with its own state, because they are two
+            // jobs: a promo that failed must not make the tale of the tape read
+            // as missing, and a promo nobody has made yet must not make a bout
+            // with a perfectly good tape read as done.
+            const states = PUBLISHED_TEMPLATES.map((id) => ({
+              template: id,
+              state: (bout.cancelled
+                ? "withdrawn"
+                : renderState(
+                    boutJobs[id] ?? null,
+                    fingerprints[bout.number]?.[id] ?? "",
+                  )) as PanelState,
+              job: boutJobs[id] ?? null,
+              mp4: boutRenders[id],
+            }));
             // A machine has this bout or is about to. Asking again would queue
             // a bout that is already queued and tell the promoter nothing new.
-            const inHand = state === "queued" || state === "running" || state === "withdrawn";
+            // Only where there is something to hand over. A control offering a
+            // video that does not exist is worse than no control.
+            const promo = boutRenders.faceoff;
+            const corners = promo
+              ? Object.values(cornersOf(card, bout)).map((fighter) => ({
+                  id: fighter.id,
+                  label: firstName(fighter),
+                  sentAt: invites[fighter.id]?.videoSentAt,
+                  message: videoReadyMessage({
+                    firstName: firstName(fighter),
+                    eventName: event.name,
+                    boutLabel: boutBillingLabel(bout),
+                    videoUrl: `${SITE_URL}${promo}`,
+                    // Their own page rather than the running order: it is the one
+                    // that is about them, and it is where the promo is offered a
+                    // second time to whoever they send it on to.
+                    programmeUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
+                  }),
+                }))
+              : [];
+            const inHand = states.every(
+              ({ state }) => state === "queued" || state === "running" || state === "withdrawn",
+            );
             return (
-              <div key={bout.number} className="p-3 sm:flex sm:items-center sm:gap-4">
-                <div className="flex items-center justify-between gap-3 sm:w-56 sm:shrink-0 sm:justify-start">
-                  <div className="display text-chalk w-24 shrink-0 text-sm">
-                    {boutBillingLabel(bout)}
-                  </div>
-                  <Badge className={RENDER_STYLE[state]}>{copy.label}</Badge>
+              <div key={bout.number} className="p-3 sm:flex sm:items-start sm:gap-4">
+                <div className="flex items-center justify-between gap-3 sm:w-40 sm:shrink-0 sm:justify-start">
+                  <div className="display text-chalk text-sm">{boutBillingLabel(bout)}</div>
                 </div>
 
                 <div className="mt-1.5 min-w-0 sm:mt-0 sm:flex-1">
-                  <div className="text-ash text-xs leading-relaxed">{copy.note}</div>
-                  {/* What the renderer said, verbatim. It is written for whoever
-                      runs the pipeline rather than for the promoter, so it is set
-                      quietly and never as the headline. */}
-                  {state === "failed" && job?.error ? (
-                    <div className="text-ash-dim mt-1 font-mono text-[0.6rem] break-words">
-                      {job.error}
+                  <div className="grid gap-2">
+                    {states.map(({ template, state, job, mp4 }) => (
+                      <div key={template} className="flex flex-wrap items-center gap-2">
+                        <span className="label text-ash-dim w-24 shrink-0">
+                          {RENDER_TEMPLATE_LABEL[template]}
+                        </span>
+                        <Badge className={RENDER_STYLE[state]}>
+                          {RENDER_STATE_COPY[state].label}
+                        </Badge>
+                        <span className="text-ash min-w-0 text-xs leading-relaxed">
+                          {RENDER_STATE_COPY[state].note}
+                        </span>
+                        {mp4 ? (
+                          <Link
+                            href={mp4}
+                            className="label text-ash-dim hover:text-chalk transition-colors"
+                          >
+                            Watch
+                          </Link>
+                        ) : null}
+                        {/* What the renderer said, verbatim. It is written for
+                            whoever runs the pipeline rather than for the
+                            promoter, so it is set quietly and never as the
+                            headline. */}
+                        {state === "failed" && job?.error ? (
+                          <div className="text-ash-dim w-full font-mono text-[0.6rem] break-words">
+                            {job.error}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* A real count or an explicit nought, never an estimate, and
+                      it counts the control being used rather than anything that
+                      happened after the file left. */}
+                  <div className="text-ash-dim mt-2 font-mono text-[0.5rem] uppercase tracking-[0.14em]">
+                    {shareCountLabel(shares[bout.number] ?? 0)}
+                  </div>
+
+                  {corners.length ? (
+                    <div className="mt-2">
+                      <SendVideo slug={event.slug} fighters={corners} />
                     </div>
                   ) : null}
                 </div>
 
                 <div className="mt-2 flex items-center gap-3 sm:mt-0 sm:shrink-0">
-                  {renders[bout.number] ? (
-                    <Link
-                      href={renders[bout.number]}
-                      className="label text-ash-dim hover:text-chalk transition-colors"
-                    >
-                      Watch
-                    </Link>
-                  ) : null}
                   {inHand ? null : <RenderAgainButton slug={event.slug} bout={bout.number} />}
                 </div>
               </div>

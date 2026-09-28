@@ -140,7 +140,8 @@ describe("requestRender", () => {
 
     await requestRender(show.slug, "all");
 
-    expect(await db.select().from(schema.renderJobs)).toHaveLength(3);
+    // Three bouts, two compositions each.
+    expect(await db.select().from(schema.renderJobs)).toHaveLength(6);
   });
 });
 
@@ -260,7 +261,8 @@ describe("what the owning promoter's actions actually do", () => {
       .select()
       .from(schema.renderJobs)
       .where(eq(schema.renderJobs.eventId, show.eventId));
-    expect(jobs.map((job) => job.boutNumber).sort()).toEqual([1, 2]);
+    // Two rows a bout, because a bout is the tale of the tape and the promo.
+    expect([...new Set(jobs.map((job) => job.boutNumber))].sort()).toEqual([1, 2]);
   });
 
   it("skips the number instead once spectators are reading the card", async () => {

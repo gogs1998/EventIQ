@@ -158,6 +158,7 @@ describe("analyticsFrom", () => {
     expect(totals).toEqual({
       programme_open: 0,
       bout_expand: 0,
+      video_share: 0,
       tape_play: 0,
       sponsor_tap: 0,
       profile_view: 0,

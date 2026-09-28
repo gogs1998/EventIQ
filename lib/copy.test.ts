@@ -25,6 +25,7 @@ import {
   NOTHING_SENT,
   PAGE_ERROR,
   PITCH,
+  PREVIOUS_SHOWS,
   PRIVACY,
   PROGRAMME_NOT_FOUND,
   programmeLinkNote,
@@ -34,9 +35,9 @@ import {
   RENDER_SECTION,
   RENDER_STATE_COPY,
   renderCountLabel,
-  PREVIOUS_SHOWS,
   RESET_COPY,
   RETURNING_FIGHTER,
+  shareCountLabel,
   SHOW_NOT_FOUND,
   slotsAvailableNote,
   sponsorNote,
@@ -45,6 +46,9 @@ import {
   tableCardNote,
   tapeForEveryBout,
   UNDER_AGE,
+  VIDEO_SHARE,
+  videoReadyMessage,
+  videoSentNote,
   winsEdge,
   WITHDRAWN,
 } from "@/lib/copy";
@@ -1148,5 +1152,92 @@ describe("the returning-fighter copy", () => {
   it("counts one show as one and several as several", () => {
     expect(FIGHTER_PROFILE.intro(1)).toMatch(/^One show/);
     expect(FIGHTER_PROFILE.intro(4)).toMatch(/^4 shows/);
+  });
+});
+
+/**
+ * The words on the way out of the programme.
+ *
+ * This is the copy most likely to acquire a claim, because the thing it is about
+ * — a fighter posting their own video — is the growth the product wants, and the
+ * shortest way to ask for it is to promise something about it. Nothing here may:
+ * the product cannot see a view, a follower or a repost, and the fabricated
+ * "last show" figures were the most dangerous thing the demo ever contained for
+ * exactly that reason.
+ */
+describe("the video share copy", () => {
+  const MESSAGE = videoReadyMessage({
+    firstName: "Chloe",
+    eventName: "Cage County 12",
+    boutLabel: "Bout 4",
+    videoUrl: "https://eventiq.win/media/renders/cage-county-12/bout-4-faceoff-abcdef01.mp4",
+    programmeUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+  });
+
+  const LINES = [...Object.values(VIDEO_SHARE), MESSAGE];
+
+  it("names the fighter and hands over both links", () => {
+    expect(MESSAGE).toContain("Chloe");
+    expect(MESSAGE).toContain("Cage County 12");
+    expect(MESSAGE).toContain("bout-4-faceoff-abcdef01.mp4");
+    expect(MESSAGE).toContain("/e/cage-county-12/f/chloe-baines");
+  });
+
+  /** No duration, and nothing about what posting it will do for anybody. */
+  it("does not promise a result or a length", () => {
+    expect(MESSAGE).not.toMatch(/(seconds?|minutes?)/i);
+    expect(MESSAGE).not.toMatch(/will (get|bring|help)/i);
+  });
+
+  it("never uses a gendered pronoun", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+    }
+  });
+
+  /** Reach, views, followers, virality: none of it is a thing this can see. */
+  it("claims nothing about what happens after the file leaves", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/(views?|reach|followers?|viral|engagement|audience)/i);
+      expect(line).not.toMatch(/\d+\s*%|thousands?|millions?/i);
+    }
+  });
+
+  it("is plain rather than breathless", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/!|(amazing|incredible|smash|blow up|epic|stunning)/i);
+      expect(line).not.toMatch(/organiz|customiz|color/i);
+      expect(line.trim()).toBe(line);
+    }
+  });
+});
+
+describe("shareCountLabel", () => {
+  it("agrees with itself about one share and several", () => {
+    expect(shareCountLabel(1)).toBe("Shared 1 time");
+    expect(shareCountLabel(4)).toBe("Shared 4 times");
+  });
+
+  /**
+   * The zero-bout rule, applied to a count nobody has reached yet: a nought
+   * stated as a number reads as a measurement of failure, and this one is the
+   * ordinary state of a video made an hour ago.
+   */
+  it("says nobody has yet rather than counting no shares", () => {
+    expect(shareCountLabel(0)).toBe("Not shared yet");
+    expect(shareCountLabel(0)).not.toMatch(/\d/);
+  });
+});
+
+describe("videoSentNote", () => {
+  it("says nothing at all where nothing has been sent", () => {
+    expect(videoSentNote(null)).toBeNull();
+    expect(videoSentNote(undefined)).toBeNull();
+  });
+
+  it("counts the days rather than printing a timestamp", () => {
+    expect(videoSentNote(Date.now())).toBe("Sent today");
+    expect(videoSentNote(Date.now() - 86_400_000)).toBe("Sent 1 day ago");
+    expect(videoSentNote(Date.now() - 3 * 86_400_000)).toBe("Sent 3 days ago");
   });
 });

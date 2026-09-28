@@ -159,8 +159,8 @@ The tape explains a bout to somebody who has already opened the programme. Three
 
 | Id | Length | What it is |
 | --- | --- | --- |
-| `tape` | 16s | The tale of the tape. The default, and the only one that is published |
-| `faceoff` | 12s | The main event promo. Both corners slam in, records count up, closing on the bout's sponsor |
+| `tape` | 16s | The tale of the tape. The default, and what the programme plays |
+| `faceoff` | 12s | The promo. Both corners slam in, records count up, closing on the bout's sponsor and the programme's code. Published beside the tape and offered on the card and on both fighters' pages |
 | `walkout` | 10s | One fighter, for that fighter to post. Takes a `corner`, so a bout makes two |
 | `social` | 6s | Four beats for a story or a reel, readable inside the middle 1080x1080 so a square crop keeps every word |
 
@@ -168,7 +168,9 @@ The registry exists because a template's length has to be one number. The captur
 
 `/render/[slug]/[bout]?template=<id>&corner=<red|blue>` chooses one, and `npm run render -- --template <id> --corner <corner>` is the same two flags on the command line. An unknown id is a 404 rather than the default, because falling back means a typo quietly capturing a different composition of a different length.
 
-**Only the tape may be published, and the script refuses the rest.** `render_jobs` holds one row and one `current_r2_key` per bout with no column saying which composition made it, so publishing a faceoff would write over the tape the programme plays and the dashboard would call it current. Putting one of the others into the queue means `template` in the fingerprint — which marks every existing render stale, correctly and expensively — plus `template` and `corner` on the job row and in its unique key, in `renderKeyFor`, and in what the dashboard and the programme read back. The ordered list is at the foot of templates.ts. Until then they are samples rendered to a file.
+**The tape and the promo are both published; `walkout` and `social` are still refused.** `render_jobs` carries a `template` now (migration `0015`), in the unique key beside `bout_number` and in the fingerprint, so a bout is two rows, two keys and two jobs — claimed, rendered, published and failed separately. `PUBLISHED_TEMPLATES` in [lib/renders.ts](lib/renders.ts) is the list of which, and it lives there rather than here because the renderer is plain Node and cannot import this file's .tsx; [components/sequence/templates.test.tsx](components/sequence/templates.test.tsx) holds the registry to it. What still stops a walkout is the thing that is not done: it is one video per corner and the row carries no `corner`, so publishing one would replace the bout's promo and read as current. `social` is out only because nothing on the site plays it.
+
+**The promo closes on the programme's QR code and the tape does not.** The tape's six golden frames are the regression check for the whole composition's purity, and changing what it draws would mean regenerating the signatures that check compares against. The promo is the one that leaves the site — it is watched on somebody else's phone, somewhere else — so it is the one that needs a way back: small, in the corner of the closing beat beside the bout's sponsor rather than as a beat of its own, because a code the size of the emblem would be EventIQ's plumbing shouting over what the promoter sold. Geometry through `qrPath`, never text, pointing at `SITE_URL` rather than at whatever origin rendered it, for the reason the `Close` scene of [components/sequence/Walkout.tsx](components/sequence/Walkout.tsx) gives: an mp4 made on a laptop that said `localhost` is a code that works for one person.
 
 ### Why not Remotion
 
@@ -698,6 +700,16 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 **A bout whose capture page could not load an image is now refused rather than rendered.** `window.__brokenImages` is the page saying so, `captureState` in [lib/capture.ts](lib/capture.ts) is the rule that fills it — a refused image is `complete` like any other finished request and is told apart by having no intrinsic width — and the renderer fails the job naming the first broken URL. It is asked on every frame rather than once, because a portrait does not enter the document until its reveal begins at frame 62.
 
+### A bout is two videos, and they are two jobs
+
+`render_jobs` carries a `template` — `tape` or `faceoff` — in its unique key beside `event_id` and `bout_number`, in `renderJobId`, in the claim's `ON CONFLICT` target and in the published key. Migration `0015` adds the column defaulted to `tape` and renames the existing rows' ids to match, rather than leaving a second naming rule in the table for whoever reads it next.
+
+Everything downstream follows from the rows being separate rather than from a rule written anywhere: `enqueueRender` queues both compositions of every bout it is asked for, `--stale` takes one and leaves the other, a promo another runner is holding does not hold the tape with it, and a promo that has failed twice does not stop the tale of the tape being remade. Every one of those failures would have been silent — a video quietly never made again — which is why [lib/renders.test.ts](lib/renders.test.ts) asserts the two are decided one at a time rather than trusting that they are.
+
+**`template` is in the fingerprint**, first in the field list. It is the largest thing on screen: the tape and the promo are sixteen and twelve seconds of the same two people drawn entirely differently, and two compositions sharing a digest would mean one key and one of them published over the other. Adding it marked every render made before it stale in one go. That is correct and it is a card's worth of rendering per show, once — [DEPLOY.md](DEPLOY.md#video-rendering) says to expect it.
+
+**Keys written before the template existed are not renamed.** They are `renders/<slug>/bout-<n>-<hash8>.mp4`, they are objects in the bucket and phones have them cached. Nothing anywhere reads a key back to work out what it is — `loadRenders` reads the `template` column and the `current_r2_key` column separately — so both shapes are served by the same route and the older one simply stops being minted. Each is replaced the next time its bout renders, which the fingerprint change has already asked for.
+
 ### The row holds two things, and they have to stay apart
 
 `status`, `error`, `attempts` and `lease_until` are the **job** — what a runner is doing about this bout. `current_r2_key` and `current_hash` are the **video** — what the programme plays. Nothing but a successful publish touches the second pair.
@@ -764,6 +776,22 @@ It is not a config change. It is a Dockerfile, an image built as part of the dep
 - **This swaps the harness, not the composition.** Section 4 already makes the same point about Remotion. `TaleOfTheTape` stays a pure function of a frame number; Chrome still screenshots `/render/[slug]/[bout]`; ffmpeg still encodes. The thing that moves is where those two binaries run.
 
 Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. What has changed is only that the machine is a GitHub runner on an hourly schedule rather than somebody's laptop when they remember, which removes the operator from the loop without moving the pipeline anywhere. Section 19.
+
+### Telling a fighter their video exists
+
+A fighter who never learns a video was made of them cannot post it, and nothing on the platform told them. Where a bout's promo is published, its row in the dashboard's Videos panel carries a "Send their video" deep link per corner, prefilled with the file and that fighter's own page.
+
+It is a `wa.me` link into the promoter's own WhatsApp, exactly as the invite's send is and for the same reason: a fighter answers a message from the promoter they know and ignores one from a service they have never heard of. `invites.video_sent_at` records the tap, which is the only moment anything here can observe, and it is **never inferred from a render finishing** — a video being made is not a video being handed over, and a dashboard that conflated the two would have a promoter believe an errand was done that nobody has done.
+
+The wording is in [lib/copy.ts](lib/copy.ts) and held to the same rules as the nudge: no gendered pronoun, nothing breathless, and no claim about what posting it will do for anybody.
+
+### What leaves the page, and what is counted
+
+The download has been on every bout with an mp4 since there were mp4s, and nothing ever measured it: nobody could say whether a single fighter had ever taken one away, which was half of why the share loop was never deliberate (section 19 item 6).
+
+The download and a share control beside it now both post a `video_share` through the ordinary beacon ([components/VideoShare.tsx](components/VideoShare.tsx)), carrying the bout and — on a fighter's own page — the fighter. The dashboard's Videos panel reports "Shared N times" per bout, or "Not shared yet".
+
+**It counts the tap, not the post.** Nothing on that page can see what happens after the file leaves the browser, and a number implying otherwise would be the fabricated engagement figure of section 7 in different clothes. The copy is held to that in [lib/copy.test.ts](lib/copy.test.ts): no claim about reach, no gendered pronoun, no invented figure. The share control is drawn only where `navigator.share` exists — phones, where a fighter actually is — because a control that does nothing is worse than the download beside it.
 
 ### The show-level videos are a second renderer, and a smaller one
 
@@ -1185,7 +1213,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 5. ~~**Give the promoter the record importer.**~~ Done. A paste box on each corner of each bout in the card editor, through server actions with the promoter's session rather than through the open endpoint, showing what it would change before it changes anything. One fighter at a time, deliberately: bulk import waits on the terms question, which is still open. Section 8a, and the risk register below.
 
-6. **Make the fighter's share loop deliberate.** Small. [components/sequence/TapePlayer.tsx](components/sequence/TapePlayer.tsx) already has a `DownloadLink` that renders "Download for Instagram" wherever an mp4 exists, so the capability is there and nothing makes the loop happen: no prompt at the moment a fighter submits their form, no promoter handle or event name burned into the video for attribution, and no instrumentation telling anyone whether a single fighter has ever posted one. A fighter posting their own tale of the tape to their followers is how *other* promoters discover the product exists, and the stated motivation for fighters filling the form in at all is sponsors and Instagram. `analytics_events` already records `tape_play`, so measuring a download or a share is a small extension of section 9 rather than new infrastructure.
+6. **Make the fighter's share loop deliberate.** Mostly done, and what is left is small. There is a promo per bout now (`faceoff`, published beside the tape — section 11), it is offered on the card and on both fighters' own pages, it closes on the programme's code so a video watched somewhere else has a way back, the promoter can hand it to either fighter from the dashboard with the tap recorded on `invites.video_sent_at`, and every download and share posts a `video_share` the panel reports as a real count or an explicit nought. **What is left**: nothing prompts a fighter at the moment they submit their form, which is the warmest they will ever be, and nothing burns the promoter's handle into the video for attribution. The first is a change to the questionnaire's own surfaces; the second is a change to the composition, and therefore to the golden frames.
 
 7. **Re-record the sales demo** against the real thing, including a fighter's entry landing on the card. The committed cut predates the database and no longer shows the strongest thing there is to show. Section 17.
 

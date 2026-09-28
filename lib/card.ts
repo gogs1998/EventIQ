@@ -1,4 +1,11 @@
-import { buildHooks, buildTape, completeness, isRunning, type TapeRow } from "@/lib/tape";
+import {
+  buildHooks,
+  buildTape,
+  completeness,
+  isRunning,
+  lastName,
+  type TapeRow,
+} from "@/lib/tape";
 import type { Bout, FightEvent, Fighter, Sponsor } from "@/lib/types";
 
 /**
@@ -101,6 +108,22 @@ export function featuredBout(card: Card): Bout | undefined {
 
 export function cornersOf(card: Card, bout: Bout): { red: Fighter; blue: Fighter } {
   return { red: fighterOf(card, bout.redId), blue: fighterOf(card, bout.blueId) };
+}
+
+/**
+ * What a bout's video is called away from the page it is on.
+ *
+ * A sharing sheet, a download and a screen reader all need a name for it, and
+ * the file itself is a fingerprinted key that says nothing to anybody. Two
+ * surnames and the show: the same words the running order uses, so a fighter who
+ * shares one and somebody who opens the programme are looking at the same thing
+ * under the same name. It states nothing that is not on the card.
+ */
+export function promoTitle(card: Card, bout: Bout): string {
+  const red = card.fighters[bout.redId];
+  const blue = card.fighters[bout.blueId];
+  if (!red || !blue) return card.event.name;
+  return `${lastName(red)} v ${lastName(blue)} — ${card.event.name}`;
 }
 
 export function tapeFor(card: Card, bout: Bout): TapeRow[] {

@@ -5,8 +5,11 @@ import { FighterPortrait } from "@/components/FighterPortrait";
 import { PreviousShows } from "@/components/PreviousShows";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
-import { fighterSponsors, type Card } from "@/lib/card";
+import { PromoPlayer } from "@/components/sequence/TapePlayer";
+import { fighterSponsors, promoTitle, type Card } from "@/lib/card";
 import { PREVIOUS_SHOWS } from "@/lib/copy";
+import { getDb } from "@/lib/db";
+import { loadRenders } from "@/lib/db/queries";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -58,6 +61,12 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
   const assignment = boutFor(card, id);
   const corner: Corner = assignment?.corner ?? "red";
+  // The promo of the bout this fighter is on. Offered here as well as on the
+  // card because this is the page a fighter is sent to and the page they send
+  // on, and a fighter who wants their own video should not have to find their
+  // bout on somebody else's running order first.
+  const renders = assignment ? await loadRenders(await getDb(), card.eventId) : {};
+  const promo = assignment ? renders[assignment.bout.number]?.faceoff : undefined;
   const record = formatRecord(fighter);
   const { score, missing } = completeness(fighter);
   const sponsors = fighterSponsors(card, fighter);
@@ -138,6 +147,18 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
               </div>
             ))}
           </dl>
+        </section>
+      ) : null}
+
+      {promo && assignment ? (
+        <section className="px-5 pb-6">
+          <PromoPlayer
+            slug={card.event.slug}
+            boutNumber={assignment.bout.number}
+            mp4={promo}
+            fighterId={fighter.id}
+            title={promoTitle(card, assignment.bout)}
+          />
         </section>
       ) : null}
 

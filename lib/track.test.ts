@@ -41,10 +41,41 @@ describe("parseTrackBody", () => {
     });
   });
 
-  it("refuses a kind that is not one of the five", () => {
+  it("refuses a kind that is not one of the six", () => {
     expect(parseTrackBody({ ...open, kind: "sponsor_purchase" })).toBeNull();
     expect(parseTrackBody({ ...open, kind: "" })).toBeNull();
     expect(parseTrackBody({ slug: "cage-county-12" })).toBeNull();
+  });
+
+  /**
+   * The share controls are the only instrumentation the fighter's half of the
+   * loop has. Every other kind was added with the page that sends it, and a kind
+   * missing from here does not fail: the beacon goes, the endpoint answers 204
+   * as it answers everything, and the dashboard reports nought shares forever.
+   */
+  it("takes a share, with the bout and the fighter it left from", () => {
+    expect(
+      parseTrackBody({
+        slug: "cage-county-12",
+        kind: "video_share",
+        boutNumber: 15,
+        fighterId: "nadia-farrukh",
+      }),
+    ).toEqual({
+      slug: "cage-county-12",
+      kind: "video_share",
+      boutNumber: 15,
+      fighterId: "nadia-farrukh",
+      sponsorId: null,
+      sessionId: null,
+    });
+    // From the running order rather than a fighter's own page: the bout is what
+    // the count is about and the fighter is only ever extra.
+    expect(parseTrackBody({ ...open, kind: "video_share", boutNumber: 15 })).toMatchObject({
+      kind: "video_share",
+      boutNumber: 15,
+      fighterId: null,
+    });
   });
 
   it("refuses anything that is not a slug in the slug", () => {

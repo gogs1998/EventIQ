@@ -115,6 +115,12 @@ export type Invite = {
   sentAt?: number;
   /** How the promoter said it went out, where they used one of the send controls. */
   sentChannel?: SentChannel;
+  /**
+   * When the promoter handed this fighter their bout's promo. A separate errand
+   * from the invite and recorded separately: the invite asks for something, this
+   * gives something back, and a render finishing is not either of them.
+   */
+  videoSentAt?: number;
   lastOpenedAt?: number;
   submittedAt?: number;
   /** When the link stops opening anything. Absent on a row from before expiry. */
@@ -143,5 +149,12 @@ export type AnalyticsKind =
   | "programme_open"
   | "bout_expand"
   | "tape_play"
+  /**
+   * A video taken off the page to be posted somewhere else — the download, or
+   * the share control beside it. It counts the tap rather than the post: nothing
+   * here can see what happens after the file leaves, and a number that claimed
+   * to would be the kind of figure section 9 exists to keep out.
+   */
+  | "video_share"
   | "sponsor_tap"
   | "profile_view";

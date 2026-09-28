@@ -25,7 +25,7 @@ import {
   openToken,
 } from "@/lib/invite-token";
 import { logWarning } from "@/lib/log";
-import { renderUrl, sponsorMark, type Renders } from "@/lib/renders";
+import { isPublishedTemplate, renderUrl, sponsorMark, type Renders } from "@/lib/renders";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type {
   AnalyticsKind,
@@ -190,6 +190,7 @@ export function toInvite(row: InviteRow, token?: string): Invite {
     token,
     sentAt: optional(row.sentAt),
     sentChannel: isSentChannel(row.sentChannel) ? row.sentChannel : undefined,
+    videoSentAt: optional(row.videoSentAt),
     lastOpenedAt: optional(row.lastOpenedAt),
     submittedAt: optional(row.submittedAt),
     expiresAt: optional(row.expiresAt),
@@ -781,7 +782,12 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
 }
 
 /**
- * Bout number to playable URL, for the videos that exist.
+ * Bout number to the playable URLs of that bout, by template.
+ *
+ * Old keys and new ones both come back. The key is a column, never parsed — a
+ * render published before templates existed is `bout-<n>-<hash8>.mp4` and one
+ * published since is `bout-<n>-<template>-<hash8>.mp4`, and nothing here or on
+ * /media can tell the difference or needs to.
  *
  * Deliberately says nothing about `status`. A bout being rendered again, or one
  * whose last attempt did not finish, still has the video it had before, and
@@ -790,11 +796,18 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
  * and by nothing else, which is what makes that safe.
  */
 export function rendersFrom(
-  rows: readonly { boutNumber: number; currentR2Key: string | null }[],
+  rows: readonly { boutNumber: number; template: string; currentR2Key: string | null }[],
 ): Renders {
   const renders: Renders = {};
   for (const row of rows) {
-    if (row.currentR2Key) renders[row.boutNumber] = renderUrl(row.currentR2Key);
+    // A row for a composition nothing publishes any more is not a video the
+    // programme has anywhere to put, so it is left out here rather than handed
+    // on to a caller that would have to ask the same question again.
+    if (!row.currentR2Key || !isPublishedTemplate(row.template)) continue;
+    renders[row.boutNumber] = {
+      ...renders[row.boutNumber],
+      [row.template]: renderUrl(row.currentR2Key),
+    };
   }
   return renders;
 }
@@ -804,6 +817,7 @@ export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
     await db
       .select({
         boutNumber: schema.renderJobs.boutNumber,
+        template: schema.renderJobs.template,
         currentR2Key: schema.renderJobs.currentR2Key,
       })
       .from(schema.renderJobs)
@@ -861,6 +875,8 @@ export async function loadDashboardRows(
     previousTaps,
     previousFoldedKinds,
     previousFoldedTaps,
+    shares,
+    foldedShares,
   ] = await db.batch([
     db.select().from(schema.invites).where(eq(schema.invites.eventId, eventId)),
     db.select().from(schema.renderJobs).where(eq(schema.renderJobs.eventId, eventId)),
@@ -872,6 +888,7 @@ export async function loadDashboardRows(
       .limit(1),
     ...analyticsStatements(db, eventId),
     ...analyticsStatements(db, previousShow),
+    ...shareStatements(db, eventId),
   ]);
 
   const invites = await invitesWithLinks(inviteRows);
@@ -880,6 +897,7 @@ export async function loadDashboardRows(
     invites,
     jobRows,
     analytics: analyticsFrom([...kinds, ...foldedKinds], [...taps, ...foldedTaps]),
+    shares: sharesFrom(shares, foldedShares),
     previous: previousRows[0] ?? null,
     previousAnalytics: analyticsFrom(
       [...previousKinds, ...previousFoldedKinds],
@@ -899,6 +917,7 @@ const EMPTY_TOTALS: AnalyticsTotals = {
   programme_open: 0,
   bout_expand: 0,
   tape_play: 0,
+  video_share: 0,
   sponsor_tap: 0,
   profile_view: 0,
   spectators: 0,
@@ -977,6 +996,71 @@ function analyticsStatements(db: Db, eventId: string | SQLWrapper) {
       )
       .groupBy(schema.analyticsDaily.sponsorId),
   ] as const;
+}
+
+/**
+ * How many times each bout's video has been taken off the page to be posted.
+ *
+ * Its own pair of statements rather than a third aggregation inside
+ * `analyticsStatements`, because this is the only count the dashboard wants
+ * broken down by bout and the last-show panel has no use for it at all. Both
+ * tables again, for the reason above: a show part way through a fold has some of
+ * its rows in each and the two are added.
+ *
+ * It counts the tap, not the post. Nothing here can see what a fighter does with
+ * a file after it leaves, and a number that implied otherwise would be the
+ * invented figure the whole of section 9 exists to keep out.
+ */
+function shareStatements(db: Db, eventId: string) {
+  return [
+    db
+      .select({
+        boutNumber: schema.analyticsEvents.boutNumber,
+        count: sql<number>`count(*)`,
+      })
+      .from(schema.analyticsEvents)
+      .where(
+        and(
+          eq(schema.analyticsEvents.eventId, eventId),
+          eq(schema.analyticsEvents.kind, "video_share"),
+        ),
+      )
+      .groupBy(schema.analyticsEvents.boutNumber),
+    db
+      .select({
+        boutNumber: schema.analyticsDaily.boutNumber,
+        count: sql<number>`sum(${schema.analyticsDaily.count})`,
+      })
+      .from(schema.analyticsDaily)
+      .where(
+        and(
+          eq(schema.analyticsDaily.eventId, eventId),
+          eq(schema.analyticsDaily.kind, "video_share"),
+        ),
+      )
+      .groupBy(schema.analyticsDaily.boutNumber),
+  ] as const;
+}
+
+/**
+ * Bout number to shares, added across the two tables.
+ *
+ * A bout with none is absent rather than zero, and the panel writes the zero
+ * itself — so "nobody has shared this yet" is a sentence somebody chose rather
+ * than a nought that fell out of a lookup. A row with no bout number is a share
+ * of something that is not a bout and is dropped.
+ */
+export function sharesFrom(
+  ...lists: readonly (readonly { boutNumber: number | null; count: number }[])[]
+): Record<number, number> {
+  const shares: Record<number, number> = {};
+  for (const rows of lists) {
+    for (const row of rows) {
+      if (row.boutNumber == null) continue;
+      shares[row.boutNumber] = (shares[row.boutNumber] ?? 0) + Number(row.count ?? 0);
+    }
+  }
+  return shares;
 }
 
 /**

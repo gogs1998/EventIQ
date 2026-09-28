@@ -398,6 +398,82 @@ export function sponsorTapNote(sponsors: number): string {
 }
 
 /* -------------------------------------------------------------------------
+ * The fighter's own video
+ *
+ * The second half of the loop the product is built on. A fighter fills the form
+ * in because there is something in it for them; the video is that something, and
+ * until now nothing told them it existed. So: a line the promoter can send, a
+ * control on the programme that hands the file over, and a count of how often
+ * that control was used.
+ *
+ * Three rules, all of which are easy to break by writing something that reads
+ * well. **Nothing here claims a result.** No reach, no views, no "your followers
+ * will love it": the product cannot see what happens after the file leaves and a
+ * sentence implying otherwise is the fabricated engagement figure of section 7
+ * wearing different clothes. **Nothing here is breathless** — it is a message
+ * from a promoter to somebody on their card, not marketing. And **no gendered
+ * pronouns**, which is the rule the nudge message already lives under (bug 10).
+ * ---------------------------------------------------------------------- */
+
+export const VIDEO_SHARE = {
+  /** On the programme, beside a bout's video. The verb is what it does. */
+  download: "Download for Instagram",
+  /** The other way out, for a phone that would rather hand it to an app. */
+  share: "Share",
+  /** What the promo is called everywhere a spectator meets it. */
+  promo: "The promo",
+  promoNote:
+    "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
+  /** The dashboard control that hands a fighter their own bout's promo. */
+  send: "Send their video",
+  sendHint: "Opens WhatsApp with the video and the programme link in the message",
+  /** Under the videos panel, once there is something to send. */
+  note:
+    "Where a promo is made, both fighters on the bout can be sent it. The message carries " +
+    "the file and the link to the programme, and the row records that it went out.",
+} as const;
+
+/** What the dashboard says about how often a bout's video has been taken away. */
+export function shareCountLabel(shares: number): string {
+  if (shares <= 0) return "Not shared yet";
+  return `Shared ${shares} ${shares === 1 ? "time" : "times"}`;
+}
+
+/** When a fighter was last sent their video, or nothing where they have not been. */
+export function videoSentNote(sentAt: number | null | undefined): string | null {
+  if (!sentAt) return null;
+  const days = Math.floor((Date.now() - sentAt) / 86_400_000);
+  if (days <= 0) return "Sent today";
+  return `Sent ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+/**
+ * The message a promoter sends a fighter when their bout's promo is ready.
+ *
+ * Both links, because they answer different questions: the file is the thing to
+ * post and the programme is where it came from, and a fighter handed only the
+ * file has nothing to point anybody at. The order is deliberate — the file
+ * first, because that is what the message is about.
+ *
+ * It says what the video is and stops. It does not say how long it is, how many
+ * people will see it, or what posting it will do for anybody, because none of
+ * those is a thing this product knows.
+ */
+export function videoReadyMessage(input: {
+  firstName: string;
+  eventName: string;
+  boutLabel: string;
+  videoUrl: string;
+  programmeUrl: string;
+}): string {
+  return [
+    `Hi ${input.firstName} — the video for ${input.boutLabel.toLowerCase()} at ${input.eventName} is ready.`,
+    `Here it is, yours to post wherever you like: ${input.videoUrl}`,
+    `The full programme, with your profile on it: ${input.programmeUrl}`,
+  ].join("\n\n");
+}
+
+/* -------------------------------------------------------------------------
  * What is said when something goes wrong
  *
  * Here for the same two reasons as the zero-bout strings above: a sentence a
