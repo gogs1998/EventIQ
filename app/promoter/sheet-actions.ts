@@ -8,6 +8,7 @@ import { attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, getMedia, type Db } from "@/lib/db";
+import { ownedEvent } from "@/lib/db/owned";
 import {
   fightersNamedAny,
   matchableName,
@@ -29,8 +30,7 @@ import {
   type SheetProblem,
   type SheetRow,
 } from "@/lib/sheet";
-import { currentPromoter, type Promoter } from "@/lib/session";
-import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
+import { type OwnedCard } from "@/lib/visibility";
 
 /**
  * Putting a whole running order on in one go.
@@ -56,25 +56,13 @@ import { loadOwnedCard, type OwnedCard } from "@/lib/visibility";
  * `unknown` accordingly.
  */
 
-type Owned = { promoter: Promoter; card: OwnedCard };
-
 /**
- * The show and the promoter who owns it, or the sentence to show instead.
- *
- * The same shape as the other "use server" files and, as there, not shared
- * between them: everything a server module exports is an endpoint. The rule is
- * `loadOwnedCard` in lib/visibility.ts, so this is one call rather than a fifth
- * copy of the where clause.
+ * The show and the promoter who owns it comes from `ownedEvent` in
+ * lib/db/owned.ts, which the other three "use server" files here share. A server
+ * module cannot pass a helper to another one — everything it exports is an
+ * endpoint — but a module that is not one can be imported by all of them, and
+ * the rule inside it is still `loadOwnedCard` beside the publish gate.
  */
-async function ownedEvent(db: Db, slug: string): Promise<ActionResult<Owned>> {
-  const promoter = await currentPromoter();
-  if (!promoter) return refuse(ACTION_ERRORS.signedOut);
-
-  const card = await loadOwnedCard(db, slug, promoter.id);
-  if (!card) return refuse(ACTION_ERRORS.noSuchShow);
-
-  return done({ promoter, card });
-}
 
 // ------------------------------------------------------------------ preview
 
