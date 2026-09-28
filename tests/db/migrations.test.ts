@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getTableConfig } from "drizzle-orm/sqlite-core";
+import { is } from "drizzle-orm";
+import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as schema from "@/db/schema";
 import { INVITE_TTL_MS } from "@/lib/invite-token";
 import { applyMigrations, migrationFiles, startPlatform, type Platform } from "./platform";
@@ -20,6 +21,8 @@ import { applyMigrations, migrationFiles, startPlatform, type Platform } from ".
  * the shape is the one the initial schema had: invites holding a token in the
  * clear, render jobs holding `r2_key`.
  */
+
+const isSqliteTable = (value: unknown): value is SQLiteTable => is(value, SQLiteTable);
 
 const AUGUST = Date.UTC(2026, 7, 3);
 const files = migrationFiles();
@@ -91,19 +94,14 @@ describe("the migration chain, over a card that was already there", () => {
   });
 
   it("lands on exactly the columns db/schema.ts describes, and none of them twice", async () => {
-    for (const table of [
-      schema.promoters,
-      schema.events,
-      schema.bouts,
-      schema.fighters,
-      schema.invites,
-      schema.sponsors,
-      schema.renderJobs,
-      schema.renderKeys,
-      schema.analyticsEvents,
-      schema.importCache,
-      schema.passwordResets,
-    ]) {
+    // Every table the schema module exports, rather than a list written out
+    // here: this was a list, and `analytics_daily`, `event_sponsors` and
+    // `fighter_sponsors` were never on it — three tables whose migrations
+    // nothing rehearsed, and no way to tell from reading the test.
+    const tables = Object.values(schema).filter(isSqliteTable);
+    expect(tables.length).toBeGreaterThanOrEqual(13);
+
+    for (const table of tables) {
       const config = getTableConfig(table);
       const actual = await columnsOf(config.name);
 
