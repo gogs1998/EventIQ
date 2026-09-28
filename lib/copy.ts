@@ -1186,6 +1186,17 @@ export const INVITE_SHARE = {
   /** Everything else, behind one disclosure rather than spread across the row. */
   more: "Other ways, and the link itself",
   copy: "Copy link",
+  /**
+   * A clipboard write the browser would not allow, which happens over plain
+   * http, in a hardened profile and behind some extensions. It used to say
+   * "Copied" either way — and copying is the one control here with no
+   * consequence of its own to look at, so a promoter pasted nothing into
+   * WhatsApp and did not find out until the fighter said they never got a link.
+   * Same shape as bug 36, one layer up.
+   */
+  notCopied: "That would not copy. The link is in the box beside this one.",
+  /** The nudge, where there is no box to fall back to — the words are in the tooltip. */
+  nudgeNotCopied: "That would not copy. The message is on the button as a tooltip.",
   /** Issues a fresh link. The old one stops working the moment this lands. */
   regenerate: "New link",
   regenerateHint: "Issues a new link and stops the old one working",

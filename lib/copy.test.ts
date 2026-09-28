@@ -723,6 +723,24 @@ describe("the fighter's record importer copy", () => {
 });
 
 /**
+ * A clipboard the browser would not let us write to.
+ *
+ * Both of these say what to do instead, because a copy control is the one thing
+ * in the product with nothing of its own to look at afterwards — which is how
+ * bug 36 stayed invisible — and "that did not work" on its own leaves a promoter
+ * with a message they still have to get into WhatsApp somehow.
+ */
+describe("the clipboard refusals", () => {
+  it("says where the thing that would not copy still is", () => {
+    expect(INVITE_SHARE.notCopied).toMatch(/link is in the box/i);
+    expect(INVITE_SHARE.nudgeNotCopied).toMatch(/message is on the button/i);
+    for (const line of [INVITE_SHARE.notCopied, INVITE_SHARE.nudgeNotCopied]) {
+      expect(line).not.toMatch(/error|failed|!|browser settings/i);
+    }
+  });
+});
+
+/**
  * The two sentences over the add-bout form.
  *
  * A bout has two corners, and everywhere else in the product says so. The line

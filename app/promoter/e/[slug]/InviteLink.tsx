@@ -60,9 +60,21 @@ export function InviteLink({
       setError(result.ok ? null : result.error);
     });
 
+  // A clipboard write is refused over plain http, in a hardened profile and
+  // behind some extensions, and it used to be awaited with nothing catching it:
+  // the promise rejected, "Copied" never appeared, nothing was recorded and
+  // nothing said so. A promoter then pasted whatever was on the clipboard
+  // before — which is the same failure as bug 36 and just as quiet, because
+  // copying is the one control on this row with no consequence to look at.
   const copy = async () => {
     if (!token) return;
-    await navigator.clipboard.writeText(`${window.location.origin}/f/${token}`);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/f/${token}`);
+    } catch {
+      setError(INVITE_SHARE.notCopied);
+      return;
+    }
+    setError(null);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
     // Copying is not sending, but it is the moment that can be observed, and a
