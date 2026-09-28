@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
@@ -242,6 +243,12 @@ export const fighters = sqliteTable(
     index("fighters_photo").on(table.photo),
     index("fighters_cutout").on(table.cutout),
     index("fighters_stylised").on(table.stylised),
+    // Matching a name a promoter has just typed against the people already
+    // here. Over `lower(name)` rather than over the column, because two
+    // people with one name in one sport is common and the match has to be
+    // case-insensitive to be worth offering — and an index on the column
+    // itself is one SQLite cannot use for that comparison.
+    index("fighters_name_lower").on(sql`lower(${table.name})`),
   ],
 );
 
@@ -290,7 +297,17 @@ export const bouts = sqliteTable(
     /** Why, in the promoter's own words. Short, because it is set beside a bout number. */
     cancelledNote: text("cancelled_note"),
   },
-  (table) => [uniqueIndex("bouts_event_number").on(table.eventId, table.number)],
+  (table) => [
+    uniqueIndex("bouts_event_number").on(table.eventId, table.number),
+    // A fighter's own page asks the opposite question from every other read
+    // here — not "who is on this show" but "which shows has this person been
+    // on" — and it is asked on a public page a fighter puts in an Instagram
+    // bio. Without these it is a scan of every bout on the instance per view.
+    // Two indexes rather than one composite, because a corner is either column
+    // and SQLite will not use a composite index for an OR over its parts.
+    index("bouts_red").on(table.redId),
+    index("bouts_blue").on(table.blueId),
+  ],
 );
 
 export const eventSponsors = sqliteTable(

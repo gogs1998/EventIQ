@@ -6,11 +6,15 @@ import {
   eventVisibility,
   eventsOfPromoter,
   eventsShowingPortrait,
+  fighterAppearances,
   inviteHoldsPortrait,
   inviteHoldsSponsorMark,
   loadCard,
   loadCardById,
+  loadFighterWithAppearances,
   renderKeysFor,
+  type Appearance,
+  type FighterProfile,
   type LoadedCard,
 } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
@@ -154,6 +158,57 @@ export function loadInvitedCard(
  */
 export const visibleCardFor = cache(
   async (slug: string): Promise<VisibleCard | null> => loadVisibleCard(await getDb(), slug),
+);
+
+/**
+ * A fighter that has been through the published-appearance check.
+ *
+ * Branded like the two cards above, and for the same reason: `/fighters/[id]`
+ * is the first address here that names a fighter without naming a show, so
+ * "this fighter is public" becomes a fact a page has to be handed rather than
+ * one whoever writes the next such page is free to assume.
+ */
+export type PublicFighter = FighterProfile & { readonly [gate]: "fighter" };
+
+/**
+ * The fighter at this id, or null where they have no public existence.
+ *
+ * Every other read of a fighter row goes through a card, and that is what
+ * section 19 item 11 leans on when it says a global `fighters` table is safe:
+ * holding an id gets a stranger nothing, because the card it hangs off answers
+ * 404 for them. A canonical fighter address is the exception to that, so it gets
+ * a rule of its own rather than none.
+ *
+ * The rule is published appearances only, and it decides both halves at once:
+ * whether there is a page here at all, and what may be listed on it. A
+ * promoter's own draft is deliberately not softened in the way `loadVisibleCard`
+ * softens one — this page is not about one show, and a signed-in promoter seeing
+ * an extra line on it would be a draft on an address anybody can open.
+ *
+ * Null for a fighter who does not exist and for one who has only ever been on a
+ * draft alike: an id is a readable slug and therefore guessable, so telling the
+ * two apart would be a way of asking what a promoter has in the diary.
+ */
+export async function loadPublicFighter(db: Db, id: string): Promise<PublicFighter | null> {
+  const found = await loadFighterWithAppearances(db, id);
+  return found ? (found as PublicFighter) : null;
+}
+
+/** The same, once per request: the page body and its generateMetadata both ask. */
+export const publicFighterFor = cache(
+  async (id: string): Promise<PublicFighter | null> => loadPublicFighter(await getDb(), id),
+);
+
+/**
+ * The shows a fighter already on a visible card has also been on.
+ *
+ * The programme's own fighter page wants the list the canonical page has, and it
+ * must not get it by a different route: it is the same query behind the same
+ * published-only rule. The show being looked at is dropped by the page rather
+ * than by the query, so the two pages cannot come to disagree about what counts.
+ */
+export const appearancesFor = cache(
+  async (id: string): Promise<readonly Appearance[]> => fighterAppearances(await getDb(), id),
 );
 
 /**

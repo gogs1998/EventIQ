@@ -166,3 +166,83 @@ export async function plantRenderKey(
     }),
   ]);
 }
+
+/**
+ * A fighter with a name somebody would actually type.
+ *
+ * `plantShow` names its corners after the slug, which is all the gate tests
+ * need. Matching a name against the people already here needs names, so this
+ * puts one in on its own and `plantBout` is what gets them onto a card.
+ */
+export async function plantFighter(
+  db: Db,
+  options: {
+    id: string;
+    name: string;
+    gym?: string;
+    record?: { w: number; l: number; d: number };
+  },
+): Promise<void> {
+  const now = Date.now();
+  await plant([
+    db.insert(schema.fighters).values({
+      id: options.id,
+      name: options.name,
+      gym: options.gym ?? "Bryn Athletic",
+      // All three or none, the same rule the column set is held to everywhere
+      // else: a partial record here would be a fixture teaching a bug.
+      recordW: options.record?.w ?? null,
+      recordL: options.record?.l ?? null,
+      recordD: options.record?.d ?? null,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  ]);
+}
+
+/** An extra bout on a planted show, between fighters that already exist. */
+export async function plantBout(
+  db: Db,
+  options: {
+    eventId: string;
+    number: number;
+    redId: string;
+    blueId: string;
+    cancelled?: boolean;
+  },
+): Promise<void> {
+  await plant([
+    db.insert(schema.bouts).values({
+      id: `bo_${options.eventId}_${options.number}`,
+      eventId: options.eventId,
+      number: options.number,
+      discipline: "MMA",
+      weightKg: 70,
+      rounds: 3,
+      roundMinutes: 3,
+      redId: options.redId,
+      blueId: options.blueId,
+      cancelled: options.cancelled ?? false,
+    }),
+  ]);
+}
+
+/**
+ * A render job with a published video on it, which is the only column the
+ * programme ever plays from — `status` is deliberately not what decides.
+ */
+export async function plantRender(
+  db: Db,
+  options: { eventId: string; boutNumber: number; key: string },
+): Promise<void> {
+  await plant([
+    db.insert(schema.renderJobs).values({
+      id: `rj_${options.eventId}_${options.boutNumber}`,
+      eventId: options.eventId,
+      boutNumber: options.boutNumber,
+      status: "done",
+      currentR2Key: options.key,
+      requestedAt: Date.now(),
+    }),
+  ]);
+}

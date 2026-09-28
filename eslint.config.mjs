@@ -41,11 +41,20 @@ const eslintConfig = defineConfig([
           paths: [
             {
               name: "@/lib/db/queries",
-              importNames: ["loadCard", "loadCardById"],
+              importNames: [
+                "loadCard",
+                "loadCardById",
+                // The same rule for the one read that starts at a fighter
+                // rather than at a show. `loadPublicFighter` is what applies
+                // the published-appearance check; these two ask nobody.
+                "loadFighterWithAppearances",
+                "fighterAppearances",
+              ],
               message:
                 "Load a card through lib/visibility.ts: loadVisibleCard on a public page, " +
                 "loadRenderableCard on the capture page, loadOwnedCard on a promoter's, " +
-                "loadInvitedCard behind an invite token. See HANDOVER section 6c.",
+                "loadInvitedCard behind an invite token, loadPublicFighter or appearancesFor " +
+                "for a fighter's own page. See HANDOVER section 6c.",
             },
           ],
         },

@@ -6,11 +6,13 @@ import {
   isNotNull,
   isNull,
   like,
+  ne,
   or,
   sql,
   type SQL,
   type SQLWrapper,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "@/db/schema";
 import { newId } from "@/lib/auth";
 import { inviteSecret, type Db } from "@/lib/db";
@@ -29,6 +31,7 @@ import type {
   AnalyticsKind,
   Billing,
   Bout,
+  Corner,
   Discipline,
   FightEvent,
   Fighter,
@@ -1015,4 +1018,269 @@ export async function analyticsFor(db: Db, eventId: string): Promise<Analytics> 
     ...analyticsStatements(db, eventId),
   ]);
   return analyticsFrom([...liveKinds, ...foldedKinds], [...liveTaps, ...foldedTaps]);
+}
+
+// ------------------------------------------------- fighters across shows
+
+/**
+ * A fighter already here whose name matches one a promoter has just typed.
+ *
+ * Enough to recognise a person by and nothing more. Any show named on one is
+ * the asking promoter's own, because these are only ever built out of that
+ * promoter's own running orders — see `fightersNamed`.
+ */
+export type FighterMatch = {
+  id: string;
+  name: string;
+  gym: string;
+  record?: { w: number; l: number; d: number };
+  /** The most recent of this promoter's shows the fighter was on. */
+  lastShow?: { name: string; date: string };
+};
+
+/** The typed name as it is compared: trimmed, inner whitespace collapsed. */
+export function matchableName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * The fighters of this promoter's own cards whose name matches one they have
+ * just typed, most recent show first.
+ *
+ * Scoped to the promoter deliberately, and that is the tenancy decision in
+ * section 19 item 11 rather than a convenience: the `fighters` table is global,
+ * so an unscoped version of this query is one promoter reading another's roster
+ * by guessing at names. Within one promoter's shows a namesake is a matching
+ * problem; across promoters it is a data-sharing question that lands on the
+ * consent wording, and until that says otherwise the answer is no.
+ *
+ * Case-insensitive, because a promoter working off a matchmaking sheet is not
+ * typing the capitals the fighter used. The comparison is `lower(name)` against
+ * an already-lowered argument, which is the expression `fighters_name_lower` is
+ * built on.
+ *
+ * It reads through the running order rather than straight off `fighters`, so a
+ * row belonging to somebody else's card is never a candidate, and a row orphaned
+ * by a removed bout is not offered either — there is nobody who can say whose
+ * that one is.
+ */
+export async function fightersNamed(
+  db: Db,
+  name: string,
+  promoterId: string,
+): Promise<FighterMatch[]> {
+  const wanted = matchableName(name).toLowerCase();
+  if (!wanted) return [];
+
+  const rows = await db
+    .select({
+      id: schema.fighters.id,
+      name: schema.fighters.name,
+      gym: schema.fighters.gym,
+      recordW: schema.fighters.recordW,
+      recordL: schema.fighters.recordL,
+      recordD: schema.fighters.recordD,
+      eventName: schema.events.name,
+      date: schema.events.date,
+    })
+    .from(schema.fighters)
+    .innerJoin(
+      schema.bouts,
+      or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
+    )
+    .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
+    .where(
+      and(eq(schema.events.promoterId, promoterId), sql`lower(${schema.fighters.name}) = ${wanted}`),
+    )
+    .orderBy(desc(schema.events.date));
+
+  // Folded here rather than grouped in SQL. A fighter on three of the promoter's
+  // shows is three rows, the first of which is the latest; picking the event
+  // *name* off a max(date) relies on a bare-column rule of SQLite's that reads
+  // like a bug to anybody who meets it later.
+  const matches = new Map<string, FighterMatch>();
+  for (const row of rows) {
+    if (matches.has(row.id)) continue;
+    matches.set(row.id, {
+      id: row.id,
+      name: row.name,
+      gym: row.gym,
+      // All three or none, exactly as `toFighter` reads them: a partial record
+      // must not come back out of here as a 0-0-0 beside somebody's name.
+      record:
+        row.recordW !== null && row.recordL !== null && row.recordD !== null
+          ? { w: row.recordW, l: row.recordL, d: row.recordD }
+          : undefined,
+      lastShow: { name: row.eventName, date: row.date },
+    });
+  }
+  return [...matches.values()];
+}
+
+/**
+ * Whether somebody of this name has been on another promotion's card.
+ *
+ * A boolean and nothing else, and that is the whole design of it. It is enough
+ * to say that the name is known here and that the way to settle it is to ask the
+ * fighter from their own link; anything richer — the gym, the record, which
+ * promotion — would be one promoter reading another's card through a name box.
+ */
+export async function nameOnAnotherPromotion(
+  db: Db,
+  name: string,
+  promoterId: string,
+): Promise<boolean> {
+  const wanted = matchableName(name).toLowerCase();
+  if (!wanted) return false;
+
+  const [row] = await db
+    .select({ id: schema.fighters.id })
+    .from(schema.fighters)
+    .innerJoin(
+      schema.bouts,
+      or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
+    )
+    .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
+    .where(
+      and(
+        ne(schema.events.promoterId, promoterId),
+        sql`lower(${schema.fighters.name}) = ${wanted}`,
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/** One show a fighter has been on, as their own page lists it. */
+export type Appearance = {
+  slug: string;
+  eventName: string;
+  date: string;
+  boutNumber: number;
+  corner: Corner;
+  opponent: { id: string; name: string; gym: string };
+  /** The tale of the tape, where one has been rendered and published. */
+  video?: string;
+  cancelled: boolean;
+};
+
+/**
+ * Every published show this fighter has been on, newest first.
+ *
+ * Published only, rather than the `visibleTo` rule the programme pages use. A
+ * fighter's page is a permanent address that outlives one card and is read by
+ * strangers, so a promoter's draft appearing on it — even to that promoter —
+ * would put an unannounced show on a page anybody can open. That is the hole
+ * section 6c records, and there is no viewer here to soften it with.
+ */
+export async function fighterAppearances(db: Db, fighterId: string): Promise<Appearance[]> {
+  const opponent = alias(schema.fighters, "opponent");
+
+  const rows = await db
+    .select({
+      slug: schema.events.slug,
+      eventName: schema.events.name,
+      date: schema.events.date,
+      boutNumber: schema.bouts.number,
+      redId: schema.bouts.redId,
+      cancelled: schema.bouts.cancelled,
+      opponentId: opponent.id,
+      opponentName: opponent.name,
+      opponentGym: opponent.gym,
+      currentR2Key: schema.renderJobs.currentR2Key,
+    })
+    .from(schema.bouts)
+    .innerJoin(
+      schema.events,
+      and(eq(schema.events.id, schema.bouts.eventId), eq(schema.events.published, true)),
+    )
+    // The other corner, whichever one this fighter is not in.
+    .innerJoin(
+      opponent,
+      sql`${opponent.id} = case when ${schema.bouts.redId} = ${fighterId} then ${schema.bouts.blueId} else ${schema.bouts.redId} end`,
+    )
+    .leftJoin(
+      schema.renderJobs,
+      and(
+        eq(schema.renderJobs.eventId, schema.bouts.eventId),
+        eq(schema.renderJobs.boutNumber, schema.bouts.number),
+      ),
+    )
+    .where(or(eq(schema.bouts.redId, fighterId), eq(schema.bouts.blueId, fighterId)))
+    .orderBy(desc(schema.events.date));
+
+  return rows.map((row) => ({
+    slug: row.slug,
+    eventName: row.eventName,
+    date: row.date,
+    boutNumber: row.boutNumber,
+    corner: (row.redId === fighterId ? "red" : "blue") as Corner,
+    opponent: { id: row.opponentId, name: row.opponentName, gym: row.opponentGym },
+    // Only what a successful publish wrote, the same as `rendersFrom`: a bout
+    // being rendered again still has the video the programme is playing.
+    video: row.currentR2Key ? renderUrl(row.currentR2Key) : undefined,
+    cancelled: row.cancelled,
+  }));
+}
+
+/**
+ * A fighter and the shows they have been on, addressed by id rather than through
+ * a card.
+ *
+ * This is the one read here that starts at a fighter, so it carries its own rule
+ * rather than inheriting one: the row comes back only where the fighter is on at
+ * least one published bout, which is the same fact that makes their name public
+ * in the first place. A fighter who has only ever been on a draft has no page
+ * here, and is not told apart from one who does not exist.
+ *
+ * The gate itself is `loadPublicFighter` in lib/visibility.ts, beside everything
+ * else that decides who may see what. Nothing under app/ calls this directly.
+ */
+export type FighterProfile = { fighter: Fighter; appearances: readonly Appearance[] };
+
+export async function loadFighterWithAppearances(
+  db: Db,
+  fighterId: string,
+): Promise<FighterProfile | null> {
+  const [rows, appearances] = await Promise.all([
+    db.select().from(schema.fighters).where(eq(schema.fighters.id, fighterId)).limit(1),
+    fighterAppearances(db, fighterId),
+  ]);
+
+  const row = rows[0];
+  if (!row || !appearances.length) return null;
+  // No sponsor ids. A fighter's backers are a promoter's book and belong on the
+  // card they were placed on; a page that spans promotions is not a place to
+  // gather them into one strip.
+  return { fighter: toFighter(row, []), appearances };
+}
+
+/**
+ * The last show this fighter filled a form in for, other than this one.
+ *
+ * Evidence, not inference. It is a submitted invite on another event, because
+ * that is the only thing that says the fighter themselves answered: a row with
+ * details on it may have been typed by the promoter or pulled off a record page,
+ * and greeting somebody with "confirm your details" over a profile they have
+ * never seen is bug 9 in different clothes.
+ */
+export async function lastSubmittedShow(
+  db: Db,
+  fighterId: string,
+  exceptEventId: string,
+): Promise<{ name: string; date: string } | null> {
+  const [row] = await db
+    .select({ name: schema.events.name, date: schema.events.date })
+    .from(schema.invites)
+    .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
+    .where(
+      and(
+        eq(schema.invites.fighterId, fighterId),
+        isNotNull(schema.invites.submittedAt),
+        ne(schema.invites.eventId, exceptEventId),
+      ),
+    )
+    .orderBy(desc(schema.events.date))
+    .limit(1);
+  return row ?? null;
 }

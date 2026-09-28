@@ -99,6 +99,13 @@
       "when": 1788850000007,
       "tag": "0013_analytics_daily_rollup",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790585086258,
+      "tag": "0014_fighter_profiles",
+      "breakpoints": true
     }
   ]
 }
