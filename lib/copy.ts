@@ -496,6 +496,21 @@ export const ACTION_ERRORS = {
   addressTaken: "You already have a show at that address. Give this one a slightly different name.",
 
   boutNeedsBothCorners: "A bout needs a name in both corners.",
+  /**
+   * Somebody of that name is already on this promoter's cards and nobody has
+   * said whether it is the same person. Two people with one name is ordinary in
+   * this sport, and merging them puts one fighter's record and photograph beside
+   * the other's name on a published card — so the bout waits rather than the
+   * software choosing.
+   */
+  cornerNeedsAnAnswer:
+    "Somebody of that name has been on one of your cards. Say whether it is the same fighter " +
+    "before this bout goes on.",
+  /** The name box moved after the panel was drawn, so the answer no longer fits it. */
+  matchOutOfDate:
+    "That name has changed since the fighters were looked up. Check the names and answer again.",
+  cornerAlreadyOnCard: "That fighter is already on this card.",
+  bothCornersOneFighter: "A bout needs two different fighters.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
   sponsorNeedsName: "A sponsor needs a name.",
   /**
@@ -1011,4 +1026,52 @@ export const INVITE_STATE = {
   expired: "This link has lapsed. New link issues a working one.",
   /** A rotated key is the only thing that leaves a stored link unreadable. */
   unreadable: "The link for this fighter cannot be shown. New link issues a fresh one.",
+} as const;
+
+/* -------------------------------------------------------------------------
+ * A fighter who has been here before
+ *
+ * Three surfaces, one idea: a fighter's row outlives the show it was made for,
+ * so the second card they are put on should ask them to confirm rather than to
+ * start again. What makes that safe rather than presumptuous is that nobody is
+ * merged without being asked — the panel below is a question put to the
+ * promoter, and a bout waits until it has an answer.
+ *
+ * The register is the ordinary one. Nothing here tells a promoter they were
+ * about to make a mistake, and nothing tells a fighter they have filled this in
+ * before as though that were a demand for an explanation.
+ * ---------------------------------------------------------------------- */
+
+/** The panel in the card editor, above the corner whose name matched. */
+export const FIGHTER_MATCH = {
+  /** The heading over the candidates. One name, however many people carry it. */
+  heading: (name: string) => `${name} is already on your cards`,
+  body:
+    "Choosing the same fighter keeps the profile, the photograph and the record they have " +
+    "already sent, and their link for this show asks them to confirm it. Choosing a different " +
+    "person starts a fresh profile under the same name.",
+  /** The control beside one candidate. */
+  same: "Same fighter",
+  different: "A different person",
+  /** Where a candidate has no show behind them yet, which the query cannot produce. */
+  noShow: "On your cards",
+  /** Under a candidate: which of the promoter's own shows, and when. */
+  lastShow: (event: string, when: string) => `Last on ${event}, ${when}`,
+  /** Where the fighter has not given a record. Never a 0-0-0. */
+  noRecord: "No record given",
+  /**
+   * A namesake on somebody else's promotion, said as little as it can be.
+   *
+   * The name is the only thing shared, and that is deliberate: the gym, the
+   * record and the promotion all belong to a card this promoter cannot see, and
+   * a matching panel is not a way to read one. The way to settle it is the way
+   * it is settled everywhere else here — ask the fighter, from the link this
+   * show sends them.
+   */
+  elsewhere:
+    "A fighter of that name has been on another promotion's card. Nothing of theirs is shown " +
+    "here or carried across; add them as a new fighter and their link will ask them to confirm " +
+    "their details.",
+  /** The line while the lookup is in flight. */
+  looking: "Checking that name…",
 } as const;

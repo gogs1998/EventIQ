@@ -9,8 +9,19 @@ import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-res
 import { newId } from "@/lib/auth";
 import { ACTION_ERRORS, GYM_TO_CONFIRM } from "@/lib/copy";
 import { getDb, type Db } from "@/lib/db";
-import { newInviteValues, uniqueSlug } from "@/lib/db/queries";
+import {
+  fightersNamed,
+  nameOnAnotherPromotion,
+  newInviteValues,
+  uniqueSlug,
+  type FighterMatch,
+} from "@/lib/db/queries";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
+import {
+  bothCornersAreOnePerson,
+  resolveCorner,
+  type CornerResolution,
+} from "@/lib/fighter-match";
 import {
   recordDiff,
   type ImportOutcome,
@@ -222,6 +233,13 @@ export async function setPublished(slug: string, published: boolean): Promise<Ac
  * bout and no invite: invisible on every screen, because everything is derived
  * from the running order, and still in the table when somebody next counted.
  * Same fix and same reasoning as `saveDraft` in the fighter's actions (bug 24).
+ *
+ * A corner is not always a new person. Fighters are global rows and come back on
+ * the promoter's next card, so a name that matches somebody already on their
+ * cards is offered as a match and the bout waits for an answer — see
+ * lib/fighter-match.ts for why it waits rather than choosing. The candidates are
+ * looked up again here rather than trusted from the form: this is an endpoint,
+ * and a fighter id posted at it must be one the promoter was actually offered.
  */
 export async function addBout(slug: string, form: FormData): Promise<ActionResult> {
   return attempt(
@@ -241,24 +259,68 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
       // second query for a number that is sitting in it.
       const nextNumber = Math.max(0, ...card.event.bouts.map((bout) => bout.number)) + 1;
 
+      const corners = [
+        { name: redName, gymKey: "redGym", choice: text(form, "redMatch", 80) },
+        { name: blueName, gymKey: "blueGym", choice: text(form, "blueMatch", 80) },
+      ] as const;
+
+      const resolved: CornerResolution[] = [];
+      for (const corner of corners) {
+        resolved.push(
+          resolveCorner(corner.choice, await fightersNamed(db, corner.name, card.promoterId)),
+        );
+      }
+
+      // Refused rather than guessed at, in both directions. A bout whose corner
+      // is somebody the promoter has not said anything about is a bout that
+      // would publish one fighter's record beside another's name; a choice that
+      // no longer fits the name in the box is an answer to a question that has
+      // changed.
+      if (resolved.some((one) => one.kind === "stale")) return refuse(ACTION_ERRORS.matchOutOfDate);
+      if (resolved.some((one) => one.kind === "ask")) {
+        return refuse(ACTION_ERRORS.cornerNeedsAnAnswer);
+      }
+      if (bothCornersAreOnePerson(resolved[0], resolved[1])) {
+        return refuse(ACTION_ERRORS.bothCornersOneFighter);
+      }
+      // `invites_event_fighter` is unique, so a fighter confirmed onto a card
+      // they are already on would fail the batch and be reported as a save that
+      // did not land. It is a real refusal with a reason instead.
+      const alreadyOn = new Set(card.event.bouts.flatMap((bout) => [bout.redId, bout.blueId]));
+      if (resolved.some((one) => one.kind === "reuse" && alreadyOn.has(one.fighterId))) {
+        return refuse(ACTION_ERRORS.cornerAlreadyOnCard);
+      }
+
       const now = Date.now();
       const fighterIds: string[] = [];
       const writes: BatchItem<"sqlite">[] = [];
 
-      for (const [name, gymKey] of [
-        [redName, "redGym"],
-        [blueName, "blueGym"],
-      ] as const) {
+      for (const [at, corner] of corners.entries()) {
+        const decided = resolved[at];
+        if (decided.kind === "reuse") {
+          // Nothing is written to the fighter. The row is what that person sent
+          // last time, and the promoter has confirmed who they are rather than
+          // edited their profile — the gym box is not even drawn once a match is
+          // confirmed. Their new link is what asks them to change anything.
+          fighterIds.push(decided.fighterId);
+          writes.push(
+            db
+              .insert(schema.invites)
+              .values((await newInviteValues(card.eventId, decided.fighterId, now)).values),
+          );
+          continue;
+        }
+
         // Chosen before the batch rather than inside it: an id has to be unique
         // against rows that already exist, and a batch is a list of writes with
         // nothing read back between them.
-        const id = await uniqueFighterId(db, name, fighterIds);
+        const id = await uniqueFighterId(db, corner.name, fighterIds);
         fighterIds.push(id);
         writes.push(
           db.insert(schema.fighters).values({
             id,
-            name,
-            gym: text(form, gymKey, 60) || GYM_TO_CONFIRM,
+            name: corner.name,
+            gym: text(form, corner.gymKey, 60) || GYM_TO_CONFIRM,
             createdAt: now,
             updatedAt: now,
           }),
@@ -294,6 +356,56 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
       return DONE;
+    },
+  );
+}
+
+/** What the card editor gets back when it asks about a name. */
+export type FighterLookup = {
+  /** Fighters of this promoter's own cards carrying that name. Often none. */
+  candidates: FighterMatch[];
+  /**
+   * Somebody of that name has been on another promotion's card. A boolean and
+   * never a row: the gym, the record and the promotion all belong to a card this
+   * promoter cannot see, and a name box is not a way to read one. It is only
+   * asked where their own cards carry nobody of that name, because where they do
+   * the match in front of them is the answer.
+   */
+  elsewhere: boolean;
+};
+
+/**
+ * Who is already here under a name the promoter is typing.
+ *
+ * Read-only and scoped by the same ownership check as every write on this show,
+ * because it is an endpoint like the rest: without `loadOwnedCard` it would be a
+ * way to ask whether a name is on somebody else's roster, one name at a time.
+ * `fightersNamed` scopes the answer to the promoter's own cards as well, so both
+ * halves of the rule are in the query and in the route rather than in one.
+ *
+ * It answers nothing about a name nobody has been put on a card under. There is
+ * no fighter search here and this is deliberately not the start of one.
+ */
+export async function findFighters(
+  slug: string,
+  name: string,
+): Promise<ActionResult<FighterLookup>> {
+  return attempt(
+    { event: "findFighters", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async (): Promise<ActionResult<FighterLookup>> => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+
+      const typed = name.slice(0, 60);
+      const candidates = await fightersNamed(db, typed, owned.card.promoterId);
+      return done({
+        candidates,
+        elsewhere: candidates.length
+          ? false
+          : await nameOnAnotherPromotion(db, typed, owned.card.promoterId),
+      });
     },
   );
 }
