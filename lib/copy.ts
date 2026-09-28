@@ -312,6 +312,112 @@ export function slotsAvailableNote(unsold: number): string {
 }
 
 /* -------------------------------------------------------------------------
+ * Pasting the running order in
+ *
+ * The card is already written down before anybody opens this: a message, a
+ * column in a spreadsheet, the caption under a poster. Retyping it a bout at a
+ * time is the dullest thing the editor asks for, and it is the step a promoter
+ * gives up in the middle of.
+ *
+ * Every line here is written to the same two rules as the rest. Nothing states
+ * what was not read — a weight the sheet did not carry is named as something
+ * nobody said rather than shown as a fact — and nothing treats a line that would
+ * not parse as the promoter having done something wrong. A sheet is somebody
+ * else's handwriting; that it did not fit is this reader's business, not theirs.
+ * ---------------------------------------------------------------------- */
+
+export const SHEET_IMPORT = {
+  heading: "Paste the running order",
+  body:
+    "Paste the sheet as it is written — one bout a line, names, gyms and grading in " +
+    "whatever order they come. Nothing is written until the preview is confirmed, and " +
+    "every field on it can be corrected first.",
+  placeholder:
+    "Neil McLay (Urban Guerrillas) v Declan Lowe (Crowning Glory) - MMA 80kg 3x3",
+  read: "Read the sheet",
+  reading: "Reading…",
+  again: "Paste a different sheet",
+
+  /**
+   * Which end of the sheet the main event is on. Sheets are written both ways
+   * round and nothing in the text says which reliably, so it is asked rather
+   * than guessed: getting it wrong turns the card upside down and puts the
+   * opener in the video the promoter shows a sponsor.
+   */
+  orderLabel: "Which way round is the sheet?",
+  orderFirst: "First line is bout one",
+  orderMain: "First line is the main event",
+
+  /** Above the rows. Says what pressing the button will do before it is pressed. */
+  previewHeading: "What the sheet says",
+  previewNote:
+    "Correct anything here before it goes on. Both corners of every bout get an invite " +
+    "link the moment it does.",
+
+  /** Nothing readable in the box, said without counting the nothing. */
+  empty: "Nothing to add yet. Paste the sheet above and the bouts appear here.",
+
+  /** The lines that would not read. Named as lines, never as mistakes. */
+  problemsHeading: "Lines that were not read",
+  problemsNote:
+    "These are still in the box above. Change them and read the sheet again, or put them " +
+    "on with the form below.",
+  problemReason: {
+    noCorners: "No two corners on this line.",
+    emptyCorner: "Only one corner on this line.",
+  },
+
+  /** What the sheet did not carry, beside the defaults standing in for it. */
+  assumedLabel: "Not on the sheet",
+  assumedField: {
+    discipline: "discipline",
+    weight: "weight",
+    rounds: "rounds",
+  },
+  assumedNote: "Standing in until somebody says otherwise. Change them here if they are wrong.",
+
+  /** The posters. Honest about whose photograph it is and who is asked about it. */
+  postersHeading: "Or add the posters",
+  postersBody:
+    "Drop the bout posters in and mark each fighter on them. The crop goes on the card as " +
+    "their photograph, supplied by you on their behalf — they are asked to agree to it, and " +
+    "can replace it or take it down, from the link this show sends them.",
+  postersAssign: "Which bout is this poster?",
+  postersCrop: "Drag a box round each fighter",
+  postersRed: "Red corner",
+  postersBlue: "Blue corner",
+  postersNone: "No poster on this bout",
+  postersPending: "Sending the photographs…",
+} as const;
+
+/** "Add these 6 bouts", in the singular where it is one and silent where it is none. */
+export function addTheseBouts(bouts: number): string {
+  if (bouts <= 0) return SHEET_IMPORT.empty;
+  return bouts === 1 ? "Add this bout" : `Add these ${bouts} bouts`;
+}
+
+/**
+ * What the editor says once a pasted sheet has gone on.
+ *
+ * It says what the bouts brought with them for the same reason `BOUT_ADDED`
+ * does: the links are the thing a promoter has no other way of knowing happened,
+ * and on an import they happened thirty times.
+ */
+export function SHEET_ADDED(bouts: number): string {
+  if (bouts <= 0) return SHEET_IMPORT.empty;
+  const what = bouts === 1 ? "One bout is" : `${bouts} bouts are`;
+  return `${what} on the card. Both corners of each have an invite link.`;
+}
+
+/** How many photographs came off the posters, said only where some did. */
+export function POSTER_PHOTOS_ADDED(photos: number): string | null {
+  if (photos <= 0) return null;
+  return photos === 1
+    ? "One photograph came off a poster and is on the card."
+    : `${photos} photographs came off the posters and are on the card.`;
+}
+
+/* -------------------------------------------------------------------------
  * A bout that is off
  *
  * Withdrawals happen on every amateur card — weight, injury, a no-show — and
@@ -510,6 +616,34 @@ export const ACTION_ERRORS = {
   matchOutOfDate:
     "That name has changed since the fighters were looked up. Check the names and answer again.",
   cornerAlreadyOnCard: "That fighter is already on this card.",
+  /**
+   * The pasted sheet, which asks the same questions `addBout` does and a few of
+   * its own. All of them point back at the preview, where every field is still
+   * editable and nothing has been written.
+   */
+  sheetNothingToAdd:
+    "There is nothing on the sheet to put on. Paste the running order and it will read it.",
+  sheetTooLong:
+    "That is more bouts than one paste takes. Put part of the sheet on, then paste the rest.",
+  sheetCornerNeedsAnAnswer:
+    "Somebody on this sheet has a name that is already on one of your cards. Answer the " +
+    "question beside that corner before the sheet goes on.",
+  sheetCornerTwice:
+    "One fighter is confirmed on two bouts of this sheet. Check the corners and read it again.",
+  /** A photograph the promoter cropped off a poster, on a fighter now on the card. */
+  posterNotStored:
+    "That poster would not upload. The bouts are on the card — the photographs can be added " +
+    "to each fighter later, or left to the fighter to send.",
+  posterNotAPhotograph: "That poster is not a JPEG, PNG or WebP image.",
+  posterTooLarge: "That poster is too large to send. A photograph off a phone is about right.",
+  /**
+   * A fighter who has agreed to what goes on the programme and sent a picture of
+   * their own has spoken for themselves, and a crop off a poster does not go
+   * over the top of that. Section 6g: what a fighter sent is theirs to change.
+   */
+  posterWouldReplace:
+    "That fighter has sent a photograph of their own, so it stays on the card. Their link is " +
+    "where a different one comes from.",
   bothCornersOneFighter: "A bout needs two different fighters.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
   sponsorNeedsName: "A sponsor needs a name.",
