@@ -12,12 +12,15 @@ import {
   loadCard,
   loadCardById,
   loadFighterWithAppearances,
+  loadPublishedShows,
+  publicFighterIds,
   renderKeysFor,
   type Appearance,
   type FighterProfile,
   type LoadedCard,
 } from "@/lib/db/queries";
 import { currentPromoter } from "@/lib/session";
+import type { ShowListing } from "@/lib/shows";
 
 /**
  * Who is allowed to see a show.
@@ -197,6 +200,55 @@ export async function loadPublicFighter(db: Db, id: string): Promise<PublicFight
 /** The same, once per request: the page body and its generateMetadata both ask. */
 export const publicFighterFor = cache(
   async (id: string): Promise<PublicFighter | null> => loadPublicFighter(await getDb(), id),
+);
+
+/**
+ * A list of shows that has been through the publish check.
+ *
+ * Branded like the cards and the fighter above, and for the same reason. A
+ * `ShowListing[]` is the shape a promoter's own shows list has too, so without
+ * the brand the wrong array could be handed to the public page and nothing
+ * would notice — which is precisely the class of mistake the other three brands
+ * exist to stop.
+ */
+export type PublicShow = ShowListing & { readonly [gate]: "shows" };
+export type PublicShows = readonly PublicShow[];
+
+/**
+ * Every show anybody may see, with no viewer in the question.
+ *
+ * This is the "this one is different" case written down rather than left out.
+ * Every other gate here has a viewer to soften it with — the promoter sees
+ * their own draft card, the renderer holds a key — and this one deliberately
+ * has neither. `/shows` is a page a stranger reads about promoters they have
+ * never heard of, so a promoter's unpublished show must not appear on it even
+ * to that promoter: a draft they can see on a public address is a draft they
+ * may reasonably believe is on it, and it is one browser away from being
+ * screenshotted. There is no session read in here at all.
+ */
+export async function publishedShows(db: Db): Promise<PublicShows> {
+  return (await loadPublishedShows(db)).map((show) => show as PublicShow);
+}
+
+/** The same, once per request: the page body and its generateMetadata both ask. */
+export const publicShows = cache(async (): Promise<PublicShows> => publishedShows(await getDb()));
+
+/**
+ * The ids with a public fighter page behind them.
+ *
+ * The same published-appearance rule `loadPublicFighter` applies one id at a
+ * time, asked of the whole table for the sitemap. It goes through here rather
+ * than being imported straight into `app/sitemap.ts` because a list of who has
+ * a page is the same question as whether one person does, and the two answers
+ * cannot be allowed to come from different rules.
+ */
+export async function publicFighterAddresses(db: Db): Promise<readonly string[]> {
+  return publicFighterIds(db);
+}
+
+/** The same, once per request. */
+export const publicFighters = cache(
+  async (): Promise<readonly string[]> => publicFighterAddresses(await getDb()),
 );
 
 /**

@@ -27,6 +27,7 @@ import {
 import { logWarning } from "@/lib/log";
 import { isPublishedTemplate, renderUrl, sponsorMark, type Renders } from "@/lib/renders";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
+import type { ShowListing } from "@/lib/shows";
 import type {
   AnalyticsKind,
   Billing,
@@ -353,6 +354,81 @@ export async function loadShowcase(
   if (!slug) return null;
   const card = await loadCard(db, slug);
   return card?.published ? card : null;
+}
+
+/**
+ * Every published show on the instance, for the public list at `/shows`.
+ *
+ * Published only, and with no viewer anywhere in it. `loadVisibleCard` softens
+ * the rule for the promoter who owns a draft because that is their own working
+ * copy of one card; a list of what is on has no such reading — a draft on it
+ * would be an unannounced show on an address anybody can open, which is the
+ * hole section 6c records. So this is the same shape as `loadShowcase` and
+ * `fighterAppearances`: the rule is in the where clause and there is nothing to
+ * pass it that would change the answer. The gate is `publishedShows` in
+ * lib/visibility.ts; nothing under app/ calls this directly.
+ *
+ * One query for the whole page. The bouts are counted in SQL rather than by
+ * loading a card each, because the count is the only thing this page wants from
+ * a running order and loading thirty shows would be sixty batches. `count` over
+ * the left join counts bout rows, which is what the programme's own heading
+ * counts, so the two cannot come to disagree.
+ *
+ * `events_published_date` is the index it runs on: published is the equality
+ * half and the date is the order, which is also the order both halves of the
+ * page want — one of them reversed in lib/shows.ts, where the boundary is
+ * testable.
+ */
+export async function loadPublishedShows(db: Db): Promise<ShowListing[]> {
+  const rows = await db
+    .select({
+      slug: schema.events.slug,
+      name: schema.events.name,
+      date: schema.events.date,
+      venue: schema.events.venue,
+      city: schema.events.city,
+      promoter: schema.promoters.name,
+      bouts: sql<number>`count(${schema.bouts.id})`,
+    })
+    .from(schema.events)
+    .innerJoin(schema.promoters, eq(schema.promoters.id, schema.events.promoterId))
+    .leftJoin(schema.bouts, eq(schema.bouts.eventId, schema.events.id))
+    .where(eq(schema.events.published, true))
+    .groupBy(schema.events.id)
+    .orderBy(desc(schema.events.date));
+
+  // D1 hands a count back as a number already, but the driver types it as
+  // unknown-ish and a string count would sort and render as one.
+  return rows.map((row) => ({ ...row, bouts: Number(row.bouts) }));
+}
+
+/**
+ * Every fighter with a page at `/fighters/<id>`, which is every fighter on a
+ * published bout.
+ *
+ * The same fact `loadFighterWithAppearances` refuses a page on, asked of the
+ * whole table rather than of one id, because the sitemap has to list them and
+ * nothing else knows which ids are real. Written as the same join so the two
+ * cannot drift: an id here that answers 404 there would be a sitemap full of
+ * missing pages, and an id missing here is a page nothing ever finds.
+ *
+ * Ids only. A sitemap wants addresses and a name would be a row of somebody's
+ * roster leaving this file for no reason.
+ */
+export async function publicFighterIds(db: Db): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ id: schema.fighters.id })
+    .from(schema.fighters)
+    .innerJoin(
+      schema.bouts,
+      or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
+    )
+    .innerJoin(
+      schema.events,
+      and(eq(schema.events.id, schema.bouts.eventId), eq(schema.events.published, true)),
+    );
+
+  return rows.map((row) => row.id);
 }
 
 /**

@@ -166,11 +166,19 @@ const nextConfig: NextConfig = {
         source: "/:path((?!media/).*)",
         headers: securityHeaders,
       },
-      // The programme and a fighter's page on it, for a reader who is not
-      // signed in. Nothing else: not the QR card, not /promoter, /f, /render or
-      // /api — three of those are behind a credential and the fourth writes.
+      // The public reading surfaces, for a reader who is not signed in. Nothing
+      // else: not the QR card, not /promoter, /f, /render or /api — three of
+      // those are behind a credential and the fourth writes.
       { source: "/e/:slug", missing: ANONYMOUS, headers: programmeCache },
       { source: "/e/:slug/f/:fighter", missing: ANONYMOUS, headers: programmeCache },
+      // The shows list and a fighter's permanent page go behind the same rule
+      // for the same reason, and the reasoning about a cookie holds identically:
+      // both are published-only with no viewer in the question at all, so with
+      // no session cookie the page is either public or a 404. The shows list
+      // carries its filters in the query, and a shared cache keys on the whole
+      // address, so `?city=Falkirk` is cached as the separate page it is.
+      { source: "/shows", missing: ANONYMOUS, headers: programmeCache },
+      { source: "/fighters/:id", missing: ANONYMOUS, headers: programmeCache },
     ];
   },
 };
