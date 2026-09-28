@@ -53,6 +53,7 @@ import {
   WITHDRAWN,
 } from "@/lib/copy";
 import { PASSWORD_MIN_LENGTH } from "@/lib/auth";
+import { CONSENT_TEXT, MINIMUM_AGE } from "@/lib/consent";
 
 /**
  * A show can be published before its running order goes in, so every one of
@@ -835,6 +836,21 @@ describe("what the password rules say", () => {
 
   it("says length is all that is asked, rather than implying hidden rules", () => {
     expect(ACCOUNT_COPY.hint).toMatch(/nothing else is asked/i);
+  });
+});
+
+describe("what the age rules say", () => {
+  /**
+   * The same join, for the other number a form refuses on. Both of these
+   * sentences had "18" typed into them while the gate reads `MINIMUM_AGE`, so
+   * moving the constant would have refused a fighter at one age and told them
+   * another — a refusal they cannot act on, which is what the password test
+   * above exists to prevent for the other number.
+   */
+  it("says the age the gate actually refuses at", () => {
+    for (const sentence of [ACTION_ERRORS.underAge, UNDER_AGE.body, CONSENT_TEXT.age.hint]) {
+      expect(sentence).toContain(`aged ${MINIMUM_AGE} and over`);
+    }
   });
 });
 

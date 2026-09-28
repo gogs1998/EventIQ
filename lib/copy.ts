@@ -1,4 +1,4 @@
-import { RETENTION_DAYS } from "@/lib/consent";
+import { MINIMUM_AGE, RETENTION_DAYS } from "@/lib/consent";
 
 /**
  * The sentences that have to change when a count is zero.
@@ -640,8 +640,8 @@ export const ACTION_ERRORS = {
    * than to the fighter, and it collects nothing further either way.
    */
   underAge:
-    "This form is for fighters aged 18 and over. For anyone younger, a parent or guardian can " +
-    "arrange the entry with the promoter directly.",
+    `This form is for fighters aged ${MINIMUM_AGE} and over. For anyone younger, a parent or ` +
+    "guardian can arrange the entry with the promoter directly.",
   detailsNotRemoved:
     "That did not go through. Nothing has been changed — try again in a moment, or ask the promoter.",
 
@@ -859,9 +859,9 @@ export const RESET_COPY = {
 export const UNDER_AGE = {
   heading: "A parent or guardian needs to do this part",
   body:
-    "This form is for fighters aged 18 and over. For anyone younger, a parent or guardian " +
-    "should speak to the promoter, who can take the details a different way. Nothing on this " +
-    "form is stored while that is the age on it.",
+    `This form is for fighters aged ${MINIMUM_AGE} and over. For anyone younger, a parent or ` +
+    "guardian should speak to the promoter, who can take the details a different way. Nothing " +
+    "on this form is stored while that is the age on it.",
 } as const;
 
 /**
