@@ -130,7 +130,23 @@ describe("requestRender", () => {
     const { show } = await twoPromoters();
     await signInAs("pr_budo");
 
-    await expect(requestRender(show.slug, "all")).rejects.toThrow("No such show");
+    // The same sentence, and the same value rather than a throw, as every other
+    // action here: the button that runs this greys out and comes back, so a
+    // refusal it could not render was a refusal nobody saw.
+    expect(await requestRender(show.slug, "all")).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.noSuchShow,
+    });
+    expect(await platform().db.select().from(schema.renderJobs)).toEqual([]);
+  });
+
+  it("tells a promoter whose session has run out, rather than reading as a crash", async () => {
+    const { show } = await twoPromoters();
+
+    expect(await requestRender(show.slug, "all")).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.signedOut,
+    });
     expect(await platform().db.select().from(schema.renderJobs)).toEqual([]);
   });
 

@@ -579,6 +579,14 @@ export const ACTION_ERRORS = {
 
   notSaved: "That did not save. Try again in a moment.",
   showNotCreated: "The show could not be created. Try again in a moment.",
+  /**
+   * Asking for a video again. It says the video the programme is playing is
+   * untouched, because that is the thing a promoter would otherwise assume this
+   * had taken away — nothing here makes a video, it queues one, and a failed
+   * queue leaves the card exactly as it was.
+   */
+  renderNotQueued:
+    "That video was not queued. Whatever is on the programme is still there — try again in a moment.",
 
   showNeedsNameAndDate: "A show needs a name and a date.",
   /** The empty-slug rule, said as the reason it exists rather than as a refusal. */
