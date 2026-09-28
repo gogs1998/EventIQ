@@ -156,7 +156,21 @@ async function open(page) {
   await page.waitForFunction(() => window.__ready === true, { timeout: 120_000 });
   const broken = await page.evaluate(() => window.__checkImages?.() ?? []);
   if (broken.length) throw new Error(brokenImageMessage(broken));
-  return page.evaluate(() => window.__duration ?? 480);
+
+  // The registry's own frame count, and no fallback. These three are twelve,
+  // sixteen and eight seconds, so the bout renderer's 480 is the wrong number
+  // for every one of them — it would cut the running order short and pad the
+  // doors card with eight seconds of its last frame. A page that has signalled
+  // ready and then has no duration is broken, and saying so is better than
+  // encoding a video of the wrong length and reporting success.
+  const duration = await page.evaluate(() => window.__duration);
+  if (!Number.isInteger(duration) || duration <= 0) {
+    throw new Error(
+      `${url} reported no frame count, so there is nothing to say how long this is. ` +
+        "The capture page publishes it as window.__duration from the template registry.",
+    );
+  }
+  return duration;
 }
 
 /**
