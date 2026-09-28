@@ -5,6 +5,7 @@ import { removeSponsorMark, replaceSponsorMark } from "@/app/promoter/sponsor-ac
 import { Field } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
 import { SponsorLockup } from "@/components/SponsorLockup";
+import { IMAGE_TYPES } from "@/lib/image-type";
 import { mediaKeyOf } from "@/lib/portrait";
 import type { Sponsor } from "@/lib/types";
 
@@ -71,10 +72,12 @@ export function SponsorRow({ slug, sponsor }: { slug: string; sponsor: Sponsor }
         className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
       >
         <Field label={uploaded ? "A different emblem" : "Emblem"}>
+          {/* Off lib/image-type.ts, which is where what an upload may be is
+              actually decided — see the note on the add form. */}
           <input
             type="file"
             name="mark"
-            accept="image/png,image/webp,image/jpeg"
+            accept={IMAGE_TYPES.join(",")}
             className="text-ash file:border-hairline file:bg-panel file:text-chalk w-full text-xs file:mr-3 file:border file:px-3 file:py-1.5 file:text-xs"
           />
         </Field>

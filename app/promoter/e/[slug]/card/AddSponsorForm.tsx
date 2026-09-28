@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { addSponsor } from "@/app/promoter/sponsor-actions";
 import { Field, inputClass } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
+import { IMAGE_TYPES } from "@/lib/image-type";
 
 export function AddSponsorForm({ slug }: { slug: string }) {
   const [pending, start] = useTransition();
@@ -43,11 +44,17 @@ export function AddSponsorForm({ slug }: { slug: string }) {
         {/* The emblem only. The name is set in the programme's own type beside
             it, so a real business's name can never come out misspelled by a
             picture — which is why this asks for a mark and not a logo with
-            wording in it. */}
+            wording in it.
+
+            The three types come off lib/image-type.ts rather than being written
+            out here. This is a hint to the file picker and nothing more — the
+            action sniffs the bytes and is reachable without this form — but a
+            third list of what is accepted is a third place to relax one, which
+            is exactly what bug 21 was. */}
         <input
           type="file"
           name="mark"
-          accept="image/png,image/webp,image/jpeg"
+          accept={IMAGE_TYPES.join(",")}
           className="text-ash file:border-hairline file:bg-panel file:text-chalk w-full text-xs file:mr-3 file:border file:px-3 file:py-1.5 file:text-xs"
         />
       </Field>
