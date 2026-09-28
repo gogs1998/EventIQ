@@ -137,18 +137,12 @@ export async function loadBoutFingerprints(db: Db, eventId: string): Promise<Bou
 /**
  * Asks for a bout, or a whole card, to be rendered again.
  *
- * **Where this belongs.** Nothing calls it yet, deliberately — the actions files
- * it belongs in are being rewritten on another branch. It should be called from
- * four places, all of which change what a video would look like:
- *
- * - `setPublished` in app/promoter/actions.ts, when a show goes live: a card
- *   nobody could read did not need its videos made.
- * - `submitQuestionnaire` in app/f/[token]/actions.ts: a fighter sending their
- *   photograph and record is the change the whole pipeline exists for.
- * - `saveBout` / `deleteBout` in app/promoter/actions.ts, for the bout touched.
- * - `updateEvent` and anything that edits a sponsor, for every bout on the card:
- *   the show's name, date, venue and backdrop are on screen in three of the five
- *   scenes, and a bout sponsor is the closing card.
+ * **Where it is called from.** Everything that changes what a video would look
+ * like, which is nearly every write in the product: publishing a show, a
+ * fighter's submission and their portrait, a bout added, edited or taken off,
+ * the event details, and a sponsor edit. Those reach it through
+ * `requestRenderQuietly` below; the promoter's "Render again" button is the one
+ * caller that wants the failure, so it calls this directly.
  *
  * Queuing is cheap and idempotent, so it is better to ask twice than to leave a
  * fighter's photograph out of their own video until somebody notices. The
@@ -231,13 +225,6 @@ function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: nu
     });
 }
 
-/**
- * The jobs for one show, keyed by bout number.
- *
- * `loadRenderJobs` in queries.ts returns the rows; this is only the shaping the
- * dashboard wants, kept here so that file does not grow a second reason to
- * change.
- */
 /**
  * The same, for a server action that has already saved what the promoter or the
  * fighter typed.
