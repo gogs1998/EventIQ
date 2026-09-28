@@ -317,6 +317,50 @@ describe("what the owning promoter's actions actually do", () => {
   });
 });
 
+describe("addSponsor", () => {
+  /**
+   * A sponsor and its placement on the strip are one thing a promoter asked
+   * for. As two statements, a placement that would not write left a sponsor in
+   * the book that they had ticked onto the card and that was not on it, with
+   * the tick already cleared — the same half-write as bug 24.
+   */
+  it("puts the sponsor and its place on the strip in together", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+
+    expect(
+      await addSponsor(show.slug, form({ name: "Mouthguards.pro", showSponsor: "on" })),
+    ).toMatchObject({ ok: true });
+
+    const [sponsor] = await db.select().from(schema.sponsors);
+    const placements = await db.select().from(schema.eventSponsors);
+    expect(placements).toEqual([
+      { eventId: show.eventId, sponsorId: sponsor.id, position: 0 },
+    ]);
+  });
+
+  it("leaves a sponsor off the strip where the tick was not on", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+
+    await addSponsor(show.slug, form({ name: "FightIQ.win" }));
+
+    expect(await db.select().from(schema.sponsors)).toHaveLength(1);
+    expect(await db.select().from(schema.eventSponsors)).toEqual([]);
+  });
+
+  it("puts the second one after the first rather than on top of it", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+
+    await addSponsor(show.slug, form({ name: "Mouthguards.pro", showSponsor: "on" }));
+    await addSponsor(show.slug, form({ name: "FightIQ.win", showSponsor: "on" }));
+
+    const placements = await db.select().from(schema.eventSponsors);
+    expect(placements.map((row) => row.position).sort()).toEqual([0, 1]);
+  });
+});
+
 describe("createEvent", () => {
   it("refuses a caller with no session before it writes anything", async () => {
     await twoPromoters();

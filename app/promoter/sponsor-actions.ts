@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { newId } from "@/lib/auth";
@@ -143,29 +144,47 @@ export async function addSponsor(slug: string, form: FormData): Promise<ActionRe
       const mark = await storeSponsorMark(promoter.id, id, form.get("mark"));
       if (!mark.ok) return mark;
 
-      await db.insert(schema.sponsors).values({
-        id,
-        promoterId: promoter.id,
-        name,
-        qualifier: text(form, "qualifier", 60) || null,
-        // assets-src/ is not in the repository, so for a sponsor a promoter adds
-        // themselves this upload is the only artwork there will ever be.
-        markKey: mark.key,
-        url: text(form, "url", 200) || null,
-        createdAt: Date.now(),
-      });
+      // Where the sponsor goes on the strip, read before anything is written:
+      // a batch is a list of writes with nothing read back between them, and the
+      // position is a count of the rows already there.
+      const onStrip = form.get("showSponsor") === "on";
+      const position = onStrip
+        ? (
+            await db
+              .select({ position: schema.eventSponsors.position })
+              .from(schema.eventSponsors)
+              .where(eq(schema.eventSponsors.eventId, card.eventId))
+          ).length
+        : 0;
 
-      if (form.get("showSponsor") === "on") {
-        const existing = await db
-          .select({ position: schema.eventSponsors.position })
-          .from(schema.eventSponsors)
-          .where(eq(schema.eventSponsors.eventId, card.eventId));
-        await db.insert(schema.eventSponsors).values({
-          eventId: card.eventId,
-          sponsorId: id,
-          position: existing.length,
-        });
+      // Both rows in one batch, which D1 runs as a single transaction. As two
+      // statements, a placement that would not write left a sponsor in the book
+      // that the promoter had asked to put on the card and that was not on it —
+      // and the control that says so is a tick they have already cleared. Same
+      // shape and same fix as `saveDraft` (bug 24).
+      const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+        db.insert(schema.sponsors).values({
+          id,
+          promoterId: promoter.id,
+          name,
+          qualifier: text(form, "qualifier", 60) || null,
+          // assets-src/ is not in the repository, so for a sponsor a promoter adds
+          // themselves this upload is the only artwork there will ever be.
+          markKey: mark.key,
+          url: text(form, "url", 200) || null,
+          createdAt: Date.now(),
+        }),
+      ];
+      if (onStrip) {
+        writes.push(
+          db.insert(schema.eventSponsors).values({
+            eventId: card.eventId,
+            sponsorId: id,
+            position,
+          }),
+        );
       }
+      await db.batch(writes);
 
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
