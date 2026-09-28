@@ -47,6 +47,7 @@ import {
   tapeForEveryBout,
   UNDER_AGE,
   VIDEO_SHARE,
+  howLongAgo,
   videoReadyMessage,
   videoSentNote,
   winsEdge,
@@ -1251,9 +1252,29 @@ describe("videoSentNote", () => {
     expect(videoSentNote(undefined)).toBeNull();
   });
 
+  /**
+   * Against a `now` the test names rather than the wall clock, which is what
+   * every other derivation here is held to: a case right on the day boundary
+   * would otherwise pass or fail depending on when the suite ran.
+   */
   it("counts the days rather than printing a timestamp", () => {
-    expect(videoSentNote(Date.now())).toBe("Sent today");
-    expect(videoSentNote(Date.now() - 86_400_000)).toBe("Sent 1 day ago");
-    expect(videoSentNote(Date.now() - 3 * 86_400_000)).toBe("Sent 3 days ago");
+    const now = Date.UTC(2026, 8, 19, 12);
+    const day = 86_400_000;
+    expect(videoSentNote(now, now)).toBe("Sent today");
+    expect(videoSentNote(now - day, now)).toBe("Sent yesterday");
+    expect(videoSentNote(now - 3 * day, now)).toBe("Sent 3 days ago");
+  });
+
+  /**
+   * The chase row and this one sit on the same dashboard and had a phrasing
+   * each, so the same elapsed time read as "Sent yesterday" in one and "Sent 1
+   * day ago" in the other. One function says it now.
+   */
+  it("says it the way the chase row beside it says it", () => {
+    const now = Date.UTC(2026, 8, 19, 12);
+    const day = 86_400_000;
+    for (const ago of [0, day, 3 * day, 40 * day]) {
+      expect(videoSentNote(now - ago, now)).toBe(`Sent ${howLongAgo(now - ago, now)}`);
+    }
   });
 });

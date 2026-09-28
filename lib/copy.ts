@@ -439,12 +439,34 @@ export function shareCountLabel(shares: number): string {
   return `Shared ${shares} ${shares === 1 ? "time" : "times"}`;
 }
 
+/**
+ * Whole days between two instants, in the words a promoter would use out loud.
+ *
+ * Measured from the difference rather than from calendar days on purpose: "two
+ * days ago" about something that happened thirty hours back is the answer a
+ * promoter deciding whether to ring somebody actually wants.
+ *
+ * Here rather than beside either of the rows that use it, because both of them
+ * are on the same dashboard and they had a phrasing each: the chase row said
+ * "Sent yesterday" and the video row said "Sent 1 day ago" about the same
+ * elapsed time, a few lines apart. `now` is an argument for the reason every
+ * other derivation here takes one — a sentence that reads the clock is a
+ * sentence no test can pin.
+ */
+export function howLongAgo(then: number, now: number): string {
+  const days = Math.floor((now - then) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
 /** When a fighter was last sent their video, or nothing where they have not been. */
-export function videoSentNote(sentAt: number | null | undefined): string | null {
+export function videoSentNote(
+  sentAt: number | null | undefined,
+  now: number = Date.now(),
+): string | null {
   if (!sentAt) return null;
-  const days = Math.floor((Date.now() - sentAt) / 86_400_000);
-  if (days <= 0) return "Sent today";
-  return `Sent ${days} ${days === 1 ? "day" : "days"} ago`;
+  return `Sent ${howLongAgo(sentAt, now)}`;
 }
 
 /**

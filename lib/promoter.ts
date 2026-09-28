@@ -1,5 +1,5 @@
 import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
-import { INVITE_CHANNEL } from "@/lib/copy";
+import { INVITE_CHANNEL, howLongAgo } from "@/lib/copy";
 import { inviteLive } from "@/lib/invite-token";
 import {
   boutBillingLabel,
@@ -56,18 +56,6 @@ export const INVITE_LABEL: Record<InviteStatus, string> = {
   submitted: "Done",
 };
 
-/**
- * Whole days between two instants, in the words a promoter would use out loud.
- * Measured from the difference rather than from calendar days on purpose: "two
- * days ago" about something that happened thirty hours back is the answer a
- * promoter deciding whether to ring somebody actually wants.
- */
-function howLongAgo(then: number, now: number): string {
-  const days = Math.floor((now - then) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  return `${days} days ago`;
-}
 
 /**
  * When the link went out and how, or nothing where it has not.
