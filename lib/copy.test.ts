@@ -38,6 +38,10 @@ import {
   RESET_COPY,
   RETURNING_FIGHTER,
   SHOW_NOT_FOUND,
+  SHOWS,
+  SHOWS_LINK,
+  SHOWS_META,
+  listedBoutCount,
   slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
@@ -90,6 +94,13 @@ const EMPTY_STRINGS = [
   EMPTY_SPONSORS,
   RENDER_SECTION.empty,
   slotsAvailableNote(0),
+  // The public shows list on an instance where nobody has published yet, and
+  // the two halves of it that can be empty on their own.
+  SHOWS.empty.heading,
+  SHOWS.empty.body,
+  SHOWS.nothingHere,
+  SHOWS.noneUpcoming,
+  SHOWS.nonePast,
 ];
 
 const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
@@ -1148,5 +1159,99 @@ describe("the returning-fighter copy", () => {
   it("counts one show as one and several as several", () => {
     expect(FIGHTER_PROFILE.intro(1)).toMatch(/^One show/);
     expect(FIGHTER_PROFILE.intro(4)).toMatch(/^4 shows/);
+  });
+});
+
+
+/**
+ * The public shows list.
+ *
+ * It is the one page that speaks about every promoter at once, which makes it
+ * the easiest place in the product to write a sentence nobody can check. The
+ * rules it is held to here are the two that would cost something: nothing about
+ * attendance, reach or engagement, and no count of a card that has none.
+ */
+describe("the shows list", () => {
+  const SHOWS_STRINGS = [
+    SHOWS.heading,
+    SHOWS.lead,
+    SHOWS.upcoming,
+    SHOWS.past,
+    SHOWS.cities,
+    SHOWS.everyCity,
+    SHOWS.everyWhen,
+    SHOWS.open,
+    SHOWS.older,
+    SHOWS.newer,
+    SHOWS.empty.heading,
+    SHOWS.empty.body,
+    SHOWS.nothingHere,
+    SHOWS.noneUpcoming,
+    SHOWS.nonePast,
+    SHOWS_LINK,
+    SHOWS_META.title,
+    SHOWS_META.description,
+    SHOWS_META.cityTitle("Grangemouth"),
+    SHOWS_META.cityDescription("Grangemouth"),
+  ];
+
+  /** The dangerous sentence on this page is one about how well a show did. */
+  it("says nothing about attendance, reach or engagement", () => {
+    for (const line of SHOWS_STRINGS) {
+      expect(line).not.toMatch(
+        /(attendance|attendees|sold out|sell-?out|crowd|audience|views?|viewers?|reach|engagement|scans?|impressions?|followers?)/i,
+      );
+      // No number at all outside a city name: every count on this page comes
+      // off a row, and a number written into the copy is a number nobody can
+      // check against anything.
+      expect(line).not.toMatch(/\d/);
+    }
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of SHOWS_STRINGS) {
+      expect(line).not.toMatch(/paper|print(ed|s)? programme/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color|!/i);
+      expect(line).not.toMatch(/(he|she|him|her|his)/i);
+      // The laddy register belongs inside a programme, not on a marketing page.
+      expect(line).not.toMatch(/(war|scrap|banger|smash|brutal|savage)/i);
+    }
+  });
+
+  it("reads as sentences rather than as placeholders", () => {
+    for (const line of SHOWS_STRINGS) {
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  /** A filter that matches nothing is a state, never the reader's mistake. */
+  it("does not blame the reader for a filter that matches nothing", () => {
+    expect(SHOWS.nothingHere).not.toMatch(/you/i);
+    expect(SHOWS.nothingHere).not.toMatch(/wrong|invalid|bad/i);
+  });
+
+  it("names the city it is filtered to in its own title", () => {
+    expect(SHOWS_META.cityTitle("Falkirk")).toContain("Falkirk");
+    expect(SHOWS_META.cityDescription("Falkirk")).toContain("Falkirk");
+  });
+});
+
+/**
+ * A published card with nothing on the running order yet is ordinary use, and on
+ * a list of other promoters' shows the honest thing is to say nothing rather
+ * than to announce what is missing.
+ */
+describe("listedBoutCount", () => {
+  it("counts a card that has bouts", () => {
+    expect(listedBoutCount(15)).toBe("15 bouts");
+    expect(listedBoutCount(1)).toBe("1 bout");
+  });
+
+  it("says nothing at all about a card with none", () => {
+    expect(listedBoutCount(0)).toBeNull();
+    expect(listedBoutCount(-1)).toBeNull();
   });
 });

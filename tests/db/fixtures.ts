@@ -55,10 +55,16 @@ export async function plantShow(
     /** Bouts, each with two fighters and two invites. Fifteen is a full card. */
     bouts?: number;
     date?: string;
+    /** What the card is called, where a test reads it rather than the slug. */
+    name?: string;
+    /** Where it is on, for anything that groups shows by place. */
+    venue?: string;
+    city?: string;
     now?: number;
   },
 ): Promise<PlantedShow> {
   const { promoterId, slug, published, bouts = 1, date = "2026-11-14" } = options;
+  const { name = slug, venue = "Town Hall", city = "Grangemouth" } = options;
   const now = options.now ?? Date.now();
   const eventId = `ev_${slug}`;
 
@@ -110,19 +116,22 @@ export async function plantShow(
       id: eventId,
       promoterId,
       slug,
-      name: slug,
+      name,
       date,
       doorsTime: "18:00",
       firstBellTime: "19:00",
-      venue: "Town Hall",
-      city: "Grangemouth",
+      venue,
+      city,
       published,
       createdAt: now,
       updatedAt: now,
     }),
-    db.insert(schema.fighters).values(fighterRows),
-    db.insert(schema.bouts).values(boutRows),
-    db.insert(schema.invites).values(inviteRows),
+    // Only where there is something to insert: a show published before its
+    // running order goes in is ordinary use rather than a broken fixture, and
+    // drizzle refuses an empty values().
+    ...(fighterRows.length ? [db.insert(schema.fighters).values(fighterRows)] : []),
+    ...(boutRows.length ? [db.insert(schema.bouts).values(boutRows)] : []),
+    ...(inviteRows.length ? [db.insert(schema.invites).values(inviteRows)] : []),
   ]);
 
   return { eventId, slug, promoterId, fighterIds, tokens };
