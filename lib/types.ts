@@ -145,16 +145,30 @@ export type InviteStatus =
   /** Finished. */
   | "submitted";
 
-export type AnalyticsKind =
-  | "programme_open"
-  | "bout_expand"
-  | "tape_play"
+/**
+ * Everything `/api/track` will write a row for.
+ *
+ * A list rather than a bare union, because the endpoint has to check a kind at
+ * runtime and was doing it against a second list of the same six strings.
+ * `satisfies` caught a typo there and could not catch an omission: a seventh
+ * kind added to the union alone would have left the endpoint dropping it, with
+ * no compile error and no failing test — a count that is never written and
+ * nothing anywhere saying so. The union is derived from this, so there is one
+ * place to add one.
+ */
+export const ANALYTICS_KINDS = [
+  "programme_open",
+  "bout_expand",
+  "tape_play",
   /**
    * A video taken off the page to be posted somewhere else — the download, or
    * the share control beside it. It counts the tap rather than the post: nothing
    * here can see what happens after the file leaves, and a number that claimed
    * to would be the kind of figure section 9 exists to keep out.
    */
-  | "video_share"
-  | "sponsor_tap"
-  | "profile_view";
+  "video_share",
+  "sponsor_tap",
+  "profile_view",
+] as const;
+
+export type AnalyticsKind = (typeof ANALYTICS_KINDS)[number];

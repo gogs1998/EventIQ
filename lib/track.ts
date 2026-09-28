@@ -1,5 +1,5 @@
 import { isAutomatedAgent } from "@/lib/bots";
-import type { AnalyticsKind } from "@/lib/types";
+import { ANALYTICS_KINDS, type AnalyticsKind } from "@/lib/types";
 
 /**
  * What /api/track will accept before it looks anything up.
@@ -80,14 +80,13 @@ export function countableRequest(signals: RequestSignals): boolean {
   return Boolean(signals.secFetchMode || site || signals.secFetchDest);
 }
 
-const KINDS = new Set<string>([
-  "programme_open",
-  "bout_expand",
-  "tape_play",
-  "video_share",
-  "sponsor_tap",
-  "profile_view",
-] satisfies AnalyticsKind[]);
+/**
+ * Built from the list in lib/types.ts rather than typed out again. The second
+ * copy was held to the union by `satisfies`, which catches a string that is not
+ * a kind and cannot catch a kind that is missing — so a seventh added to the
+ * union alone would have been refused here silently and for ever.
+ */
+const KINDS = new Set<string>(ANALYTICS_KINDS);
 
 /** Slugs and ids are generated here, so they are known shapes rather than free text. */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
