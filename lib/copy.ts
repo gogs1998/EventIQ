@@ -1229,3 +1229,88 @@ export const FIGHTER_PROFILE = {
       ? "One show on EventIQ so far."
       : `${shows} shows on EventIQ so far.`,
 } as const;
+
+/* -------------------------------------------------------------------------
+ * The public shows list
+ *
+ * `/shows` is the one page here that is about every promoter at once, which
+ * makes it the easiest place in the product to write something that cannot be
+ * checked. It says what is on and where, and nothing whatever about how many
+ * people came, how many phones opened a card or how far anything travelled —
+ * those are numbers a promoter hands a sponsor off their own dashboard, and a
+ * public page repeating them would be EventIQ making a claim about somebody
+ * else's show.
+ *
+ * It is a marketing surface, so it carries the masthead (lib/masthead.ts) and
+ * the plain professional register the pitch page uses. No fight idiom: that
+ * belongs inside a programme, where the promoter's own product is.
+ * ---------------------------------------------------------------------- */
+
+export const SHOWS = {
+  heading: "Every show on EventIQ",
+  /**
+   * What the page is, without telling the reader what to feel about it. It
+   * deliberately does not promise the list is complete or growing: it is every
+   * published show on this instance, which is a fact, and nothing more.
+   */
+  lead:
+    "Every card a promoter has published here, with its running order behind it. " +
+    "Open one and you get the whole bill, every fighter, and a tale of the tape " +
+    "for the bouts that have one.",
+  /** The two halves of the list. */
+  upcoming: "Still to come",
+  past: "Already run",
+  /** The filter bar. */
+  cities: "Where",
+  everyCity: "Everywhere",
+  everyWhen: "All shows",
+  /** Per row. */
+  open: "Open the programme",
+  /** Paging, which only the past half does. */
+  older: "Older shows",
+  newer: "Back to the most recent",
+  /**
+   * Nothing published at all. Written for whoever is standing the instance up,
+   * the same reader NO_SHOWCASE is written for, because on a live instance this
+   * is a state that lasts until the first promoter presses publish.
+   */
+  empty: {
+    heading: "No published shows yet",
+    body:
+      "A card appears here the moment its promoter publishes it. Until then there is " +
+      "nothing on this page to open.",
+  },
+  /** A filter that matches nothing. Never a count, and never the reader's fault. */
+  nothingHere: "Nothing published matches that filter.",
+  /** One half empty while the other is not. */
+  noneUpcoming: "Nothing in the diary here at the moment.",
+  nonePast: "Nothing here has run yet.",
+} as const;
+
+/**
+ * How many bouts a listed show has, or nothing at all.
+ *
+ * `boutCountLabel` answers "No bouts yet", which is the right thing on the
+ * promoter's own card and the wrong thing on a public list of other people's:
+ * a published card with an empty running order is a promoter mid-afternoon, and
+ * announcing it to strangers as the thing that is missing is the shaming rule
+ * in different clothes. So the count comes off the row entirely and the show is
+ * listed on its name, date and venue, which is a paper programme's worth
+ * already.
+ */
+export function listedBoutCount(bouts: number): string | null {
+  return bouts > 0 ? boutCountLabel(bouts) : null;
+}
+
+/** The page's own title and description, and the same per city. */
+export const SHOWS_META = {
+  title: "Fight shows on EventIQ",
+  description:
+    "Every fight show published on EventIQ, with the full running order behind each one.",
+  cityTitle: (city: string) => `Fight shows in ${city} — EventIQ`,
+  cityDescription: (city: string) =>
+    `Fight shows published on EventIQ in ${city}, with the full running order behind each one.`,
+} as const;
+
+/** The pitch page's way through to the list, and the programme footer's. */
+export const SHOWS_LINK = "See every show on EventIQ";

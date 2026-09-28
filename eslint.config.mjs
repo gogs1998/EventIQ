@@ -49,12 +49,20 @@ const eslintConfig = defineConfig([
                 // the published-appearance check; these two ask nobody.
                 "loadFighterWithAppearances",
                 "fighterAppearances",
+                // And the two that answer about the whole instance rather than
+                // about one show: the public shows list and the ids with a
+                // fighter page behind them. Both are published-only, and a page
+                // that reached past the gate to get them would be the same
+                // omission on a wider blast radius.
+                "loadPublishedShows",
+                "publicFighterIds",
               ],
               message:
                 "Load a card through lib/visibility.ts: loadVisibleCard on a public page, " +
                 "loadRenderableCard on the capture page, loadOwnedCard on a promoter's, " +
                 "loadInvitedCard behind an invite token, loadPublicFighter or appearancesFor " +
-                "for a fighter's own page. See HANDOVER section 6c.",
+                "for a fighter's own page, publicShows or publicFighters for the shows list " +
+                "and the sitemap. See HANDOVER section 6c.",
             },
           ],
         },

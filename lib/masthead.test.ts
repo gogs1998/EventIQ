@@ -5,6 +5,9 @@ describe("mastheadFor", () => {
   it("brands the pages EventIQ is selling from", () => {
     expect(mastheadFor("/")).toBe("full");
     expect(mastheadFor("/about-the-importer")).toBe("full");
+    // The public shows list is a marketing surface: it is the platform's own
+    // page about every promoter on it rather than any one promoter's product.
+    expect(mastheadFor("/shows")).toBe("full");
   });
 
   it("leaves the promoter's product to the promoter", () => {
@@ -12,6 +15,18 @@ describe("mastheadFor", () => {
     expect(mastheadFor("/e/cage-county-12/f/marcus-reeves")).toBe("none");
     expect(mastheadFor("/e/cage-county-12/qr")).toBe("none");
     expect(mastheadFor("/qr")).toBe("none");
+  });
+
+  /**
+   * A fighter's permanent page is the one page here that could be argued to be
+   * ours — it spans promotions and belongs to no promoter — and it is still the
+   * least appropriate place to shout, because it is the address a fighter puts
+   * in their own bio. It sits one segment away from `/shows`, which is branded,
+   * so the pair is worth pinning together.
+   */
+  it("keeps a fighter's own page discreet", () => {
+    expect(mastheadFor("/fighters/owen-pryce")).toBe("none");
+    expect(mastheadFor("/fighters")).toBe("none");
   });
 
   it("leaves the questionnaire alone", () => {

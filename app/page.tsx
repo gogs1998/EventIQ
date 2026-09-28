@@ -9,6 +9,7 @@ import {
   PITCH,
   PRIVACY,
   programmeLinkNote,
+  SHOWS_LINK,
   sponsorNote,
   tapeForEveryBout,
 } from "@/lib/copy";
@@ -168,6 +169,15 @@ export default async function PitchPage() {
             </>
           ) : null}
         </div>
+        {/* Plain, and beside the demo rather than competing with it. The
+            showcase is the argument; the list is for a reader who wants to see
+            that other people are on here too, and it is true with no showcase
+            named at all — which is why it is outside the card's own branch. */}
+        <p className="mt-4">
+          <Link href="/shows" className="text-ash hover:text-chalk text-sm transition-colors">
+            {SHOWS_LINK}
+          </Link>
+        </p>
         <p className="text-ash-dim mt-4 max-w-2xl text-sm leading-relaxed">
           {PITCH.howToGetAnAccount}
         </p>

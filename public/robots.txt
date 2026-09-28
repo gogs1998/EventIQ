@@ -1,6 +1,13 @@
 User-agent: *
 Allow: /
 
+# The two public reading surfaces that are not a programme, named rather than
+# left to the blanket Allow above: the list of every published show, and a
+# fighter's permanent page. Both are published-only and both are in the sitemap,
+# so a crawler that reads only this file still finds them.
+Allow: /shows
+Allow: /fighters/
+
 # The capture surface the video exporter screenshots. Not a page for people.
 Disallow: /render/
 
