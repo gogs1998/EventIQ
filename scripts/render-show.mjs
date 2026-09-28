@@ -2,7 +2,7 @@
  * Renders one of the show-level videos to a vertical mp4, with a poster frame.
  *
  *   node scripts/render-show.mjs --slug cage-county-12 --template countdown
- *   npm run render:show -- --slug cage-county-12 --template card --base http://localhost:3502
+ *   npm run render:show -- --slug cage-county-12 --template card --base http://localhost:8788
  *
  * Local only: no --remote and no --publish. A bout's video is something the
  * programme plays, so it is claimed, fingerprinted and put in the bucket
@@ -47,9 +47,9 @@ function arg(name, fallback) {
 
 const slug = arg("slug");
 const template = arg("template");
-// This worktree's dev server rather than 3000: two agents share the machine, and
-// the second to start silently picks a port nobody passed to --base.
-const base = arg("base", "http://localhost:3502");
+// The port `npm run dev` answers on, the same as every other script here. A
+// default from somebody's own second dev server is a default nobody else has.
+const base = arg("base", "http://localhost:3000");
 const quality = Number(arg("quality", 92));
 
 function run(command, commandArgs) {
@@ -255,7 +255,7 @@ async function main() {
   if (!slug || slug === true || !template || template === true) {
     console.error(
       "Pass --slug <event-slug> and --template <countdown|card|doors>.\n" +
-        "  --base <url>   the running app, default http://localhost:3502\n" +
+        "  --base <url>   the running app, default http://localhost:3000\n" +
         "  --out <file>   where the mp4 goes, default .renders/<slug>-<template>.mp4\n" +
         "A poster frame is written beside the mp4 as .jpg.",
     );
