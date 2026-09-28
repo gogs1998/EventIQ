@@ -18,8 +18,9 @@ import {
   revokeInvite,
 } from "@/app/promoter/invite-actions";
 import { requestRender } from "@/app/promoter/render-actions";
-import { logout } from "@/app/promoter/login/actions";
+import { login, logout } from "@/app/promoter/login/actions";
 import type { ActionResult } from "@/lib/action-result";
+import { hashPassword } from "@/lib/auth";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { currentPromoter } from "@/lib/session";
 import { plantPromoters, plantShow, type PlantedShow } from "./fixtures";
@@ -442,6 +443,51 @@ describe("createEvent", () => {
     );
 
     expect(went).toBe("/promoter/e/cage-county-12-rematch");
+  });
+});
+
+/**
+ * Where a sign-in is allowed to send somebody.
+ *
+ * `?next=` is carried on every link into the promoter's area, so it is the one
+ * value on this form a stranger gets to choose, and a login page that will
+ * forward to another host is how a convincing phishing link is built: the
+ * address bar says eventiq.win right up until the password has been typed.
+ *
+ * The backslash is the case worth having a test for. It is not a slash, so the
+ * obvious check lets it through, and then the browser resolves it as one — the
+ * URL standard says a backslash is a slash for http and https — which makes
+ * `/\evil.com` another origin by the time anything can look at it.
+ */
+describe("where signing in sends a promoter", () => {
+  async function signInWith(next: string): Promise<string | null> {
+    const db = platform().db;
+    await plantPromoters(db, [{ id: "pr_cage", name: "Cage County" }]);
+    await db
+      .update(schema.promoters)
+      .set({ passwordHash: await hashPassword(PASSWORD) })
+      .where(eq(schema.promoters.id, "pr_cage"));
+
+    return redirectedTo(() => login(null, form({ slug: "pr_cage", password: PASSWORD, next })));
+  }
+
+  const PASSWORD = "a-long-enough-password";
+
+  it("goes where the link asked, when the link asked for somewhere here", async () => {
+    expect(await signInWith("/promoter/e/cage-county-12/card")).toBe(
+      "/promoter/e/cage-county-12/card",
+    );
+  });
+
+  it.each([
+    ["//evil.example", "protocol-relative"],
+    ["/\\evil.example", "a backslash the browser reads as a slash"],
+    ["/\\/evil.example", "both"],
+    ["https://evil.example", "another origin outright"],
+    ["javascript:alert(1)", "a scheme that is not a page at all"],
+    ["/promoter\\@evil.example", "an authority hidden behind an at sign"],
+  ])("refuses %s (%s) and goes to the promoter's own index", async (next) => {
+    expect(await signInWith(next)).toBe("/promoter");
   });
 });
 

@@ -42,6 +42,10 @@ export default defineConfig({
         resolve: {
           alias: [
             { find: /^@\/lib\/db$/, replacement: double("bindings.ts") },
+            // lib/rate-limit.ts reaches for the request context itself rather
+            // than through lib/db, so anything behind a limiter — the login form
+            // included — threw on the way in without this one as well.
+            { find: /^@opennextjs\/cloudflare$/, replacement: double("cloudflare-context.ts") },
             { find: /^next\/headers$/, replacement: double("next-headers.ts") },
             { find: /^next\/cache$/, replacement: double("next-cache.ts") },
             { find: /^next\/navigation$/, replacement: double("next-navigation.ts") },

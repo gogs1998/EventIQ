@@ -27,6 +27,26 @@ const REFUSED = "Those details were not recognised. Check the promoter name and 
  * The redirect target is checked to be a path on this site: an open redirect on
  * a login form is how a convincing phishing link gets built.
  */
+
+/**
+ * Where to send them afterwards, or `/promoter` where the address is not ours.
+ *
+ * "Starts with a slash" is not the test, and that is the whole of this function.
+ * A browser resolving `Location: /\evil.com` against this origin reads the
+ * backslash as a slash — the URL standard says so for http and https — so it
+ * lands on `//evil.com`, which is another host, and the check that only refused
+ * a leading `//` let it straight through. A phishing link then reads
+ * `eventiq.win/promoter/login?next=…`, which is the whole point of building one.
+ *
+ * So anything after the leading slash that could begin an authority is refused,
+ * and so is a control character, which some proxies will strip on the way out
+ * and leave a different address behind. Whatever is refused goes to the
+ * promoter's own index, which is where somebody signing in wanted to be anyway.
+ */
+function ourOwnPath(next: string): string {
+  const ours = /^\/(?![/\\])[^\s\x00-\x1f\x7f\\]*$/.test(next);
+  return ours ? next : "/promoter";
+}
 export async function login(_state: string | null, form: FormData): Promise<string | null> {
   const slug = String(form.get("slug") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
@@ -42,7 +62,7 @@ export async function login(_state: string | null, form: FormData): Promise<stri
   // A fresh cookie every time, so nothing a caller was holding before they
   // signed in survives into the session they end up with.
   await signIn(result.promoterId, result.sessionVersion);
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/promoter");
+  redirect(ourOwnPath(next));
 }
 
 export async function logout(): Promise<void> {
