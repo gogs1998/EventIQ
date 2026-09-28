@@ -6,7 +6,9 @@ import {
   APP_ERROR,
   boutCountLabel,
   boutsOffLabel,
+  chaseHeading,
   chaseNote,
+  countdown,
   CONSENT_COPY_STRINGS,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
@@ -175,6 +177,61 @@ describe("tapeForEveryBout", () => {
 
   it("drops the count rather than promising nothing", () => {
     expect(tapeForEveryBout(0)).toBe("a tale of the tape for every bout on it");
+  });
+});
+
+/**
+ * The countdown on the promoter's own screens.
+ *
+ * `daysUntilShow` goes negative the morning after — a promoter's last show stays
+ * on their list and the showcase is whatever was named — and three screens
+ * printed it straight, so a card that had run read "-27" over "DAYS TO GO". The
+ * video's own countdown had refused to do this since it was written
+ * (`daysToGoLabel` in lib/promo.ts); the app's screens had been left out of it.
+ */
+describe("countdown", () => {
+  it("counts the days while there are days", () => {
+    expect(countdown(14)).toEqual({ value: "14", label: "Days to go" });
+    expect(countdown(1)).toEqual({ value: "1", label: "Day to go" });
+  });
+
+  it("names the day rather than counting nought of them", () => {
+    expect(countdown(0)).toEqual({ value: "Today", label: "Show day" });
+  });
+
+  it("counts forwards from a show that has run, rather than backwards to it", () => {
+    expect(countdown(-1)).toEqual({ value: "1", label: "Day ago" });
+    expect(countdown(-27)).toEqual({ value: "27", label: "Days ago" });
+  });
+
+  it("never prints a minus sign or a nought", () => {
+    for (const days of [-90, -2, -1, 0, 1, 2, 90]) {
+      const { value, label } = countdown(days);
+      expect(value).not.toMatch(/-/);
+      expect(value).not.toBe("0");
+      expect(label).not.toMatch(/\b0\b|-/);
+      expect(label.trim()).toBe(label);
+    }
+  });
+});
+
+describe("chaseHeading", () => {
+  it("counts the days out while there are days out", () => {
+    expect(chaseHeading(14)).toBe("14 days out, you know exactly who has not sent theirs");
+  });
+
+  it("makes the argument without a figure once there is no figure to make it with", () => {
+    for (const days of [1, 0, -1, -40]) {
+      expect(chaseHeading(days)).not.toMatch(/-\d|\b0\b/);
+      expect(chaseHeading(days)).toContain("who has not sent theirs");
+    }
+  });
+
+  /** The same rule the nudge is held to: it is about the promoter's own view. */
+  it("never uses a gendered pronoun", () => {
+    for (const days of [14, 1, 0, -1]) {
+      expect(chaseHeading(days)).not.toMatch(/\b(he|she|him|her|hers|his)\b/i);
+    }
   });
 });
 

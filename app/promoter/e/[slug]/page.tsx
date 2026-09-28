@@ -21,6 +21,7 @@ import {
   RENDER_STATE_COPY,
   VIDEO_SHARE,
   boutCountLabel,
+  countdown,
   renderCountLabel,
   shareCountLabel,
   slotsAvailableNote,
@@ -223,6 +224,8 @@ function Head({
   event: FightEvent;
   published: boolean;
 }) {
+  const days = countdown(daysUntilShow(event.date));
+
   return (
     <header className="border-hairline border-b pb-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -233,12 +236,13 @@ function Head({
             {formatEventDate(event.date)} · {event.venue}, {event.city}
           </p>
         </div>
-        {/* Baseline row on a phone, stacked block on a desktop. */}
+        {/* Baseline row on a phone, stacked block on a desktop. The figure and
+            what it is a figure of both come from `countdown`, because the raw
+            number goes negative the morning after the show and a promoter's last
+            card stays on this screen — it read "-27" over "DAYS TO GO". */}
         <div className="flex items-baseline gap-3 sm:block sm:text-right">
-          <div className="display text-gold text-4xl leading-none">
-            {daysUntilShow(event.date)}
-          </div>
-          <div className="label sm:mt-1">Days to go</div>
+          <div className="display text-gold text-4xl leading-none">{days.value}</div>
+          <div className="label sm:mt-1">{days.label}</div>
         </div>
       </div>
 

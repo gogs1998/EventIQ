@@ -142,6 +142,45 @@ export function tapeForEveryBout(bouts: number): string {
     : "a tale of the tape for every bout on it";
 }
 
+/**
+ * The countdown on the promoter's own screens, as a figure and what it is a
+ * figure of.
+ *
+ * `daysUntilShow` measures against the real clock and therefore goes negative
+ * the morning after, which is ordinary: a promoter's last show stays on their
+ * list, the dashboard's own "Last show" panel is built on it, and the showcase
+ * is whatever was named rather than whatever is next. Three screens printed that
+ * number straight, so a card that has run read "-27" over "DAYS TO GO".
+ *
+ * The composition that counts down inside the show video already refuses to do
+ * this — `daysToGoLabel` in lib/promo.ts, which HANDOVER calls the zero-bout rule
+ * applied to a countdown — and the app's own screens had been left out of it.
+ * This is that rule in the shape a panel wants: a figure and a label, never a
+ * minus sign, and never a nought counting something that has arrived.
+ */
+export function countdown(days: number): { value: string; label: string } {
+  if (days > 1) return { value: String(days), label: "Days to go" };
+  if (days === 1) return { value: "1", label: "Day to go" };
+  if (days === 0) return { value: "Today", label: "Show day" };
+  const since = -days;
+  return { value: String(since), label: since === 1 ? "Day ago" : "Days ago" };
+}
+
+/**
+ * The pitch page's promoter heading, which counts the showcase card.
+ *
+ * The same problem as `countdown` in a sentence: "-3 days out, you know exactly
+ * who has not sent theirs" is the front page of the product saying something
+ * that is not a number of days. Past the show it makes the argument without a
+ * figure, which is the same move `tapeForEveryBout` makes on an empty card.
+ */
+export function chaseHeading(days: number): string {
+  if (days > 1) return `${days} days out, you know exactly who has not sent theirs`;
+  if (days === 1) return "The day before, you know exactly who has not sent theirs";
+  if (days === 0) return "On the day, you know exactly who has not sent theirs";
+  return "Every day up to first bell, you know exactly who has not sent theirs";
+}
+
 /** The pitch page's "have a look" link to the programme. */
 export function programmeLinkNote(bouts: number): string {
   return bouts > 0

@@ -4,6 +4,7 @@ import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { cardCompleteness, featuredBout } from "@/lib/card";
 import {
+  chaseHeading,
   chaseNote,
   NO_SHOWCASE,
   PITCH,
@@ -308,9 +309,11 @@ export default async function PitchPage() {
         <section className="border-hairline border-t">
           <div className="mx-auto max-w-3xl px-5 py-14">
             <span className="label">Your side of it</span>
+            {/* Through `chaseHeading`, because the showcase is a named show
+                rather than whatever is next: once its date is behind us the raw
+                figure is a minus sign on the product's front page. */}
             <h2 className="display mt-4 text-4xl leading-none">
-              {daysUntilShow(event.date)} days out, you know exactly who has not sent
-              theirs
+              {chaseHeading(daysUntilShow(event.date))}
             </h2>
             <p className="text-ash mt-5 text-sm leading-relaxed">
               The same card from where you sit. {chaseNote(outstanding, total)}

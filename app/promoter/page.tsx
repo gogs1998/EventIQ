@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NewEventForm } from "@/app/promoter/NewEventForm";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
-import { FIRST_SHOW } from "@/lib/copy";
+import { FIRST_SHOW, countdown } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadPromoterEvents } from "@/lib/db/queries";
 import { daysUntilShow } from "@/lib/promoter";
@@ -52,28 +52,35 @@ export default async function PromoterHome() {
         <section className="mt-8">
           <h2 className="display text-2xl">Your shows</h2>
           <div className="border-hairline divide-hairline mt-4 divide-y border">
-            {events.map((event) => (
-              <Link
-                key={event.id}
-                href={`/promoter/e/${event.slug}`}
-                className="hover:bg-panel/40 flex items-center justify-between gap-4 p-4 transition-colors"
-              >
-                <div className="min-w-0">
-                  <div className="display text-chalk truncate text-lg">{event.name}</div>
-                  <div className="text-ash-dim mt-0.5 text-xs">
-                    {formatEventDate(event.date)} · {event.venue}
+            {events.map((event) => {
+              // A promoter's list keeps every show they have run, so the figure
+              // has to be one that reads after the night as well as before it.
+              // It was the raw number and went negative. See `countdown`.
+              const days = countdown(daysUntilShow(event.date));
+              return (
+                <Link
+                  key={event.id}
+                  href={`/promoter/e/${event.slug}`}
+                  className="hover:bg-panel/40 flex items-center justify-between gap-4 p-4 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="display text-chalk truncate text-lg">{event.name}</div>
+                    <div className="text-ash-dim mt-0.5 text-xs">
+                      {formatEventDate(event.date)} · {event.venue}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="display text-gold text-2xl leading-none">
-                    {daysUntilShow(event.date)}
+                  <div className="shrink-0 text-right">
+                    <div className="display text-gold text-2xl leading-none">{days.value}</div>
+                    {/* The figure had no unit on it at all, which is readable
+                        while every show is in the future and not once one is
+                        behind. */}
+                    <div className="label mt-1">
+                      {days.label} · {event.published ? "Live" : "Not published"}
+                    </div>
                   </div>
-                  <div className="label mt-1">
-                    {event.published ? "Live" : "Not published"}
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </section>
       ) : null}
