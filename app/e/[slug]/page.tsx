@@ -8,6 +8,8 @@ import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card"
 import { EMPTY_PROGRAMME, SHOWS_LINK, boutCountLabel } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
+import { sportsEventJsonLd } from "@/lib/jsonld";
+import { SITE_URL } from "@/lib/site";
 import { formatEventDate, lastName } from "@/lib/tape";
 import { visibleCardFor } from "@/lib/visibility";
 
@@ -43,6 +45,37 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   return (
     <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl">
       <TrackOpen slug={event.slug} kind="programme_open" />
+
+      {/* The same facts the hero states, in the vocabulary a search engine
+          reads, so a card can turn up in an events listing rather than only in
+          a page of blue links.
+
+          **Published shows only.** A promoter previewing their own draft gets
+          the page and not this: a draft's name, venue and date in a block a
+          crawler reads is the show leaking whatever the visible page says, and
+          it is the same omission that put draft titles in two generateMetadata
+          functions (HANDOVER section 6c). `<` is escaped rather than trusted,
+          because a show called "</script>" is the promoter's to name. */}
+      {card.published ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(
+              sportsEventJsonLd({
+                name: event.name,
+                tagline: event.tagline,
+                date: event.date,
+                doorsTime: event.doorsTime,
+                firstBellTime: event.firstBellTime,
+                venue: event.venue,
+                city: event.city,
+                promoter: event.promoter.name,
+                url: new URL(`/e/${event.slug}`, SITE_URL).toString(),
+              }),
+            ).replace(/</g, "\\u003c"),
+          }}
+        />
+      ) : null}
 
       {/* -------------------------------------------------------- hero */}
       <header className="relative overflow-hidden">

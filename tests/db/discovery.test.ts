@@ -1,12 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
+import sitemap from "@/app/sitemap";
 import { publicFighterAddresses, publishedShows } from "@/lib/visibility";
 import { plantBout, plantFighter, plantPromoters, plantShow } from "./fixtures";
+import { setEnv } from "./bindings";
 import { signInAs, testDatabase } from "./harness";
 
 /**
- * Public discovery: who is on the list at `/shows`.
+ * Public discovery: the list at `/shows`, and the sitemap that points at it.
  *
  * Both answer about the whole instance rather than about one show, which is a
  * wider blast radius than anything else here has: a draft that leaks onto a
@@ -168,5 +170,75 @@ describe("publicFighterAddresses", () => {
 
     const ids = await publicFighterAddresses(db);
     expect(ids.filter((id) => id === "owen-pryce")).toHaveLength(1);
+  });
+});
+
+describe("the sitemap", () => {
+  async function urls(): Promise<string[]> {
+    return (await sitemap()).map((entry) => entry.url);
+  }
+
+  it("lists the front page, the shows list and every published programme", async () => {
+    const { live, rival } = await twoPromotions();
+    setEnv("SHOWCASE_SLUG", live.slug);
+    const listed = await urls();
+
+    expect(listed).toContain("https://eventiq.win/");
+    expect(listed).toContain("https://eventiq.win/shows");
+    expect(listed).toContain(`https://eventiq.win/e/${live.slug}`);
+    // The second promoter's card too, which is the change: a published show is
+    // on a public list either way, so leaving it out of the sitemap would only
+    // make the sitemap worse.
+    expect(listed).toContain(`https://eventiq.win/e/${rival.slug}`);
+  });
+
+  it("lists every public fighter page", async () => {
+    const { live } = await twoPromotions();
+    setEnv("SHOWCASE_SLUG", live.slug);
+    const listed = await urls();
+
+    for (const id of live.fighterIds) {
+      expect(listed).toContain(`https://eventiq.win/fighters/${id}`);
+    }
+  });
+
+  /** The rule the whole file is about, on the surface that hands it to Google. */
+  it("never names a draft, its slug or anybody only on one", async () => {
+    const { live, draft } = await twoPromotions();
+    setEnv("SHOWCASE_SLUG", live.slug);
+    const listed = (await urls()).join("\n");
+
+    expect(listed).not.toContain(draft.slug);
+    for (const id of draft.fighterIds) expect(listed).not.toContain(id);
+  });
+
+  it("names no draft even while its promoter is signed in", async () => {
+    const { live, draft } = await twoPromotions();
+    setEnv("SHOWCASE_SLUG", live.slug);
+    await signInAs("pr_cage");
+    expect((await urls()).join("\n")).not.toContain(draft.slug);
+  });
+
+  /**
+   * The questionnaire and the capture surface stay out however the list is
+   * built: the first is reached by a token that must not be indexed, and the
+   * second is not a page for people.
+   */
+  it("leaves the questionnaire and the render stage out", async () => {
+    const { live } = await twoPromotions();
+    setEnv("SHOWCASE_SLUG", live.slug);
+    const listed = await urls();
+
+    expect(listed.some((url) => url.includes("eventiq.win/f/"))).toBe(false);
+    expect(listed.some((url) => url.includes("/render/"))).toBe(false);
+  });
+
+  /** An instance nobody has pointed at a showcase still has a sitemap. */
+  it("is the front page and the shows list with no showcase named", async () => {
+    const db = platform().db;
+    await plantPromoters(db, [{ id: "pr_cage", name: "Cage County Promotions" }]);
+    setEnv("SHOWCASE_SLUG", undefined);
+
+    expect(await urls()).toEqual(["https://eventiq.win/", "https://eventiq.win/shows"]);
   });
 });
