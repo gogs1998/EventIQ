@@ -678,6 +678,32 @@ The nudge message also said "has already sent **his**", on a card with four wome
 
 ---
 
+## 10a. Pasting the running order in
+
+A promoter has the card written down before they open any of this: a message, a column in a spreadsheet, the caption under an Instagram poster. The owner entered a real six-bout card by hand a bout at a time, and that is the step somebody gives up in the middle of. `/promoter/e/[slug]/card` takes the paste.
+
+**The parser is [lib/sheet.ts](lib/sheet.ts) and touches nothing.** `parseSheet(text)` answers `{ bouts, problems }` and every shape a real sheet arrives in is a unit test: `Neil McLay (Urban Guerrillas) v Declan Lowe (Crowning Glory) - MMA 80kg 3x3`, `McLay vs Lowe`, `1. Enes Oner, Urban Guerrillas vs Cole Snee, Dundee MMA, K1, 63kg`, a spreadsheet's tabs with no `v` between the corners at all. Two rules run through it.
+
+- **It never invents a discipline, a weight or a format it did not read.** A line that says nothing gets the same defaults `addBout` puts on a bout typed into the form, and the field is named in `assumed` so the preview says out loud that the value was not on the sheet. A promoter who skims a preview full of confidently wrong weights publishes a card with confidently wrong weights on it.
+- **A line it cannot read is kept, not dropped.** It becomes a problem carrying its own text and line number, and the preview lists it. A parser that quietly bins the two lines it did not understand hands back a fourteen-bout card that reads as complete — the same shape of mistake as section 10's invite status.
+
+Two details worth knowing before changing it. A cell is only a discipline or a grade when it is the **whole** cell, which is what keeps "Dundee MMA" a gym; and `vs` is looked for before a bare `v`, because a gym called "Team V" at the end of the red corner would otherwise be read as the separator.
+
+**Which end of the sheet the main event is on is asked, not guessed.** Sheets are written both ways round and nothing in the text says which reliably. The preview has a toggle defaulting to "first line is bout one"; getting it wrong turns the card upside down and puts the opener in the video the promoter shows a sponsor.
+
+**Nothing is written until the preview is confirmed.** `previewSheet` reads and answers, `importSheet` writes, and every field in between is editable. What comes back is therefore typing rather than a parse, and is read as `unknown` by `sanitiseRows` — a weight nobody could fight at becomes the default rather than a refusal, because these are boxes a promoter is halfway through typing in.
+
+**The import goes through `lib/fighter-match.ts` and never around it.** A paste is the fastest door onto a card and therefore the likeliest place for that rule to be given away. Every corner is looked up again on the server against the name as it now stands, a choice naming somebody no longer offered for that name is `stale` and refused, and the **whole sheet** waits while any one namesake is unanswered — not the answered bouts on and the rest missing, which is a running order the promoter has to reconcile against the sheet by eye. All of it lands in one `db.batch`, for the same reason `addBout` uses one.
+
+**Posters are the second half.** The promoter drops the bout posters, assigns one to a bout and drags a box round each fighter; the crop is made by a canvas in their browser and uploaded through the same byte-sniffed path a fighter's own photograph takes (section 6b), which is why it is client-side at all — there is no image library on Workers. Two rules hold it:
+
+- **A poster is never public.** It is the promoter's working material and can carry faces and sponsors that are on no card of ours, so `posters/<eventId>/…` has its own rule in lib/visibility.ts — `posterVisibleTo`, the promoter who owns the show and nobody else — rather than an exception inside the one every other prefix shares.
+- **Consent is untouched.** A photograph on a fighter's row is not a consent; consent is per invite and taken when the fighter opens their link (section 6g). The copy beside the control says plainly that the promoter is supplying the picture on the fighter's behalf and that the fighter is asked to agree, and can replace it or take it down, from their own link. **A photograph a fighter has already consented to and sent is not written over** — `setFighterPhoto` refuses, because that one is theirs to change.
+
+One trap, found the hard way. The panel used to sit in a `<details open={bouts.length === 0}>` rendered by the server: an import refreshes the page, the card now has bouts on it, and the panel snapped shut over the top of the sentence saying what had just gone on. It holds its own open state now. And the import is a plain `async` handler rather than a `useTransition` — a server action called from inside a still-running transition waits for that transition, which is the one waiting for it, so the bouts went on and the photographs never left the browser.
+
+---
+
 ## 11. Video rendering: the one thing that is not serverless
 
 Headless Chrome and ffmpeg cannot run on Workers. This is not a limitation to work around, it is a fact to design for, and pretending otherwise would produce a feature that fails on the night.
