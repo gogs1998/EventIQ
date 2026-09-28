@@ -1,6 +1,7 @@
 import * as schema from "@/db/schema";
 import { secretDigest } from "@/lib/auth";
 import { newInviteValues } from "@/lib/db/queries";
+import { TAPE_TEMPLATE, type PublishedTemplate } from "@/lib/renders";
 import { currentPlatform, execWrites, type Db } from "./platform";
 
 /**
@@ -230,16 +231,22 @@ export async function plantBout(
 /**
  * A render job with a published video on it, which is the only column the
  * programme ever plays from — `status` is deliberately not what decides.
+ *
+ * The template defaults to the tape and is worth passing: a bout has a row per
+ * composition, so anything reading one video out of a bout has to say which,
+ * and a fixture that could only ever plant one row would never show it.
  */
 export async function plantRender(
   db: Db,
-  options: { eventId: string; boutNumber: number; key: string },
+  options: { eventId: string; boutNumber: number; key: string; template?: PublishedTemplate },
 ): Promise<void> {
+  const template = options.template ?? TAPE_TEMPLATE;
   await plant([
     db.insert(schema.renderJobs).values({
-      id: `rj_${options.eventId}_${options.boutNumber}`,
+      id: `rj_${options.eventId}_${options.boutNumber}_${template}`,
       eventId: options.eventId,
       boutNumber: options.boutNumber,
+      template,
       status: "done",
       currentR2Key: options.key,
       requestedAt: Date.now(),

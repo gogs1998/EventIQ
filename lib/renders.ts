@@ -58,10 +58,20 @@ export type BoutRenders = Partial<Record<PublishedTemplate, string>>;
 
 export type Renders = Record<number, BoutRenders>;
 
+/**
+ * The one composition that stands for the bout wherever only one video fits.
+ *
+ * The programme plays it, and a fighter's own page links to it. Named rather
+ * than written out at each of those, because a query that has to pick a single
+ * row out of the several a bout now has is picking *this* one, and a bare
+ * `"tape"` in a where clause reads as an example rather than as the rule.
+ */
+export const TAPE_TEMPLATE: PublishedTemplate = "tape";
+
 export function mp4For(
   renders: Renders,
   boutNumber: number,
-  template: PublishedTemplate = "tape",
+  template: PublishedTemplate = TAPE_TEMPLATE,
 ): string | undefined {
   return renders[boutNumber]?.[template];
 }

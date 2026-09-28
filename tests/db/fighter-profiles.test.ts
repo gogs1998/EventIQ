@@ -380,6 +380,31 @@ describe("the shows on a fighter's own page", () => {
     const [show] = await appearancesFor("owen-pryce");
     expect(show.video).toContain("renders/cage-county-11/2-abc.mp4");
   });
+
+  /**
+   * A bout is a queue row per composition. Joining on the show and the bout
+   * number alone listed the same night once per video that bout has, and gave
+   * one of those lines the face-off under a link that says tale of the tape.
+   */
+  it("is one line per show however many videos the bout has", async () => {
+    const { db, past } = await twoPromotions();
+    await plantRender(db, {
+      eventId: past.eventId,
+      boutNumber: 2,
+      key: "renders/cage-county-11/bout-2-faceoff-abc.mp4",
+      template: "faceoff",
+    });
+    await plantRender(db, {
+      eventId: past.eventId,
+      boutNumber: 2,
+      key: "renders/cage-county-11/bout-2-tape-abc.mp4",
+      template: "tape",
+    });
+
+    const shows = await appearancesFor("owen-pryce");
+    expect(shows.map((show) => show.slug)).toEqual(["cage-county-11"]);
+    expect(shows[0].video).toContain("bout-2-tape-abc.mp4");
+  });
 });
 
 describe("loadPublicFighter", () => {

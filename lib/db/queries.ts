@@ -25,7 +25,13 @@ import {
   openToken,
 } from "@/lib/invite-token";
 import { logWarning } from "@/lib/log";
-import { isPublishedTemplate, renderUrl, sponsorMark, type Renders } from "@/lib/renders";
+import {
+  TAPE_TEMPLATE,
+  isPublishedTemplate,
+  renderUrl,
+  sponsorMark,
+  type Renders,
+} from "@/lib/renders";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type {
   AnalyticsKind,
@@ -1283,11 +1289,16 @@ export async function fighterAppearances(db: Db, fighterId: string): Promise<App
       opponent,
       sql`${opponent.id} = case when ${schema.bouts.redId} = ${fighterId} then ${schema.bouts.blueId} else ${schema.bouts.redId} end`,
     )
+    // Named down to the one composition. A bout has a queue row per template
+    // now, so joining on the show and the number alone brought a bout back once
+    // per video it has — the same night listed twice on a fighter's page, one of
+    // them playing the face-off under a link that says tale of the tape.
     .leftJoin(
       schema.renderJobs,
       and(
         eq(schema.renderJobs.eventId, schema.bouts.eventId),
         eq(schema.renderJobs.boutNumber, schema.bouts.number),
+        eq(schema.renderJobs.template, TAPE_TEMPLATE),
       ),
     )
     .where(or(eq(schema.bouts.redId, fighterId), eq(schema.bouts.blueId, fighterId)))
