@@ -8,6 +8,7 @@ import {
   visibleCardFor,
   mediaVisibleTo,
   parseMediaKey,
+  posterVisibleTo,
   renderableTo,
   ownedBy,
   renderKeyGrants,
@@ -370,8 +371,17 @@ describe("parseMediaKey", () => {
     });
   });
 
+  it("reads a poster as the show it was pasted onto", () => {
+    expect(parseMediaKey("posters/ev_cage-county-12/0a1b2c3d.jpg")).toEqual({
+      kind: "poster",
+      eventId: "ev_cage-county-12",
+    });
+  });
+
   it("refuses a key with no rule attached to it, rather than serving it", () => {
     expect(parseMediaKey("secrets/backup.sql")).toBeNull();
+    expect(parseMediaKey("posters/ev_cage-county-12")).toBeNull();
+    expect(parseMediaKey("posters/ev_cage-county-12/deeper/one.jpg")).toBeNull();
     expect(parseMediaKey("fighters")).toBeNull();
     expect(parseMediaKey("fighters/sub/dir.jpg")).toBeNull();
     expect(parseMediaKey("renders/cage-county-12")).toBeNull();
@@ -386,6 +396,43 @@ describe("parseMediaKey", () => {
     expect(parseMediaKey("/fighters/a.jpg")).toBeNull();
     expect(parseMediaKey("fighters/a b.jpg")).toBeNull();
     expect(parseMediaKey("fighters/a%2f.jpg")).toBeNull();
+  });
+});
+
+/**
+ * A bout poster, which is the one object in the bucket that publishing a show
+ * does not open.
+ *
+ * Every other shape of key is on a page somebody is meant to see. A poster is
+ * the promoter's working material — it is where the crops on their fighters came
+ * from, and it can carry faces and sponsors that are on no card of ours — so it
+ * has a rule of its own rather than an exception inside the one the rest share,
+ * which is the next prefix inheriting it by accident.
+ */
+describe("posterVisibleTo", () => {
+  const show = { promoterId: "cage-county" };
+
+  it("hands it to the promoter who pasted it", () => {
+    expect(posterVisibleTo(show, "cage-county")).toEqual({ visible: true, public: false });
+  });
+
+  it("refuses another promoter and a caller with no session alike", () => {
+    expect(posterVisibleTo(show, "budo")).toEqual({ visible: false, public: false });
+    expect(posterVisibleTo(show, null)).toEqual({ visible: false, public: false });
+    expect(posterVisibleTo(show, undefined)).toEqual({ visible: false, public: false });
+  });
+
+  it("refuses a poster whose show is not there", () => {
+    expect(posterVisibleTo(null, "cage-county")).toEqual({ visible: false, public: false });
+  });
+
+  /**
+   * The point of the whole function: it takes no published flag, so there is no
+   * state of the show in which this answers differently, and nothing it returns
+   * may be cached for the next caller.
+   */
+  it("is never public, whatever the show is doing", () => {
+    expect(posterVisibleTo(show, "cage-county").public).toBe(false);
   });
 });
 

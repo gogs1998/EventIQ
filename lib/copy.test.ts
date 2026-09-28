@@ -3,6 +3,7 @@ import {
   ACCOUNT_COPY,
   ACTION_ERRORS,
   ADD_BOUT,
+  addTheseBouts,
   APP_ERROR,
   boutCountLabel,
   boutsOffLabel,
@@ -21,6 +22,7 @@ import {
   FIRST_SHOW,
   GALLERY,
   GETTING_STARTED,
+  howLongAgo,
   INVITE_CHANNEL,
   INVITE_SHARE,
   INVITE_STATE,
@@ -44,6 +46,8 @@ import {
   RESET_COPY,
   RETURNING_FIGHTER,
   shareCountLabel,
+  SHEET_ADDED,
+  SHEET_IMPORT,
   SHOW_NOT_FOUND,
   SHOWS,
   SHOWS_LINK,
@@ -56,7 +60,6 @@ import {
   tapeForEveryBout,
   UNDER_AGE,
   VIDEO_SHARE,
-  howLongAgo,
   videoReadyMessage,
   videoSentNote,
   winsEdge,
@@ -1558,5 +1561,107 @@ describe("listedBoutCount", () => {
   it("says nothing at all about a card with none", () => {
     expect(listedBoutCount(0)).toBeNull();
     expect(listedBoutCount(-1)).toBeNull();
+  });
+});
+
+/**
+ * The pasted sheet.
+ *
+ * Two of these matter more than the rest. The count in the button and in the
+ * confirmation has to agree with itself about one bout and about none, which is
+ * the rule every count-bearing string here is held to. And the poster copy has
+ * to say out loud whose photograph a crop is and who is asked about it — a
+ * promoter supplying a picture on a fighter's behalf is exactly the case section
+ * 6g is about, and copy that glossed over it would be the product quietly
+ * treating a promoter's upload as the fighter's consent.
+ */
+describe("the sheet import copy", () => {
+  it("agrees with itself about one bout and several", () => {
+    expect(addTheseBouts(1)).toBe("Add this bout");
+    expect(addTheseBouts(6)).toBe("Add these 6 bouts");
+    expect(SHEET_ADDED(1)).toContain("One bout is on the card");
+    expect(SHEET_ADDED(6)).toContain("6 bouts are on the card");
+  });
+
+  it("says what the bouts brought with them, which is the part nothing else shows", () => {
+    expect(SHEET_ADDED(6)).toContain("invite link");
+  });
+
+  it("offers nothing to press where there is nothing to add", () => {
+    expect(addTheseBouts(0)).toBe(SHEET_IMPORT.empty);
+    expect(SHEET_ADDED(0)).toBe(SHEET_IMPORT.empty);
+    expect(SHEET_IMPORT.empty).not.toMatch(/0/);
+  });
+
+  it("names the poster crop as the promoter's own and the consent as the fighter's", () => {
+    expect(SHEET_IMPORT.postersBody).toMatch(/on their behalf/i);
+    expect(SHEET_IMPORT.postersBody).toMatch(/agree/i);
+    // The fighter can take it off, and the sentence says so rather than leaving
+    // it to be discovered on the form.
+    expect(SHEET_IMPORT.postersBody).toMatch(/replace it or take it down/i);
+  });
+
+  it("asks which way round the sheet is rather than telling the promoter", () => {
+    expect(SHEET_IMPORT.orderLabel).toMatch(/\?$/);
+    expect(SHEET_IMPORT.orderFirst).toContain("bout one");
+    expect(SHEET_IMPORT.orderMain).toContain("main event");
+  });
+
+  /** A line that would not read is a line, never a thing the promoter got wrong. */
+  it("reports a line it could not read without making it a failing", () => {
+    const lines = [
+      SHEET_IMPORT.problemsHeading,
+      SHEET_IMPORT.problemsNote,
+      ...Object.values(SHEET_IMPORT.problemReason),
+    ];
+    for (const line of lines) {
+      expect(line).not.toMatch(/error|invalid|bad|failed|wrong/i);
+      expect(line).not.toMatch(/you (did|typed|pasted)/i);
+    }
+    expect(SHEET_IMPORT.problemsNote).toMatch(/still in the box/i);
+  });
+
+  /** What was defaulted is named as something nobody said, never as a reading. */
+  it("says a defaulted field was not on the sheet", () => {
+    expect(SHEET_IMPORT.assumedLabel).toMatch(/not on the sheet/i);
+    expect(SHEET_IMPORT.assumedNote).toMatch(/standing in/i);
+    expect(Object.keys(SHEET_IMPORT.assumedField).sort()).toEqual([
+      "discipline",
+      "rounds",
+      "weight",
+    ]);
+  });
+
+  it("keeps the established tone throughout", () => {
+    const lines = [
+      SHEET_IMPORT.heading,
+      SHEET_IMPORT.body,
+      SHEET_IMPORT.read,
+      SHEET_IMPORT.again,
+      SHEET_IMPORT.orderLabel,
+      SHEET_IMPORT.orderFirst,
+      SHEET_IMPORT.orderMain,
+      SHEET_IMPORT.previewHeading,
+      SHEET_IMPORT.previewNote,
+      SHEET_IMPORT.empty,
+      SHEET_IMPORT.problemsHeading,
+      SHEET_IMPORT.problemsNote,
+      SHEET_IMPORT.postersHeading,
+      SHEET_IMPORT.postersBody,
+      SHEET_IMPORT.postersAssign,
+      ...Object.values(SHEET_IMPORT.problemReason),
+      SHEET_ADDED(6),
+      addTheseBouts(6),
+    ];
+    for (const line of lines) {
+      expect(line).not.toMatch(/(he|she|him|her|his|hers)/i);
+      expect(line).not.toMatch(/paper|print(ed|s)? programme/i);
+      // No promise about how long a paste takes, which is the claim this feature
+      // would most obviously be sold on and the one nobody can stand behind.
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line).not.toMatch(/organiz|customiz|color|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
   });
 });

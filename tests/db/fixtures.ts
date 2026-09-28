@@ -111,7 +111,10 @@ export async function plantShow(
     inviteRows.push(values);
   }
 
-  // Parents first: a bout cannot point at a fighter who is not there yet.
+  // Parents first: a bout cannot point at a fighter who is not there yet. A show
+  // with nothing on the running order plants only the show, because a card that
+  // has been created and not filled in is ordinary use rather than an edge case
+  // — and an insert with no rows in it is not a statement drizzle will build.
   await plant([
     db.insert(schema.events).values({
       id: eventId,

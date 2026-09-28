@@ -14,6 +14,7 @@ import {
   fightersNamed,
   nameOnAnotherPromotion,
   newInviteValues,
+  uniqueFighterId,
   uniqueSlug,
   type FighterMatch,
 } from "@/lib/db/queries";
@@ -33,7 +34,7 @@ import { withinPromoterImportLimit } from "@/lib/rate-limit";
 import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
-import { hasSlug, slugify } from "@/lib/slug";
+import { hasSlug } from "@/lib/slug";
 import { parseWeightKg } from "@/lib/tape";
 
 /**
@@ -435,31 +436,6 @@ export async function findFighters(
       });
     },
   );
-}
-
-/**
- * Fighters are shared across shows, so ids have to be unique globally rather
- * than within one card. A readable id keeps the profile URL something a fighter
- * will actually put in an Instagram bio, which is the whole point of it.
- *
- * `taken` carries the ids this same call has already settled on but not yet
- * written. Both corners go in one batch now, so the database cannot report the
- * first one while the second is being chosen — which is the card where two
- * namesakes are matched against each other.
- */
-async function uniqueFighterId(db: Db, name: string, taken: string[] = []): Promise<string> {
-  const base = slugify(name) || "fighter";
-  for (let n = 0; n < 20; n += 1) {
-    const id = n === 0 ? base : `${base}-${n + 1}`;
-    if (taken.includes(id)) continue;
-    const [clash] = await db
-      .select({ id: schema.fighters.id })
-      .from(schema.fighters)
-      .where(eq(schema.fighters.id, id))
-      .limit(1);
-    if (!clash) return id;
-  }
-  return newId(base);
 }
 
 /**
