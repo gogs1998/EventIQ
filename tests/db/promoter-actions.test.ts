@@ -381,6 +381,42 @@ describe("createEvent", () => {
     });
   });
 
+  /**
+   * The address is worked out and then written, and the row it was worked out
+   * against can arrive in between. The unique index on `events.slug` catches
+   * that, and it used to surface as "the show could not be created" — a generic
+   * fault, for a name that is either available one suffix along or is the
+   * promoter's own show twice.
+   *
+   * Two creates in flight at once is exactly that window: both ask for the
+   * address before either has written a row.
+   */
+  it("answers the loser of a race with the refusal, not with a fault", async () => {
+    const { db } = await twoPromoters();
+    await signInAs("pr_budo");
+
+    const create = async (): Promise<string | ActionResult> => {
+      let result: ActionResult = { ok: true };
+      const went = await redirectedTo(async () => {
+        result = await createEvent(null, form({ name: "Budo 79", date: "2026-12-05" }));
+      });
+      return went ?? result;
+    };
+
+    const outcomes = await Promise.all([create(), create()]);
+
+    // One of the two went to the show, and the other was told it already has one
+    // at that address rather than that the software fell over.
+    expect(outcomes).toContain("/promoter/e/budo-79");
+    expect(outcomes).toContainEqual({ ok: false, error: ACTION_ERRORS.addressTaken });
+
+    // And exactly one row, at the address the winner was sent to: the loser
+    // must not have been handed budo-79-2, which would be one show typed twice
+    // under two addresses.
+    const events = await db.select().from(schema.events).where(eq(schema.events.promoterId, "pr_budo"));
+    expect(events.map((event) => event.slug)).toEqual(["budo-79"]);
+  });
+
   it("still takes a differently named show that starts the same way", async () => {
     await twoPromoters();
     await signInAs("pr_cage");

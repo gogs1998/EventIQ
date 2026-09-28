@@ -99,41 +99,83 @@ export async function createEvent(
       if (!hasSlug(name)) return refuse(ACTION_ERRORS.showNameNeedsCharacters);
 
       const db = await getDb();
-      // Suffixed rather than refused where the address is taken, because the
-      // refusal used to say that a show of that name exists and the promoter it
-      // belongs to may be somebody else. Null is the one collision they can
-      // already see — a show of their own — where a second `-2` of it would be
-      // two shows with one name. HANDOVER section 6f.
-      const address = await uniqueSlug(db, name, promoter.id);
-      if (!address) return refuse(ACTION_ERRORS.addressTaken);
-      const { slug } = address;
 
-      const now = Date.now();
-      await db.insert(schema.events).values({
-        id: newId("ev"),
-        promoterId: promoter.id,
-        slug,
-        name,
-        date,
-        doorsTime: text(form, "doorsTime", 8) || "18:00",
-        firstBellTime: text(form, "firstBellTime", 8) || "19:00",
-        venue: text(form, "venue", 80) || "Venue to confirm",
-        city: text(form, "city", 60) || "",
-        sanctioning: text(form, "sanctioning", 80) || null,
-        // Unpublished, always. A show is not on the tables the moment it is typed
-        // in, and a half-entered card appearing at a public address would be worse
-        // than no card at all.
-        published: false,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // The address is worked out and then written, and between those two the
+      // row it was worked out against can arrive. `events.slug` is unique across
+      // the instance, so the loser of that race used to come back as a fault —
+      // "the show could not be created" — for a name that is perfectly available
+      // one suffix along. So the unique violation is caught and the address is
+      // asked for again, which now sees the row that beat us: another promoter's
+      // becomes the next free suffix, and their own becomes the refusal it would
+      // have been a moment earlier. Bounded, because a loop that retries for ever
+      // on a constraint it has misread is worse than the fault it replaced.
+      for (let attemptAt = 0; attemptAt < SLUG_RACE_RETRIES; attemptAt += 1) {
+        // Suffixed rather than refused where the address is taken, because the
+        // refusal used to say that a show of that name exists and the promoter it
+        // belongs to may be somebody else. Null is the one collision they can
+        // already see — a show of their own — where a second `-2` of it would be
+        // two shows with one name. HANDOVER section 6f.
+        const address = await uniqueSlug(db, name, promoter.id);
+        if (!address) return refuse(ACTION_ERRORS.addressTaken);
+        const { slug } = address;
 
-      return done({ slug });
+        const now = Date.now();
+        try {
+          await db.insert(schema.events).values({
+            id: newId("ev"),
+            promoterId: promoter.id,
+            slug,
+            name,
+            date,
+            doorsTime: text(form, "doorsTime", 8) || "18:00",
+            firstBellTime: text(form, "firstBellTime", 8) || "19:00",
+            venue: text(form, "venue", 80) || "Venue to confirm",
+            city: text(form, "city", 60) || "",
+            sanctioning: text(form, "sanctioning", 80) || null,
+            // Unpublished, always. A show is not on the tables the moment it is typed
+            // in, and a half-entered card appearing at a public address would be worse
+            // than no card at all.
+            published: false,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } catch (error) {
+          // Anything that is not somebody else taking this address goes up to
+          // `attempt`, which logs it with its stack. Swallowing every failure
+          // here would turn a broken binding into a silent retry loop.
+          if (!slugAlreadyTaken(error)) throw error;
+          continue;
+        }
+
+        return done({ slug });
+      }
+
+      return refuse(ACTION_ERRORS.showNotCreated);
     },
   );
 
   if (!created.ok) return created;
   redirect(`/promoter/e/${created.slug}`);
+}
+
+/** Enough for a burst of simultaneous creates, few enough to end. */
+const SLUG_RACE_RETRIES = 5;
+
+/**
+ * Whether a write failed because the address was taken between the check and it.
+ *
+ * Matched on the message because that is all D1 gives back — there is no error
+ * code to read — and narrowed to this one column, so a unique violation anywhere
+ * else in this statement is still a fault rather than a reason to try again. The
+ * cause chain is walked because Drizzle wraps what the driver threw.
+ */
+function slugAlreadyTaken(error: unknown): boolean {
+  for (let at: unknown = error, depth = 0; at && depth < 5; depth += 1) {
+    const message = at instanceof Error ? at.message : String(at);
+    if (/UNIQUE constraint failed:\s*events\.slug/i.test(message)) return true;
+    at = at instanceof Error ? at.cause : null;
+  }
+  return false;
 }
 
 export async function updateEvent(slug: string, form: FormData): Promise<ActionResult> {
