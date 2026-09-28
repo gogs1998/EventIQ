@@ -141,13 +141,22 @@ const PBKDF2_ITERATIONS = 100_000;
 export const ABSENT_PROMOTER_HASH =
   `${PBKDF2_ITERATIONS}:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` as const;
 
-function toBase64Url(bytes: Uint8Array): string {
+/**
+ * The encoding everything signed or stored here comes out in: base64url, so a
+ * value can sit in a cookie, a header or a URL with nothing escaped.
+ *
+ * Exported because lib/invite-token.ts seals a token with the same encoding and
+ * had the pair written out again under a comment saying this module was in the
+ * middle of another change. It is not any more, and two implementations of an
+ * encoding are two things that can come to disagree about the padding.
+ */
+export function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(value: string): Uint8Array {
+export function fromBase64Url(value: string): Uint8Array {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));

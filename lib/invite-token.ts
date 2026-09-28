@@ -1,4 +1,4 @@
-import { newToken } from "@/lib/auth";
+import { fromBase64Url, newToken, toBase64Url } from "@/lib/auth";
 import type { SentChannel } from "@/lib/types";
 
 /**
@@ -40,22 +40,6 @@ export const INVITE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 /** The action takes this off a control in the browser, so it is checked, not trusted. */
 export function isSentChannel(value: unknown): value is SentChannel {
   return value === "whatsapp" || value === "sms" || value === "copied";
-}
-
-/**
- * Same encoding as the session cookie's, and written out again here rather than
- * exported from lib/auth.ts, which another change is in the middle of.
- */
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
 /**
