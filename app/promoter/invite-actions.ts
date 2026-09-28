@@ -91,6 +91,41 @@ export async function markInviteSent(
 }
 
 /**
+ * Records that the promoter has handed a fighter their bout's promo.
+ *
+ * The same shape as `markInviteSent` and for the same reason: nothing here sends
+ * anything, the control is a deep link into the promoter's own WhatsApp, and the
+ * only observable moment is the tap. What it buys is the difference between
+ * "nobody has told them there is a video" and "they were told and did nothing
+ * with it", which is the difference the chase list is built on.
+ *
+ * Deliberately not inferred from a render finishing. A video being made is not a
+ * video being sent, and a dashboard that conflated the two would have a promoter
+ * believe an errand was done that nobody has done.
+ */
+export async function markVideoSent(slug: string, fighterId: string): Promise<ActionResult> {
+  return attempt(
+    { event: "markVideoSent", route: `/promoter/e/${slug}`, fighterId },
+    ACTION_ERRORS.notSaved,
+    async () => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+
+      await db
+        .update(schema.invites)
+        .set({ videoSentAt: Date.now() })
+        .where(
+          and(eq(schema.invites.eventId, owned.card.eventId), eq(schema.invites.fighterId, fighterId)),
+        );
+
+      revalidatePath(`/promoter/e/${slug}`);
+      return DONE;
+    },
+  );
+}
+
+/**
  * A new token, which is how the old one is revoked.
  *
  * There is one invite row per fighter per show, so the old token stops existing
@@ -125,6 +160,8 @@ export async function regenerateInvite(slug: string, fighterId: string): Promise
           revokedAt: null,
           sentAt: null,
           sentChannel: null,
+          // Not cleared. It records that a video was handed over, which happened
+          // and stays true whatever becomes of the link that asked for it.
           lastOpenedAt: null,
         })
         .where(

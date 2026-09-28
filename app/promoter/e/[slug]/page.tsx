@@ -5,10 +5,11 @@ import { GettingStarted } from "@/app/promoter/e/[slug]/GettingStarted";
 import { InviteLink } from "@/app/promoter/e/[slug]/InviteLink";
 import { PublishToggle } from "@/app/promoter/e/[slug]/PublishToggle";
 import { RenderAgainButton } from "@/app/promoter/e/[slug]/RenderAgainButton";
+import { SendVideo } from "@/app/promoter/e/[slug]/SendVideo";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
-import { boutsTopDown } from "@/lib/card";
+import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadDashboardRows, rendersFrom, type AnalyticsTotals } from "@/lib/db/queries";
 import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
@@ -24,6 +25,7 @@ import {
   shareCountLabel,
   slotsAvailableNote,
   sponsorTapNote,
+  videoReadyMessage,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
@@ -50,7 +52,7 @@ import {
 import { currentPromoter } from "@/lib/session";
 import { loadOwnedCard } from "@/lib/visibility";
 import { SITE_URL } from "@/lib/site";
-import { boutBillingLabel, boutClassLine, formatEventDate, lastName } from "@/lib/tape";
+import { boutBillingLabel, boutClassLine, firstName, formatEventDate, lastName } from "@/lib/tape";
 import type { FightEvent, InviteStatus } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -597,6 +599,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           </span>
         </div>
         <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
+        <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{VIDEO_SHARE.note}</p>
         {/* Said once at the top rather than only a bout at a time, so a column
             of "not made yet" reads as a new card rather than as a stalled queue. */}
         {rendered === 0 ? (
@@ -631,6 +634,26 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
             }));
             // A machine has this bout or is about to. Asking again would queue
             // a bout that is already queued and tell the promoter nothing new.
+            // Only where there is something to hand over. A control offering a
+            // video that does not exist is worse than no control.
+            const promo = boutRenders.faceoff;
+            const corners = promo
+              ? Object.values(cornersOf(card, bout)).map((fighter) => ({
+                  id: fighter.id,
+                  label: firstName(fighter),
+                  sentAt: invites[fighter.id]?.videoSentAt,
+                  message: videoReadyMessage({
+                    firstName: firstName(fighter),
+                    eventName: event.name,
+                    boutLabel: boutBillingLabel(bout),
+                    videoUrl: `${SITE_URL}${promo}`,
+                    // Their own page rather than the running order: it is the one
+                    // that is about them, and it is where the promo is offered a
+                    // second time to whoever they send it on to.
+                    programmeUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
+                  }),
+                }))
+              : [];
             const inHand = states.every(
               ({ state }) => state === "queued" || state === "running" || state === "withdrawn",
             );
@@ -680,6 +703,12 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                   <div className="text-ash-dim mt-2 font-mono text-[0.5rem] uppercase tracking-[0.14em]">
                     {shareCountLabel(shares[bout.number] ?? 0)}
                   </div>
+
+                  {corners.length ? (
+                    <div className="mt-2">
+                      <SendVideo slug={event.slug} fighters={corners} />
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="mt-2 flex items-center gap-3 sm:mt-0 sm:shrink-0">

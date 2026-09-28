@@ -424,12 +424,53 @@ export const VIDEO_SHARE = {
   promo: "The promo",
   promoNote:
     "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
+  /** The dashboard control that hands a fighter their own bout's promo. */
+  send: "Send their video",
+  sendHint: "Opens WhatsApp with the video and the programme link in the message",
+  /** Under the videos panel, once there is something to send. */
+  note:
+    "Where a promo is made, both fighters on the bout can be sent it. The message carries " +
+    "the file and the link to the programme, and the row records that it went out.",
 } as const;
 
 /** What the dashboard says about how often a bout's video has been taken away. */
 export function shareCountLabel(shares: number): string {
   if (shares <= 0) return "Not shared yet";
   return `Shared ${shares} ${shares === 1 ? "time" : "times"}`;
+}
+
+/** When a fighter was last sent their video, or nothing where they have not been. */
+export function videoSentNote(sentAt: number | null | undefined): string | null {
+  if (!sentAt) return null;
+  const days = Math.floor((Date.now() - sentAt) / 86_400_000);
+  if (days <= 0) return "Sent today";
+  return `Sent ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+/**
+ * The message a promoter sends a fighter when their bout's promo is ready.
+ *
+ * Both links, because they answer different questions: the file is the thing to
+ * post and the programme is where it came from, and a fighter handed only the
+ * file has nothing to point anybody at. The order is deliberate — the file
+ * first, because that is what the message is about.
+ *
+ * It says what the video is and stops. It does not say how long it is, how many
+ * people will see it, or what posting it will do for anybody, because none of
+ * those is a thing this product knows.
+ */
+export function videoReadyMessage(input: {
+  firstName: string;
+  eventName: string;
+  boutLabel: string;
+  videoUrl: string;
+  programmeUrl: string;
+}): string {
+  return [
+    `Hi ${input.firstName} — the video for ${input.boutLabel.toLowerCase()} at ${input.eventName} is ready.`,
+    `Here it is, yours to post wherever you like: ${input.videoUrl}`,
+    `The full programme, with your profile on it: ${input.programmeUrl}`,
+  ].join("\n\n");
 }
 
 /* -------------------------------------------------------------------------

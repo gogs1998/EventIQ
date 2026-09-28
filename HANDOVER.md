@@ -777,6 +777,14 @@ It is not a config change. It is a Dockerfile, an image built as part of the dep
 
 Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. What has changed is only that the machine is a GitHub runner on an hourly schedule rather than somebody's laptop when they remember, which removes the operator from the loop without moving the pipeline anywhere. Section 19.
 
+### Telling a fighter their video exists
+
+A fighter who never learns a video was made of them cannot post it, and nothing on the platform told them. Where a bout's promo is published, its row in the dashboard's Videos panel carries a "Send their video" deep link per corner, prefilled with the file and that fighter's own page.
+
+It is a `wa.me` link into the promoter's own WhatsApp, exactly as the invite's send is and for the same reason: a fighter answers a message from the promoter they know and ignores one from a service they have never heard of. `invites.video_sent_at` records the tap, which is the only moment anything here can observe, and it is **never inferred from a render finishing** — a video being made is not a video being handed over, and a dashboard that conflated the two would have a promoter believe an errand was done that nobody has done.
+
+The wording is in [lib/copy.ts](lib/copy.ts) and held to the same rules as the nudge: no gendered pronoun, nothing breathless, and no claim about what posting it will do for anybody.
+
 ### What leaves the page, and what is counted
 
 The download has been on every bout with an mp4 since there were mp4s, and nothing ever measured it: nobody could say whether a single fighter had ever taken one away, which was half of why the share loop was never deliberate (section 19 item 6).
@@ -1205,7 +1213,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 5. ~~**Give the promoter the record importer.**~~ Done. A paste box on each corner of each bout in the card editor, through server actions with the promoter's session rather than through the open endpoint, showing what it would change before it changes anything. One fighter at a time, deliberately: bulk import waits on the terms question, which is still open. Section 8a, and the risk register below.
 
-6. **Make the fighter's share loop deliberate.** Half done. There is a promo per bout now (`faceoff`, published beside the tape — section 11) and it is offered on the card and on both fighters' own pages, which is the thing a fighter would actually post. What is still missing is everything that makes the loop *happen*: nothing prompts a fighter at the moment they submit their form, nothing tells them a video has been made, and no instrumentation says whether a single one has ever been taken off the page.
+6. **Make the fighter's share loop deliberate.** Mostly done, and what is left is small. There is a promo per bout now (`faceoff`, published beside the tape — section 11), it is offered on the card and on both fighters' own pages, it closes on the programme's code so a video watched somewhere else has a way back, the promoter can hand it to either fighter from the dashboard with the tap recorded on `invites.video_sent_at`, and every download and share posts a `video_share` the panel reports as a real count or an explicit nought. **What is left**: nothing prompts a fighter at the moment they submit their form, which is the warmest they will ever be, and nothing burns the promoter's handle into the video for attribution. The first is a change to the questionnaire's own surfaces; the second is a change to the composition, and therefore to the golden frames.
 
 7. **Re-record the sales demo** against the real thing, including a fighter's entry landing on the card. The committed cut predates the database and no longer shows the strongest thing there is to show. Section 17.
 

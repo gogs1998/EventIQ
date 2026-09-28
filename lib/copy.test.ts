@@ -43,6 +43,8 @@ import {
   UNDER_AGE,
   VIDEO_SHARE,
   shareCountLabel,
+  videoReadyMessage,
+  videoSentNote,
   winsEdge,
   WITHDRAWN,
 } from "@/lib/copy";
@@ -1048,7 +1050,28 @@ describe("the invite copy", () => {
  * exactly that reason.
  */
 describe("the video share copy", () => {
-  const LINES = Object.values(VIDEO_SHARE);
+  const MESSAGE = videoReadyMessage({
+    firstName: "Chloe",
+    eventName: "Cage County 12",
+    boutLabel: "Bout 4",
+    videoUrl: "https://eventiq.win/media/renders/cage-county-12/bout-4-faceoff-abcdef01.mp4",
+    programmeUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+  });
+
+  const LINES = [...Object.values(VIDEO_SHARE), MESSAGE];
+
+  it("names the fighter and hands over both links", () => {
+    expect(MESSAGE).toContain("Chloe");
+    expect(MESSAGE).toContain("Cage County 12");
+    expect(MESSAGE).toContain("bout-4-faceoff-abcdef01.mp4");
+    expect(MESSAGE).toContain("/e/cage-county-12/f/chloe-baines");
+  });
+
+  /** No duration, and nothing about what posting it will do for anybody. */
+  it("does not promise a result or a length", () => {
+    expect(MESSAGE).not.toMatch(/(seconds?|minutes?)/i);
+    expect(MESSAGE).not.toMatch(/will (get|bring|help)/i);
+  });
 
   it("never uses a gendered pronoun", () => {
     for (const line of LINES) {
@@ -1087,5 +1110,18 @@ describe("shareCountLabel", () => {
   it("says nobody has yet rather than counting no shares", () => {
     expect(shareCountLabel(0)).toBe("Not shared yet");
     expect(shareCountLabel(0)).not.toMatch(/\d/);
+  });
+});
+
+describe("videoSentNote", () => {
+  it("says nothing at all where nothing has been sent", () => {
+    expect(videoSentNote(null)).toBeNull();
+    expect(videoSentNote(undefined)).toBeNull();
+  });
+
+  it("counts the days rather than printing a timestamp", () => {
+    expect(videoSentNote(Date.now())).toBe("Sent today");
+    expect(videoSentNote(Date.now() - 86_400_000)).toBe("Sent 1 day ago");
+    expect(videoSentNote(Date.now() - 3 * 86_400_000)).toBe("Sent 3 days ago");
   });
 });

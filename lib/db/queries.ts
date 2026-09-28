@@ -187,6 +187,7 @@ export function toInvite(row: InviteRow, token?: string): Invite {
     token,
     sentAt: optional(row.sentAt),
     sentChannel: isSentChannel(row.sentChannel) ? row.sentChannel : undefined,
+    videoSentAt: optional(row.videoSentAt),
     lastOpenedAt: optional(row.lastOpenedAt),
     submittedAt: optional(row.submittedAt),
     expiresAt: optional(row.expiresAt),
