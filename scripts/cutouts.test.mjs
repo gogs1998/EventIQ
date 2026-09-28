@@ -49,6 +49,22 @@ describe("photoSource", () => {
     expect(photoSource("/fighters/../../../etc/passwd")).toBeNull();
     expect(photoSource("/fighters/sub/dir.webp")).toBeNull();
   });
+
+  /**
+   * The bucket branch used to check only for "..", so it accepted keys the
+   * /media route itself refuses. One rule, in lib/portrait.ts, or the thing
+   * that fetches an object and the thing that serves it disagree about what
+   * one is.
+   */
+  it("refuses a key /media would not serve", () => {
+    expect(photoSource("/media/fighters/a b.jpg")).toBeNull();
+    expect(photoSource("/media/-leading-hyphen.jpg")).toBeNull();
+    expect(photoSource("/media/fighters/a%2fb.jpg")).toBeNull();
+    expect(photoSource("/media/fighters/ok-ab12.jpg")).toEqual({
+      kind: "r2",
+      key: "fighters/ok-ab12.jpg",
+    });
+  });
 });
 
 describe("needsCutout", () => {

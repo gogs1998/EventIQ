@@ -54,6 +54,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RETENTION_DAYS, clearedFighterColumns } from "@/lib/consent";
+import { mediaKeyOf } from "@/lib/portrait";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 import { foldBefore } from "./rollup-analytics.mjs";
@@ -126,12 +127,15 @@ export function alreadyClear(row) {
   return Number(row.already_clear) === 1;
 }
 
-/** The objects in the bucket that belong to this fighter. Committed assets are not ours. */
+/**
+ * The objects in the bucket that belong to this fighter. Committed assets are
+ * not ours, and neither is anything that is not a key `/media` would have
+ * served — which is `mediaKeyOf`'s question and not one worth answering twice.
+ */
 export function bucketKeys(row) {
   return [row.photo, row.cutout, row.stylised]
-    .filter((value) => typeof value === "string" && value.startsWith("/media/"))
-    .map((value) => value.slice("/media/".length))
-    .filter((key) => /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(key) && !key.includes(".."));
+    .map((value) => (typeof value === "string" ? mediaKeyOf(value) : null))
+    .filter((key) => key !== null);
 }
 
 /**

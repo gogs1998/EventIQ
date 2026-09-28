@@ -36,6 +36,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+// Node strips the types on the way in. lib/portrait.ts is pure and imports
+// nothing at runtime, which is what lets the app and this script decide what a
+// stored path means the same way.
+import { mediaKeyOf } from "../lib/portrait.ts";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
@@ -89,8 +93,11 @@ const MAX_ALPHA = 0.985;
 export function photoSource(photo) {
   if (typeof photo !== "string") return null;
   if (photo.startsWith("/media/")) {
-    const key = photo.slice("/media/".length);
-    return key && !key.includes("..") ? { kind: "r2", key } : null;
+    // The same rule /media applies before it serves one, rather than a second
+    // and looser reading of the same column: this copy checked only for "..",
+    // so a key carrying a character that route refuses was fetched here anyway.
+    const key = mediaKeyOf(photo);
+    return key ? { kind: "r2", key } : null;
   }
   if (photo.startsWith("/fighters/")) {
     const file = photo.slice("/fighters/".length);
