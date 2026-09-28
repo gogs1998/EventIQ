@@ -167,7 +167,18 @@ export function ImportSheetPanel({ slug, startOpen }: { slug: string; startOpen:
   // Object URLs are held by the document until they are let go of, and a
   // promoter who drops six posters, reads a different sheet and drops six more
   // would otherwise be holding twelve full-size images for the life of the tab.
-  useEffect(() => () => posters.forEach((poster) => URL.revokeObjectURL(poster.url)), [posters]);
+  //
+  // **On unmount only**, and the ref is what makes that true. Written as a
+  // cleanup keyed on `posters`, React ran the previous one every time the list
+  // changed — and the previous one closes over the list as it was — so dropping
+  // a second poster revoked the first one's URL and left its crop panel showing
+  // a broken image. A cleanup that runs on a change is not a cleanup that runs
+  // at the end.
+  const live = useRef<Poster[]>([]);
+  useEffect(() => {
+    live.current = posters;
+  }, [posters]);
+  useEffect(() => () => live.current.forEach((poster) => URL.revokeObjectURL(poster.url)), []);
 
   const clear = () => {
     setPosters((current) => {
