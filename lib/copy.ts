@@ -1075,3 +1075,27 @@ export const FIGHTER_MATCH = {
   /** The line while the lookup is in flight. */
   looking: "Checking that name…",
 } as const;
+
+/**
+ * The questionnaire, for a fighter who has filled one of these in before.
+ *
+ * It replaces the heading and the paragraph under it and nothing else: the form
+ * is the same form, the consent is asked again because consent is given for a
+ * show, and the boxes are already full because the row is theirs. Saying
+ * "confirm" rather than "fill this in" is the whole difference, and it is worth
+ * saying because the alternative — a form that silently arrives full — reads as
+ * a mistake rather than as the thing they did last time still being there.
+ */
+export const RETURNING_FIGHTER = {
+  heading: (name: string, event: string) => `${name}, confirm your details for ${event}`,
+  /**
+   * `previous` is the show they last sent a form in for, which is the evidence
+   * that this is a returning fighter at all — a profile the promoter typed is
+   * not one to greet somebody with.
+   */
+  body: (previous: string) =>
+    `What you sent for ${previous} is already in the boxes below, your photograph included. ` +
+    "Change anything that has moved on and put it back on the card. It saves as you go.",
+  /** Beside the photograph control, where one carried over. */
+  photo: "Carried over from your last card. Send a new one to replace it.",
+} as const;

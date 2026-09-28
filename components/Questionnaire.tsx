@@ -16,6 +16,7 @@ import {
   PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
+  RETURNING_FIGHTER,
   STYLISED,
   UNDER_AGE,
 } from "@/lib/copy";
@@ -70,6 +71,19 @@ export type QuestionnaireProps = {
    * component: it shows the notice and waits.
    */
   consent?: { at?: number; version?: string };
+  /**
+   * The last show this fighter actually sent a form in for, where there is one.
+   *
+   * It changes the heading and the paragraph under it and nothing else: the
+   * boxes are already full because the row is theirs, and the consent is asked
+   * again regardless, because consent is given for a show rather than for a
+   * profile. What it buys is that a form arriving full reads as the thing they
+   * sent last time still being there rather than as a mistake.
+   *
+   * A submitted invite on another show, never "the row looks filled in" — a
+   * profile the promoter typed or imported is not one to greet anybody with.
+   */
+  returning?: { previousShow: string };
   /** Withdrawing it. Its own action file, because it is the other half of consent. */
   remove?: () => Promise<ActionResult>;
   /**
@@ -215,6 +229,7 @@ export function Questionnaire({
   upload,
   alreadySubmitted = false,
   consent,
+  returning,
   remove,
   stylised,
 }: QuestionnaireProps) {
@@ -708,16 +723,27 @@ export function Questionnaire({
         ) : null}
         <header>
           <span className="label">{eventName}</span>
+          {/* A fighter who has done one of these before is asked to confirm
+              rather than to start, because the boxes below are already full of
+              what they sent last time. Everything else on the page is the same
+              page, the consent included: it is given for a show. */}
           <h1 className="display mt-2 text-4xl">
-            {base.name}, you&rsquo;re on bout {bout.number}
+            {returning ? (
+              RETURNING_FIGHTER.heading(base.name, eventName)
+            ) : (
+              <>
+                {base.name}, you&rsquo;re on bout {bout.number}
+              </>
+            )}
           </h1>
           <p className="text-ash mt-3 text-sm leading-relaxed">
             {/* The gym is named only where somebody has given one: a card typed
                 in this morning carries a placeholder there. */}
             You&rsquo;re fighting {opponent.name}
-            {stated(opponent.gym) ? ` out of ${stated(opponent.gym)}` : ""}. Fill this in and
-            you get the card above, on the screen of everyone in the building, plus the
-            video to post. It saves as you go.
+            {stated(opponent.gym) ? ` out of ${stated(opponent.gym)}` : ""}.{" "}
+            {returning
+              ? RETURNING_FIGHTER.body(returning.previousShow)
+              : "Fill this in and you get the card above, on the screen of everyone in the building, plus the video to post. It saves as you go."}
           </p>
           {mode === "live" ? (
             // Announced rather than only shown: on a phone this line is the only
@@ -852,7 +878,14 @@ export function Questionnaire({
             <Field
               group
               label="Photo"
-              hint="We cut the background out for you. A plain wall and decent light is all it takes."
+              // A returning fighter's photograph is already there, so the hint
+              // says where it came from and how to change it rather than asking
+              // for one they have already sent.
+              hint={
+                returning && draft.photo
+                  ? RETURNING_FIGHTER.photo
+                  : "We cut the background out for you. A plain wall and decent light is all it takes."
+              }
             >
               <div className="flex flex-wrap items-center gap-3">
                 {/* The ring is on the label because the input is the thing that

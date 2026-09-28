@@ -12,7 +12,7 @@ import {
 import { Questionnaire } from "@/components/Questionnaire";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
-import { loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
+import { lastSubmittedShow, loadInviteByToken, inviteWasRevoked } from "@/lib/db/queries";
 import { PRIVACY, REMOVAL } from "@/lib/copy";
 import { loadInvitedCard } from "@/lib/visibility";
 
@@ -67,6 +67,13 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   // binding draws no control at all instead of one that always refuses.
   const offersStylised = await stylisedPortraitsOffered();
 
+  // A fighter who has filled one of these in for another show is asked to
+  // confirm rather than to start again. It is a submitted invite elsewhere and
+  // never "this row looks filled in": the promoter may have typed the name and
+  // pulled the record off a record page, and greeting somebody with details
+  // they have never seen is bug 9 in different clothes.
+  const previous = await lastSubmittedShow(db, row.fighter.id, row.invite.eventId);
+
   return (
     <Questionnaire
       card={card}
@@ -82,6 +89,7 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
         at: row.invite.consentedAt ?? undefined,
         version: row.invite.consentVersion ?? undefined,
       }}
+      returning={previous ? { previousShow: previous.name } : undefined}
       remove={removeMyDetails.bind(null, token)}
       stylised={
         offersStylised
