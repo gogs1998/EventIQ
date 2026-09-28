@@ -23,7 +23,7 @@ import {
   openToken,
 } from "@/lib/invite-token";
 import { logWarning } from "@/lib/log";
-import { renderUrl, sponsorMark, type Renders } from "@/lib/renders";
+import { isPublishedTemplate, renderUrl, sponsorMark, type Renders } from "@/lib/renders";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type {
   AnalyticsKind,
@@ -778,7 +778,12 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
 }
 
 /**
- * Bout number to playable URL, for the videos that exist.
+ * Bout number to the playable URLs of that bout, by template.
+ *
+ * Old keys and new ones both come back. The key is a column, never parsed — a
+ * render published before templates existed is `bout-<n>-<hash8>.mp4` and one
+ * published since is `bout-<n>-<template>-<hash8>.mp4`, and nothing here or on
+ * /media can tell the difference or needs to.
  *
  * Deliberately says nothing about `status`. A bout being rendered again, or one
  * whose last attempt did not finish, still has the video it had before, and
@@ -787,11 +792,18 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
  * and by nothing else, which is what makes that safe.
  */
 export function rendersFrom(
-  rows: readonly { boutNumber: number; currentR2Key: string | null }[],
+  rows: readonly { boutNumber: number; template: string; currentR2Key: string | null }[],
 ): Renders {
   const renders: Renders = {};
   for (const row of rows) {
-    if (row.currentR2Key) renders[row.boutNumber] = renderUrl(row.currentR2Key);
+    // A row for a composition nothing publishes any more is not a video the
+    // programme has anywhere to put, so it is left out here rather than handed
+    // on to a caller that would have to ask the same question again.
+    if (!row.currentR2Key || !isPublishedTemplate(row.template)) continue;
+    renders[row.boutNumber] = {
+      ...renders[row.boutNumber],
+      [row.template]: renderUrl(row.currentR2Key),
+    };
   }
   return renders;
 }
@@ -801,6 +813,7 @@ export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
     await db
       .select({
         boutNumber: schema.renderJobs.boutNumber,
+        template: schema.renderJobs.template,
         currentR2Key: schema.renderJobs.currentR2Key,
       })
       .from(schema.renderJobs)

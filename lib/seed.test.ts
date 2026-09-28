@@ -135,8 +135,11 @@ describe("the fingerprints the seed records", () => {
     const [{ sql }, expected] = await Promise.all([seed(), asTheDashboardSeesIt()]);
 
     for (const boutNumber of SEEDED_RENDERS) {
-      expect(expected[boutNumber]).toBeTruthy();
-      expect(renderJobLine(sql, boutNumber)).toContain(`'${expected[boutNumber]}'`);
+      // The tale of the tape. The promo has never been rendered for any of
+      // these, so the seed records nothing about it and the dashboard reads it
+      // as not made yet, which is true.
+      expect(expected[boutNumber]?.tape).toBeTruthy();
+      expect(renderJobLine(sql, boutNumber)).toContain(`'${expected[boutNumber].tape}'`);
     }
   });
 
@@ -149,7 +152,7 @@ describe("the fingerprints the seed records", () => {
 
   it("gives two different bouts two different fingerprints", async () => {
     const expected = await asTheDashboardSeesIt();
-    expect(expected[15]).not.toBe(expected[14]);
+    expect(expected[15].tape).not.toBe(expected[14].tape);
   });
 });
 

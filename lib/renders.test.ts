@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_RENDER_ATTEMPTS,
+  PUBLISHED_TEMPLATES,
   RENDER_INPUT_FIELDS,
   RENDER_LEASE_MS,
   type RenderInputs,
   type RenderJobState,
   claimable,
+  isPublishedTemplate,
+  mp4For,
   renderFingerprint,
   renderKeyFor,
   renderState,
@@ -59,6 +62,18 @@ describe("renderFingerprint", () => {
     const withNull = await renderFingerprint({ ...INPUTS, titleLabel: null });
     const withUndefined = await renderFingerprint({ ...INPUTS, titleLabel: undefined });
     expect(withNull).toBe(withUndefined);
+  });
+
+  /**
+   * The template is the largest thing on screen: the tape and the promo are
+   * sixteen and twelve seconds of the same two people, drawn entirely
+   * differently. Two compositions sharing a digest would mean one bout, one key
+   * and one of them quietly published over the other.
+   */
+  it("gives the two compositions of one bout different digests", async () => {
+    const tape = await renderFingerprint({ ...INPUTS, template: "tape" });
+    const faceoff = await renderFingerprint({ ...INPUTS, template: "faceoff" });
+    expect(tape).not.toBe(faceoff);
   });
 
   it("names the show, the promoter and the sponsors, not only the fighters", () => {
@@ -117,23 +132,40 @@ describe("renderKeyFor", () => {
    * one until the cache turns over.
    */
   it("puts the fingerprint in the key", () => {
-    expect(renderKeyFor("cage-county-12", 15, "abcdef0123456789")).toBe(
-      "renders/cage-county-12/bout-15-abcdef01.mp4",
+    expect(renderKeyFor("cage-county-12", 15, "tape", "abcdef0123456789")).toBe(
+      "renders/cage-county-12/bout-15-tape-abcdef01.mp4",
     );
   });
 
   it("gives a re-rendered bout a different key", () => {
-    expect(renderKeyFor("cage-county-12", 15, "1111111111111111")).not.toBe(
-      renderKeyFor("cage-county-12", 15, "2222222222222222"),
+    expect(renderKeyFor("cage-county-12", 15, "tape", "1111111111111111")).not.toBe(
+      renderKeyFor("cage-county-12", 15, "tape", "2222222222222222"),
+    );
+  });
+
+  /**
+   * The two videos of one bout are two objects. They were one key before there
+   * was a template, so a promo publishing over the tale of the tape would have
+   * been silent: the dashboard would have called it current and the programme
+   * would have played twelve seconds of promo where the tape used to be.
+   */
+  it("keeps a bout's two videos apart even at the same fingerprint", () => {
+    expect(renderKeyFor("cage-county-12", 15, "faceoff", "abcdef0123456789")).not.toBe(
+      renderKeyFor("cage-county-12", 15, "tape", "abcdef0123456789"),
     );
   });
 
   it("is served from the bucket rather than as a committed file", () => {
-    expect(renderUrl(renderKeyFor("cage-county-12", 15, "abcdef01"))).toBe(
-      "/media/renders/cage-county-12/bout-15-abcdef01.mp4",
+    expect(renderUrl(renderKeyFor("cage-county-12", 15, "tape", "abcdef01"))).toBe(
+      "/media/renders/cage-county-12/bout-15-tape-abcdef01.mp4",
     );
     // The five renders that predate the bucket are still static assets.
     expect(renderUrl("/renders/bout-15.mp4")).toBe("/renders/bout-15.mp4");
+    // And a key minted before the template was in it is still an object in the
+    // bucket, still served, and is not renamed by anything here.
+    expect(renderUrl("renders/cage-county-12/bout-15-abcdef01.mp4")).toBe(
+      "/media/renders/cage-county-12/bout-15-abcdef01.mp4",
+    );
   });
 });
 
@@ -218,6 +250,61 @@ describe("claimable", () => {
         expect(claimable(state, hash, NOW)).toBe(renderState(state, hash, NOW) === "stale");
       }
     }
+  });
+
+  /**
+   * A bout is two jobs, and they are decided one at a time.
+   *
+   * This is the property the whole template column exists for. A promo that has
+   * never been made must not make a current tape claimable; a promo another
+   * runner is holding must not hold the tape with it; and a promo that has
+   * failed twice must not stop the tape being remade. Every one of those would
+   * be invisible — a video that is quietly never made again.
+   */
+  it("decides a bout's two videos separately", () => {
+    // The tape is current and the promo has never been made.
+    expect(claimable(job({ status: "done" }), LIVE, NOW)).toBe(false);
+    expect(claimable(null, LIVE, NOW)).toBe(true);
+
+    // A runner holds the promo. The tape is nobody's and is out of date.
+    const heldPromo = job({ status: "running", leaseUntil: NOW + RENDER_LEASE_MS });
+    expect(claimable(heldPromo, LIVE, NOW)).toBe(false);
+    expect(claimable(job({ status: "done" }), MOVED, NOW)).toBe(true);
+
+    // The promo has failed its way out of the queue. The tape is untouched.
+    const spentPromo = job({ status: "failed", attempts: MAX_RENDER_ATTEMPTS });
+    expect(claimable(spentPromo, LIVE, NOW)).toBe(false);
+    expect(claimable(job({ status: "queued" }), LIVE, NOW)).toBe(true);
+  });
+});
+
+describe("PUBLISHED_TEMPLATES", () => {
+  /**
+   * The programme carries these two and nothing else. A walkout is one video per
+   * corner and the job row has no corner, so publishing one would replace a
+   * bout's promo and read as current afterwards — which is why the renderer
+   * refuses it and why that refusal is decided by this list rather than by a
+   * name typed into a condition somewhere.
+   */
+  it("is the tape and the promo, and says so about an id nobody publishes", () => {
+    expect([...PUBLISHED_TEMPLATES]).toEqual(["tape", "faceoff"]);
+    expect(isPublishedTemplate("tape")).toBe(true);
+    expect(isPublishedTemplate("faceoff")).toBe(true);
+    expect(isPublishedTemplate("walkout")).toBe(false);
+    expect(isPublishedTemplate("social")).toBe(false);
+  });
+});
+
+describe("mp4For", () => {
+  const renders = { 15: { tape: "/media/a.mp4", faceoff: "/media/b.mp4" }, 14: { tape: "/c.mp4" } };
+
+  it("answers per bout and per template, and defaults to the tape", () => {
+    expect(mp4For(renders, 15)).toBe("/media/a.mp4");
+    expect(mp4For(renders, 15, "faceoff")).toBe("/media/b.mp4");
+    // A bout whose promo has not been made yet has no promo, rather than the
+    // tale of the tape offered under the promo's name.
+    expect(mp4For(renders, 14, "faceoff")).toBeUndefined();
+    expect(mp4For(renders, 1)).toBeUndefined();
   });
 });
 

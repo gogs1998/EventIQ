@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { track } from "@/lib/analytics";
-import type { Card } from "@/lib/card";
+import { promoTitle, type Card } from "@/lib/card";
+import { VIDEO_SHARE } from "@/lib/copy";
+import type { BoutRenders } from "@/lib/renders";
 import type { Bout } from "@/lib/types";
+import { FACEOFF_FRAMES } from "./FaceOff";
 import { TaleOfTheTape } from "./TaleOfTheTape";
 import { Stage } from "./Stage";
 import { SEQ } from "./timeline";
@@ -22,12 +25,95 @@ type Status = "idle" | "playing" | "paused" | "ended";
  * Without a file we fall back to driving the composition directly, which is also
  * what the questionnaire preview uses, since that has to update as you type.
  */
-export function TapePlayer({ card, bout, mp4 }: { card: Card; bout: Bout; mp4?: string }) {
+export function TapePlayer({
+  card,
+  bout,
+  renders,
+}: {
+  card: Card;
+  bout: Bout;
+  renders?: BoutRenders;
+}) {
   // Counted once per bout per visit, on the press rather than on render, so the
   // number a sponsor is shown is people who chose to watch.
   const played = () => track({ slug: card.event.slug, kind: "tape_play", boutNumber: bout.number });
-  if (mp4) return <VideoTape bout={bout} mp4={mp4} onPlay={played} />;
-  return <LiveTape card={card} bout={bout} onPlay={played} />;
+  const mp4 = renders?.tape;
+  return (
+    <div className="grid gap-5">
+      {mp4 ? (
+        <VideoTape bout={bout} mp4={mp4} onPlay={played} />
+      ) : (
+        <LiveTape card={card} bout={bout} onPlay={played} />
+      )}
+      {renders?.faceoff ? (
+        <PromoPlayer
+          slug={card.event.slug}
+          boutNumber={bout.number}
+          mp4={renders.faceoff}
+          title={promoTitle(card, bout)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The promo, offered rather than played first.
+ *
+ * The tale of the tape is what somebody who has opened the programme came for,
+ * so it stays at the top and keeps the page it had. This sits under it as a
+ * second thing to take away: shorter, made for posting, and the one a fighter is
+ * actually going to want. Same player, same counting, smaller frame — it is an
+ * offer, not a second headline.
+ *
+ * Exported because a fighter's own page draws it too, with nothing else around
+ * it, and two players of the same file would eventually count differently.
+ */
+export function PromoPlayer({
+  slug,
+  boutNumber,
+  mp4,
+  title,
+}: {
+  slug: string;
+  boutNumber: number;
+  mp4: string;
+  title: string;
+}) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [started, setStarted] = useState(false);
+
+  return (
+    <div className="grid gap-3">
+      <div className="label">{VIDEO_SHARE.promo}</div>
+      <Frame>
+        <video
+          ref={video}
+          src={`${mp4}#t=0.1`}
+          preload="metadata"
+          playsInline
+          controls={started}
+          className="block w-full"
+          style={{ aspectRatio: `${SEQ.width} / ${SEQ.height}` }}
+          onEnded={() => setStarted(false)}
+          aria-label={`${VIDEO_SHARE.promo}, ${title}`}
+        />
+        {started ? null : (
+          <PlayOverlay
+            label={VIDEO_SHARE.promo}
+            seconds={FACEOFF_FRAMES / SEQ.fps}
+            onPlay={() => {
+              setStarted(true);
+              track({ slug, kind: "tape_play", boutNumber });
+              void video.current?.play();
+            }}
+          />
+        )}
+      </Frame>
+      <p className="text-ash-dim text-xs leading-relaxed">{VIDEO_SHARE.promoNote}</p>
+      <DownloadLink mp4={mp4} />
+    </div>
+  );
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -37,9 +123,11 @@ function Frame({ children }: { children: React.ReactNode }) {
 function PlayOverlay({
   onPlay,
   label,
+  seconds = SEQ.duration / SEQ.fps,
 }: {
   onPlay: () => void;
   label: string;
+  seconds?: number;
 }) {
   return (
     <button
@@ -53,7 +141,7 @@ function PlayOverlay({
         </svg>
       </span>
       <span className="display text-xl">{label}</span>
-      <span className="label">{SEQ.duration / SEQ.fps} seconds</span>
+      <span className="label">{seconds} seconds</span>
     </button>
   );
 }
@@ -65,7 +153,7 @@ function DownloadLink({ mp4 }: { mp4: string }) {
       download
       className="border-hairline hover:border-chalk/40 label flex items-center justify-center gap-2 border py-2.5 transition-colors"
     >
-      Download for Instagram
+      {VIDEO_SHARE.download}
     </a>
   );
 }

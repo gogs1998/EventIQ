@@ -398,6 +398,33 @@ export function sponsorTapNote(sponsors: number): string {
 }
 
 /* -------------------------------------------------------------------------
+ * The fighter's own video
+ *
+ * The second half of the loop the product is built on. A fighter fills the form
+ * in because there is something in it for them; the video is that something, and
+ * until now nothing told them it existed. So: a line the promoter can send, a
+ * control on the programme that hands the file over, and a count of how often
+ * that control was used.
+ *
+ * Three rules, all of which are easy to break by writing something that reads
+ * well. **Nothing here claims a result.** No reach, no views, no "your followers
+ * will love it": the product cannot see what happens after the file leaves and a
+ * sentence implying otherwise is the fabricated engagement figure of section 7
+ * wearing different clothes. **Nothing here is breathless** — it is a message
+ * from a promoter to somebody on their card, not marketing. And **no gendered
+ * pronouns**, which is the rule the nudge message already lives under (bug 10).
+ * ---------------------------------------------------------------------- */
+
+export const VIDEO_SHARE = {
+  /** On the programme, beside a bout's video. The verb is what it does. */
+  download: "Download for Instagram",
+  /** What the promo is called everywhere a spectator meets it. */
+  promo: "The promo",
+  promoNote:
+    "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
+} as const;
+
+/* -------------------------------------------------------------------------
  * What is said when something goes wrong
  *
  * Here for the same two reasons as the zero-bout strings above: a sentence a

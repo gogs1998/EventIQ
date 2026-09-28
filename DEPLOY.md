@@ -880,13 +880,31 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 
 `--publish` puts the mp4 in R2 and records the key in `render_jobs`, which is
 where the programme reads it from. `--stale` takes the bouts that are queued,
-out of date, or worth another attempt; a fifteen-bout card is about a quarter of
-an hour of compute, and one bout took **63 seconds end to end** on a warm laptop
-against a local dev server — 52 of them capturing 480 frames, the rest cutouts,
-the claim, the upload and the row.
+out of date, or worth another attempt.
 
-The mp4 is 1080x1920, 30fps, 16.000 seconds, about 1.8MB, tagged BT.709 for all
-three of primaries, transfer and matrix. Both spellings of those tags are
+**A bout is two videos.** The tale of the tape, which the programme plays, and
+the promo, which it offers on the card and on both fighters' pages. They are two
+rows, two keys and two jobs, so one failing leaves the other alone. A run with no
+`--template` does both; `--template <id>` does exactly that one, and an id the
+programme has nowhere to put — `walkout`, `social` — is a sample to a file that
+`--publish` refuses.
+
+Timings, on a warm laptop against a local dev server, with the cutouts already
+made: **53 seconds** for a tape's 480 frames and **39 seconds** for a promo's
+360, so **about 100 seconds a bout** and roughly **twenty-five minutes for a
+fifteen-bout card**, which is up from a quarter of an hour. Add the cutouts, the
+claim, the upload and the row on top.
+
+**Expect one full re-render after deploying migration `0015`.** The template is
+part of the fingerprint now, so every render made before it reads as "Worth
+remaking" on the dashboard and `--stale` will take the lot. That is correct —
+they were made without the field that says which composition they are — and it
+is a card's worth of rendering per show, once. Objects published under the old
+key shape, `renders/<slug>/bout-<n>-<hash8>.mp4`, keep being served until their
+bout renders again; nothing reads a key to work out what it is.
+
+The mp4 is 1080x1920, 30fps — 16.000 seconds and about 1.8MB for a tape, 12.000
+for a promo — tagged BT.709 for all three of primaries, transfer and matrix. Both spellings of those tags are
 passed, because ffmpeg's own `-color_primaries`/`-color_trc` reached the
 bitstream as the matrix and nothing else in the build this was checked against;
 the `-x264-params` are what actually write all three. `ffprobe` says which.
@@ -906,10 +924,12 @@ never `status`.
 
 ### The key changes when the video does
 
-Renders publish to `renders/<slug>/bout-<n>-<hash8>.mp4`, where the hash covers
-everything on screen. `/media` serves a year of immutable caching, so a fixed
-key would have left phones that had already played a bout holding the old video
-indefinitely. The superseded object is deleted after the new one is in.
+Renders publish to `renders/<slug>/bout-<n>-<template>-<hash8>.mp4`, where the
+hash covers everything on screen, the template included. `/media` serves a year
+of immutable caching, so a fixed key would have left phones that had already
+played a bout holding the old video indefinitely. The template is in the key for
+the same reason at a smaller scale: without it a bout's two videos would publish
+over each other. The superseded object is deleted after the new one is in.
 
 ### Rendering from CI
 

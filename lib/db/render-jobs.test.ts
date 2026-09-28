@@ -114,8 +114,15 @@ function card(over: Partial<LoadedCard> = {}): LoadedCard {
 
 describe("boutFingerprints", () => {
   it("agrees with the renderer about what this bout is made of", async () => {
-    const fromTheRow = await renderFingerprint(renderInputsFrom(ROW, [LOCKUP]));
-    expect(await boutFingerprints(card())).toEqual({ 15: fromTheRow });
+    // Both compositions, from both sides. The tape alone would let a field reach
+    // one digest and not the other, which is the drift this test exists to make
+    // impossible.
+    expect(await boutFingerprints(card())).toEqual({
+      15: {
+        tape: await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "tape")),
+        faceoff: await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "faceoff")),
+      },
+    });
   });
 
   it("moves when the card moves", async () => {

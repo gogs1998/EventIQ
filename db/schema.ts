@@ -364,6 +364,17 @@ export const invites = sqliteTable(
     sentAt: integer("sent_at"),
     /** whatsapp | sms | copied. How it went out, which the chase list reports. */
     sentChannel: text("sent_channel"),
+    /**
+     * When the promoter handed this fighter their own bout's promo.
+     *
+     * A later errand than the invite and a different one: the invite asks for
+     * something, this gives something back. Recorded for the same reason
+     * `sentAt` is — so the dashboard can tell "nobody has been told there is a
+     * video" from "they were told and did nothing with it" — and never inferred
+     * from a render finishing, because a video being made is not a video being
+     * sent.
+     */
+    videoSentAt: integer("video_sent_at"),
     lastOpenedAt: integer("last_opened_at"),
     submittedAt: integer("submitted_at"),
     /**
@@ -421,6 +432,20 @@ export const renderJobs = sqliteTable(
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
     boutNumber: integer("bout_number").notNull(),
+    /**
+     * Which composition this row is about — `tape` or `faceoff`, the two in
+     * PUBLISHED_TEMPLATES in lib/renders.ts.
+     *
+     * A bout has more than one video now, so the row that used to be "the bout"
+     * is "the bout in one composition". It is in the unique key below and in the
+     * fingerprint, because the template is the single largest thing on screen:
+     * a row that did not carry it would let a face-off publish over the tale of
+     * the tape and read as current afterwards.
+     *
+     * Defaulted to `tape` so every row written before this column existed says
+     * what it already was.
+     */
+    template: text("template").notNull().default("tape"),
     /** queued | running | done | failed. The job, not the video. */
     status: text("status").notNull(),
     error: text("error"),
@@ -447,7 +472,13 @@ export const renderJobs = sqliteTable(
     requestedAt: integer("requested_at").notNull(),
     finishedAt: integer("finished_at"),
   },
-  (table) => [uniqueIndex("render_jobs_event_bout").on(table.eventId, table.boutNumber)],
+  (table) => [
+    uniqueIndex("render_jobs_event_bout_template").on(
+      table.eventId,
+      table.boutNumber,
+      table.template,
+    ),
+  ],
 );
 
 /**
@@ -466,7 +497,7 @@ export const analyticsEvents = sqliteTable(
     eventId: text("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    /** programme_open | bout_expand | tape_play | sponsor_tap | profile_view */
+    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view */
     kind: text("kind").notNull(),
     boutNumber: integer("bout_number"),
     fighterId: text("fighter_id"),
@@ -535,7 +566,7 @@ export const analyticsDaily = sqliteTable(
      * timezone and a fold that guessed one would be wrong for half the year.
      */
     day: text("day").notNull(),
-    /** programme_open | bout_expand | tape_play | sponsor_tap | profile_view */
+    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view */
     kind: text("kind").notNull(),
     boutNumber: integer("bout_number"),
     fighterId: text("fighter_id"),

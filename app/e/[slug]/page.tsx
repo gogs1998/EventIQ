@@ -134,7 +134,7 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
                   key={bout.number}
                   card={card}
                   bout={bout}
-                  mp4={renders[bout.number]}
+                  renders={renders[bout.number]}
                 />
               ))}
             </div>
