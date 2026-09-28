@@ -21,6 +21,7 @@ import {
   VIDEO_SHARE,
   boutCountLabel,
   renderCountLabel,
+  shareCountLabel,
   slotsAvailableNote,
   sponsorTapNote,
 } from "@/lib/copy";
@@ -367,7 +368,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
   // subquery that names the last show. The fingerprints are worked out from the
   // card already in hand, so what used to be six more queries is now none, and
   // they are hashed while the batch is in flight.
-  const [{ invites, jobRows, analytics, previous, previousAnalytics }, fingerprints] =
+  const [{ invites, jobRows, analytics, shares, previous, previousAnalytics }, fingerprints] =
     await Promise.all([
       loadDashboardRows(db, card.eventId, promoter.id, event.date),
       boutFingerprints(card),
@@ -671,6 +672,13 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                         ) : null}
                       </div>
                     ))}
+                  </div>
+
+                  {/* A real count or an explicit nought, never an estimate, and
+                      it counts the control being used rather than anything that
+                      happened after the file left. */}
+                  <div className="text-ash-dim mt-2 font-mono text-[0.5rem] uppercase tracking-[0.14em]">
+                    {shareCountLabel(shares[bout.number] ?? 0)}
                   </div>
                 </div>
 

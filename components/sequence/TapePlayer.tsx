@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { VideoShare } from "@/components/VideoShare";
 import { track } from "@/lib/analytics";
 import { promoTitle, type Card } from "@/lib/card";
 import { VIDEO_SHARE } from "@/lib/copy";
@@ -41,7 +42,7 @@ export function TapePlayer({
   return (
     <div className="grid gap-5">
       {mp4 ? (
-        <VideoTape bout={bout} mp4={mp4} onPlay={played} />
+        <VideoTape card={card} bout={bout} mp4={mp4} onPlay={played} />
       ) : (
         <LiveTape card={card} bout={bout} onPlay={played} />
       )}
@@ -74,11 +75,14 @@ export function PromoPlayer({
   boutNumber,
   mp4,
   title,
+  fighterId,
 }: {
   slug: string;
   boutNumber: number;
   mp4: string;
   title: string;
+  /** Set on a fighter's own page, so a share says whose page it left from. */
+  fighterId?: string;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
@@ -111,7 +115,13 @@ export function PromoPlayer({
         )}
       </Frame>
       <p className="text-ash-dim text-xs leading-relaxed">{VIDEO_SHARE.promoNote}</p>
-      <DownloadLink mp4={mp4} />
+      <VideoShare
+        slug={slug}
+        mp4={mp4}
+        boutNumber={boutNumber}
+        fighterId={fighterId}
+        title={title}
+      />
     </div>
   );
 }
@@ -146,19 +156,17 @@ function PlayOverlay({
   );
 }
 
-function DownloadLink({ mp4 }: { mp4: string }) {
-  return (
-    <a
-      href={mp4}
-      download
-      className="border-hairline hover:border-chalk/40 label flex items-center justify-center gap-2 border py-2.5 transition-colors"
-    >
-      {VIDEO_SHARE.download}
-    </a>
-  );
-}
-
-function VideoTape({ bout, mp4, onPlay }: { bout: Bout; mp4: string; onPlay: () => void }) {
+function VideoTape({
+  card,
+  bout,
+  mp4,
+  onPlay,
+}: {
+  card: Card;
+  bout: Bout;
+  mp4: string;
+  onPlay: () => void;
+}) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
 
@@ -189,7 +197,12 @@ function VideoTape({ bout, mp4, onPlay }: { bout: Bout; mp4: string; onPlay: () 
           />
         )}
       </Frame>
-      <DownloadLink mp4={mp4} />
+      <VideoShare
+        slug={card.event.slug}
+        mp4={mp4}
+        boutNumber={bout.number}
+        title={promoTitle(card, bout)}
+      />
     </div>
   );
 }

@@ -777,6 +777,14 @@ It is not a config change. It is a Dockerfile, an image built as part of the dep
 
 Until that work is done, rendering remains an out-of-band job on a machine that has Chrome and ffmpeg. What has changed is only that the machine is a GitHub runner on an hourly schedule rather than somebody's laptop when they remember, which removes the operator from the loop without moving the pipeline anywhere. Section 19.
 
+### What leaves the page, and what is counted
+
+The download has been on every bout with an mp4 since there were mp4s, and nothing ever measured it: nobody could say whether a single fighter had ever taken one away, which was half of why the share loop was never deliberate (section 19 item 6).
+
+The download and a share control beside it now both post a `video_share` through the ordinary beacon ([components/VideoShare.tsx](components/VideoShare.tsx)), carrying the bout and — on a fighter's own page — the fighter. The dashboard's Videos panel reports "Shared N times" per bout, or "Not shared yet".
+
+**It counts the tap, not the post.** Nothing on that page can see what happens after the file leaves the browser, and a number implying otherwise would be the fabricated engagement figure of section 7 in different clothes. The copy is held to that in [lib/copy.test.ts](lib/copy.test.ts): no claim about reach, no gendered pronoun, no invented figure. The share control is drawn only where `navigator.share` exists — phones, where a fighter actually is — because a control that does nothing is worse than the download beside it.
+
 ### The show-level videos are a second renderer, and a smaller one
 
 `/render/[slug]/[bout]` and [scripts/render-tape.mjs](scripts/render-tape.mjs) make the video for one bout. There are now three more that are about the whole show, made for the promoter's own feed rather than for the programme: **`countdown`** (12s — the show, the date, how long is left, every bout going past, the sponsors' emblems and the code), **`card`** (16s — the full running order as a scroll) and **`doors`** (8s — venue, doors, first bell, how much is on and the code large, for the morning of the show). They are listed in [components/sequence/show-templates.ts](components/sequence/show-templates.ts), the capture page is `/render/[slug]/show/[template]`, and `npm run render:show -- --slug <slug> --template <id>` writes the mp4 with a poster frame beside it.

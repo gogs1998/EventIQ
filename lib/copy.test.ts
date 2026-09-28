@@ -41,6 +41,8 @@ import {
   tableCardNote,
   tapeForEveryBout,
   UNDER_AGE,
+  VIDEO_SHARE,
+  shareCountLabel,
   winsEdge,
   WITHDRAWN,
 } from "@/lib/copy";
@@ -1032,5 +1034,58 @@ describe("the invite copy", () => {
     expect(INVITE_SHARE.regenerateHint).toMatch(/new link/i);
     expect(INVITE_SHARE.revokeHint).toMatch(/without/i);
     expect(INVITE_SHARE.revokeHint).not.toMatch(/issues a new/i);
+  });
+});
+
+/**
+ * The words on the way out of the programme.
+ *
+ * This is the copy most likely to acquire a claim, because the thing it is about
+ * — a fighter posting their own video — is the growth the product wants, and the
+ * shortest way to ask for it is to promise something about it. Nothing here may:
+ * the product cannot see a view, a follower or a repost, and the fabricated
+ * "last show" figures were the most dangerous thing the demo ever contained for
+ * exactly that reason.
+ */
+describe("the video share copy", () => {
+  const LINES = Object.values(VIDEO_SHARE);
+
+  it("never uses a gendered pronoun", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+    }
+  });
+
+  /** Reach, views, followers, virality: none of it is a thing this can see. */
+  it("claims nothing about what happens after the file leaves", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/(views?|reach|followers?|viral|engagement|audience)/i);
+      expect(line).not.toMatch(/\d+\s*%|thousands?|millions?/i);
+    }
+  });
+
+  it("is plain rather than breathless", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/!|(amazing|incredible|smash|blow up|epic|stunning)/i);
+      expect(line).not.toMatch(/organiz|customiz|color/i);
+      expect(line.trim()).toBe(line);
+    }
+  });
+});
+
+describe("shareCountLabel", () => {
+  it("agrees with itself about one share and several", () => {
+    expect(shareCountLabel(1)).toBe("Shared 1 time");
+    expect(shareCountLabel(4)).toBe("Shared 4 times");
+  });
+
+  /**
+   * The zero-bout rule, applied to a count nobody has reached yet: a nought
+   * stated as a number reads as a measurement of failure, and this one is the
+   * ordinary state of a video made an hour ago.
+   */
+  it("says nobody has yet rather than counting no shares", () => {
+    expect(shareCountLabel(0)).toBe("Not shared yet");
+    expect(shareCountLabel(0)).not.toMatch(/\d/);
   });
 });

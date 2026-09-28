@@ -418,11 +418,19 @@ export function sponsorTapNote(sponsors: number): string {
 export const VIDEO_SHARE = {
   /** On the programme, beside a bout's video. The verb is what it does. */
   download: "Download for Instagram",
+  /** The other way out, for a phone that would rather hand it to an app. */
+  share: "Share",
   /** What the promo is called everywhere a spectator meets it. */
   promo: "The promo",
   promoNote:
     "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
 } as const;
+
+/** What the dashboard says about how often a bout's video has been taken away. */
+export function shareCountLabel(shares: number): string {
+  if (shares <= 0) return "Not shared yet";
+  return `Shared ${shares} ${shares === 1 ? "time" : "times"}`;
+}
 
 /* -------------------------------------------------------------------------
  * What is said when something goes wrong

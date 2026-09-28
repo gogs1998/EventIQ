@@ -148,6 +148,7 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
             slug={card.event.slug}
             boutNumber={assignment.bout.number}
             mp4={promo}
+            fighterId={fighter.id}
             title={promoTitle(card, assignment.bout)}
           />
         </section>

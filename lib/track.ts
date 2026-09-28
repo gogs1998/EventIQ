@@ -84,6 +84,7 @@ const KINDS = new Set<string>([
   "programme_open",
   "bout_expand",
   "tape_play",
+  "video_share",
   "sponsor_tap",
   "profile_view",
 ] satisfies AnalyticsKind[]);
