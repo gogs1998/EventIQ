@@ -37,6 +37,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+// Node strips the types on the way in. The header the capture page takes
+// instead of a session is named once, where the route reads it.
+import { RENDER_KEY_HEADER } from "../lib/auth.ts";
 import { chromeOrThrow } from "./chrome.mjs";
 import { devVars } from "./dev-vars.mjs";
 
@@ -316,7 +319,7 @@ await step("the render key opens it, and a wrong one does not", async () => {
   const context = await browser.createBrowserContext();
   try {
     const renderer = await context.newPage();
-    await renderer.setExtraHTTPHeaders({ "x-eventiq-render-key": key });
+    await renderer.setExtraHTTPHeaders({ [RENDER_KEY_HEADER]: key });
     const good = await renderer.goto(`${BASE}/render/${slug}/1`, {
       waitUntil: "domcontentloaded",
     });
@@ -326,7 +329,7 @@ await step("the render key opens it, and a wrong one does not", async () => {
       );
     }
 
-    await renderer.setExtraHTTPHeaders({ "x-eventiq-render-key": `${key}-wrong` });
+    await renderer.setExtraHTTPHeaders({ [RENDER_KEY_HEADER]: `${key}-wrong` });
     const bad = await renderer.goto(`${BASE}/render/${slug}/1`, {
       waitUntil: "domcontentloaded",
     });

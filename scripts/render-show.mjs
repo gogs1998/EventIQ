@@ -27,6 +27,10 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
+// Node strips the types on the way in, and lib/auth.ts imports nothing at
+// runtime, so the header this presents is the one the route reads rather than
+// a copy of it that a rename would leave behind.
+import { RENDER_KEY_HEADER } from "../lib/auth.ts";
 import { chromeOrThrow } from "./chrome.mjs";
 import { devVars } from "./dev-vars.mjs";
 
@@ -34,8 +38,6 @@ const WIDTH = 1080;
 const HEIGHT = 1920;
 const FPS = 30;
 
-/** Duplicated from RENDER_KEY_HEADER in lib/auth.ts, which is not importable here. */
-const RENDER_KEY_HEADER = "x-eventiq-render-key";
 const renderKey = process.env.RENDER_KEY || devVars().RENDER_KEY;
 
 function arg(name, fallback) {

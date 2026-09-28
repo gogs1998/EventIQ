@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ABSENT_PROMOTER_HASH,
@@ -101,6 +103,32 @@ describe("secretMatches", () => {
 
   it("names the header in lower case, because that is how headers arrive", () => {
     expect(RENDER_KEY_HEADER).toBe(RENDER_KEY_HEADER.toLowerCase());
+  });
+
+  /**
+   * The scripts import this now; a workflow that curls the capture page cannot,
+   * so one copy of the string is still written out in YAML. A rename would
+   * leave it presenting a header the route does not read, which is a 404 on the
+   * capture page and no other symptom at all — so every `x-eventiq-` spelling
+   * anywhere outside this module has to be this one.
+   */
+  it("is spelled the same way in the one place that cannot import it", () => {
+    const files = [
+      ...readdirSync("scripts").map((file) => join("scripts", file)),
+      ...readdirSync(join(".github", "workflows")).map((file) =>
+        join(".github", "workflows", file),
+      ),
+    ].filter((file) => /\.(mjs|ts|yml|yaml)$/.test(file));
+
+    const spellings = files.flatMap((file) =>
+      (readFileSync(file, "utf8").match(/x-eventiq-[a-z-]+/g) ?? []).map(
+        (found) => `${file}: ${found}`,
+      ),
+    );
+
+    // It has to be somewhere, or this passes by finding nothing at all.
+    expect(spellings.length).toBeGreaterThan(0);
+    expect(spellings.filter((line) => !line.endsWith(RENDER_KEY_HEADER))).toEqual([]);
   });
 });
 

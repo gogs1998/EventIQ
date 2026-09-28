@@ -59,7 +59,10 @@ import { devVars } from "./dev-vars.mjs";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 // Node strips the types on the way in, so there is one definition of what a
-// render depends on rather than one here and a drifting copy in the app.
+// render depends on rather than one here and a drifting copy in the app. Both
+// modules are pure and import nothing at runtime, which is what makes that
+// possible at all.
+import { RENDER_KEY_HEADER } from "../lib/auth.ts";
 import {
   MAX_RENDER_ATTEMPTS,
   PUBLISHED_TEMPLATES,
@@ -85,16 +88,15 @@ const { database: DATABASE, bucket: BUCKET } = environmentFrom(process.argv, (me
  * The credential for the capture page.
  *
  * That page has to serve a card before it is published, which is exactly what
- * the publish check exists to prevent, so it takes a key of its own instead. The
- * header name is duplicated from RENDER_KEY_HEADER in lib/auth.ts because that
- * module is not importable from here; if the two ever drift, `openBout` throws
- * on the first response rather than quietly capturing 480 frames of a 404 page.
+ * the publish check exists to prevent, so it takes a key of its own instead.
+ * The header name comes from lib/auth.ts, where the route reads it: it used to
+ * be written out again here, and a rename would have left this presenting a
+ * header nothing reads, which is a 404 on the capture page and no other symptom.
  *
  * Read from the shell first and .dev.vars second, so a local `wrangler dev` or
  * `next dev` needs nothing exported: both the Worker and this script take the
  * value out of the same file.
  */
-const RENDER_KEY_HEADER = "x-eventiq-render-key";
 const renderKey = process.env.RENDER_KEY || devVars().RENDER_KEY;
 
 function arg(name, fallback) {
