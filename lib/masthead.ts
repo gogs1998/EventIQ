@@ -21,8 +21,13 @@ export type Masthead = "full" | "modest" | "none";
  * for an unrelated and much less forgiving reason — it is the surface the mp4
  * exporter screenshots, so anything painted over it is burned into 480 frames of
  * video, the way the Next.js dev badge once was.
+ *
+ * `/fighters` is a fighter's own permanent page. It spans shows and belongs to
+ * no one promoter, which makes it the one page here that could be argued to be
+ * ours — and it is still the least appropriate place to shout, because it is the
+ * address a fighter puts in their own bio.
  */
-const UNBRANDED = ["/e", "/f", "/qr", "/render", "/media"];
+const UNBRANDED = ["/e", "/f", "/fighters", "/qr", "/render", "/media"];
 
 /** The promoter's side of the product: their tool, our name on it, modestly. */
 const PROMOTER = "/promoter";

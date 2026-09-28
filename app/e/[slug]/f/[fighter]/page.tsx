@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FighterPortrait } from "@/components/FighterPortrait";
+import { PreviousShows } from "@/components/PreviousShows";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { fighterSponsors, type Card } from "@/lib/card";
+import { PREVIOUS_SHOWS } from "@/lib/copy";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -16,7 +18,7 @@ import {
   totalFights,
 } from "@/lib/tape";
 import type { Corner } from "@/lib/types";
-import { visibleCardFor } from "@/lib/visibility";
+import { appearancesFor, visibleCardFor } from "@/lib/visibility";
 
 function boutFor(card: Card, fighterId: string) {
   const bout = card.event.bouts.find((b) => b.redId === fighterId || b.blueId === fighterId);
@@ -47,6 +49,12 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
 
   const fighter = card.fighters[id];
   if (!fighter) notFound();
+
+  // Every other published card this fighter has been on. The show being read is
+  // dropped here rather than in the query, so this page and the canonical one at
+  // /fighters/[id] cannot come to disagree about what a previous show is.
+  const appearances = await appearancesFor(id);
+  const previous = appearances.filter((show) => show.slug !== card.event.slug);
 
   const assignment = boutFor(card, id);
   const corner: Corner = assignment?.corner ?? "red";
@@ -194,6 +202,21 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
               />
             ))}
           </div>
+        </section>
+      ) : null}
+
+      <PreviousShows shows={previous} />
+
+      {/* The canonical address, which is the one a fighter puts in a bio: the
+          same profile, standing on its own rather than inside one promoter's
+          programme. Drawn off the appearances rather than off the previous ones,
+          because that is the rule the page itself applies: a fighter on one
+          published card has a profile, and one only ever on a draft has not. */}
+      {appearances.length ? (
+        <section className="border-hairline border-t px-5 py-4">
+          <Link href={`/fighters/${fighter.id}`} className="label hover:text-chalk transition-colors">
+            {PREVIOUS_SHOWS.profile}
+          </Link>
         </section>
       ) : null}
 

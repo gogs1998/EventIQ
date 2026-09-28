@@ -12,6 +12,8 @@ import {
   EMPTY_PROGRAMME,
   EMPTY_SPONSORS,
   fewerLossesEdge,
+  FIGHTER_MATCH,
+  FIGHTER_PROFILE,
   FIRST_SHOW,
   GETTING_STARTED,
   INVITE_CHANNEL,
@@ -32,7 +34,9 @@ import {
   RENDER_SECTION,
   RENDER_STATE_COPY,
   renderCountLabel,
+  PREVIOUS_SHOWS,
   RESET_COPY,
+  RETURNING_FIGHTER,
   SHOW_NOT_FOUND,
   slotsAvailableNote,
   sponsorNote,
@@ -1032,5 +1036,117 @@ describe("the invite copy", () => {
     expect(INVITE_SHARE.regenerateHint).toMatch(/new link/i);
     expect(INVITE_SHARE.revokeHint).toMatch(/without/i);
     expect(INVITE_SHARE.revokeHint).not.toMatch(/issues a new/i);
+  });
+});
+
+/**
+ * A fighter who has been here before: the matching panel, the questionnaire's
+ * second time round, and the list of shows on a fighter's own page.
+ *
+ * These carry two risks the rest of the copy does not. The panel is read while
+ * a promoter is about to do something irreversible to two people's profiles, so
+ * it has to say what each choice does rather than which one is likely; and the
+ * returning fighter's heading is the one sentence in the product that mentions
+ * something somebody did months ago, which is exactly where "you still haven't"
+ * creeps in.
+ */
+const RETURNING_STRINGS = [
+  FIGHTER_MATCH.heading("Owen Pryce"),
+  FIGHTER_MATCH.body,
+  FIGHTER_MATCH.same,
+  FIGHTER_MATCH.different,
+  FIGHTER_MATCH.noShow,
+  FIGHTER_MATCH.noRecord,
+  FIGHTER_MATCH.lastShow("Cage County 11", "16 May"),
+  FIGHTER_MATCH.elsewhere,
+  FIGHTER_MATCH.looking,
+  RETURNING_FIGHTER.heading("Owen Pryce", "Cage County 12"),
+  RETURNING_FIGHTER.body("Cage County 11"),
+  RETURNING_FIGHTER.photo,
+  PREVIOUS_SHOWS.heading,
+  PREVIOUS_SHOWS.withdrawn,
+  PREVIOUS_SHOWS.video,
+  PREVIOUS_SHOWS.profile,
+  FIGHTER_PROFILE.current("Cage County 12"),
+  FIGHTER_PROFILE.intro(1),
+  FIGHTER_PROFILE.intro(4),
+  ACTION_ERRORS.cornerNeedsAnAnswer,
+  ACTION_ERRORS.matchOutOfDate,
+  ACTION_ERRORS.cornerAlreadyOnCard,
+  ACTION_ERRORS.bothCornersOneFighter,
+];
+
+describe("the returning-fighter copy", () => {
+  it("never uses a gendered pronoun", () => {
+    for (const line of RETURNING_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+    }
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of RETURNING_STRINGS) {
+      expect(line).not.toMatch(/\bpaper\b|\bprint(ed|s)? programme/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  /**
+   * Nobody is at fault for having a common name, and a promoter about to make
+   * this choice is not being warned about a mistake they have not made.
+   */
+  it("asks the question without characterising anybody", () => {
+    for (const line of RETURNING_STRINGS) {
+      expect(line).not.toMatch(/duplicate|mistake|wrong|careful|warning|fault|blame/i);
+      expect(line).not.toMatch(/\bmerge\b/i);
+    }
+  });
+
+  /** Both choices are stated, because the panel is a question and not a nudge. */
+  it("says what each choice does", () => {
+    expect(FIGHTER_MATCH.body).toMatch(/same fighter/i);
+    expect(FIGHTER_MATCH.body).toMatch(/different person/i);
+    expect(FIGHTER_MATCH.body).toMatch(/confirm/i);
+  });
+
+  /**
+   * The cross-promotion note is the whole of the tenancy decision said out loud:
+   * a name, and nothing else. It must not offer to show anything, and it must
+   * point at the fighter's own link as the way to settle it.
+   */
+  it("says a name is known elsewhere and offers nothing of that card", () => {
+    expect(FIGHTER_MATCH.elsewhere).toMatch(/another promotion/i);
+    expect(FIGHTER_MATCH.elsewhere).toMatch(/confirm/i);
+    expect(FIGHTER_MATCH.elsewhere).not.toMatch(/\bview\b|\bsee their\b|\bshow you\b/i);
+  });
+
+  /** A record nobody has given is never a 0-0-0 beside a name. */
+  it("does not invent a record for a fighter who has not given one", () => {
+    expect(FIGHTER_MATCH.noRecord).not.toMatch(/\d/);
+    expect(FIGHTER_MATCH.noRecord).toMatch(/no record/i);
+  });
+
+  /** It is a confirmation, and it says where what is in the boxes came from. */
+  it("asks a returning fighter to confirm rather than to start again", () => {
+    expect(RETURNING_FIGHTER.heading("Owen Pryce", "Cage County 12")).toMatch(/confirm/i);
+    expect(RETURNING_FIGHTER.heading("Owen Pryce", "Cage County 12")).toContain("Cage County 12");
+    expect(RETURNING_FIGHTER.body("Cage County 11")).toContain("Cage County 11");
+    expect(RETURNING_FIGHTER.body("Cage County 11")).toMatch(/photograph/i);
+  });
+
+  /** A fighter's page never carries a result, so the words never suggest one. */
+  it("lists shows rather than results", () => {
+    for (const line of RETURNING_STRINGS) {
+      expect(line).not.toMatch(/\b(won|lost|beat|defeat|victor|winner|loser)\b/i);
+    }
+    expect(PREVIOUS_SHOWS.heading).toMatch(/shows/i);
+  });
+
+  it("counts one show as one and several as several", () => {
+    expect(FIGHTER_PROFILE.intro(1)).toMatch(/^One show/);
+    expect(FIGHTER_PROFILE.intro(4)).toMatch(/^4 shows/);
   });
 });

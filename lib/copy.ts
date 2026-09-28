@@ -1099,3 +1099,35 @@ export const RETURNING_FIGHTER = {
   /** Beside the photograph control, where one carried over. */
   photo: "Carried over from your last card. Send a new one to replace it.",
 } as const;
+
+/**
+ * A fighter's own page, under the card they are on now.
+ *
+ * Published shows only — a draft on a page anybody can open would be a show
+ * announced by accident — and the heading says shows rather than results,
+ * because this product records who was on a card and never who won.
+ */
+export const PREVIOUS_SHOWS = {
+  heading: "Previous shows",
+  /** Per row, where the bout came off. The fighter still walked out or did not. */
+  withdrawn: "Bout withdrawn",
+  video: "Watch the tale of the tape",
+  /** The canonical profile, under the list. */
+  profile: "Their profile",
+} as const;
+
+/**
+ * The canonical fighter page: one person, across every card they have been on.
+ *
+ * It says what the page is for rather than describing the fighter, because
+ * everything describing them is on the page already and most of it is blank for
+ * most of the bill.
+ */
+export const FIGHTER_PROFILE = {
+  /** Where the fighter is on a show that is on now. */
+  current: (event: string) => `On the card at ${event}`,
+  intro: (shows: number) =>
+    shows === 1
+      ? "One show on EventIQ so far."
+      : `${shows} shows on EventIQ so far.`,
+} as const;
