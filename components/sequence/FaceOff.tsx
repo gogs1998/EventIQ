@@ -18,6 +18,8 @@ import {
   stated,
   weightLabel,
 } from "@/lib/tape";
+import { qrPath } from "@/lib/qr";
+import { SITE_URL } from "@/lib/site";
 import type { Bout, Corner, FightEvent, Fighter, Sponsor } from "@/lib/types";
 import type { Card } from "@/lib/card";
 import {
@@ -26,6 +28,7 @@ import {
   CHALK,
   Embers,
   GOLD,
+  INK,
   Label,
   Rule,
   SponsorLockup,
@@ -541,29 +544,99 @@ function Close({
         </Label>
       </div>
 
-      {/* The bout's own sponsor closes it out, which is the thing a promoter is
-          actually selling. Their name is set in our type, never drawn. */}
-      {sponsor ? (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 150,
-            display: "grid",
-            gap: 20,
-            justifyItems: "center",
-            opacity: progress(f, 28, 48),
-          }}
+      {/* The bout's own sponsor and the way in, on one line. The sponsor is the
+          thing a promoter is actually selling and their name is set in our type,
+          never drawn. The code is the whole reason this file leaves the site at
+          all: a promo is watched on somebody else's phone, somewhere else, and
+          the only thing it can do there is bring them back to the programme. */}
+      <div
+        style={{
+          position: "absolute",
+          left: 80,
+          right: 80,
+          bottom: 130,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: sponsor ? "space-between" : "center",
+          gap: 40,
+        }}
+      >
+        {sponsor ? (
+          <div
+            style={{
+              display: "grid",
+              gap: 18,
+              justifyItems: "start",
+              textAlign: "left",
+              opacity: progress(f, 28, 48),
+            }}
+          >
+            <Label size={16}>This bout brought to you by</Label>
+            <SponsorLockup sponsor={sponsor} size={82} />
+          </div>
+        ) : null}
+
+        <ProgrammeCode slug={event.slug} frame={f} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The way back to the programme, small, in the last beat.
+ *
+ * A code rather than an address, because a URL read off a video is a URL nobody
+ * types. It points at SITE_URL rather than at whatever origin rendered it: an
+ * mp4 leaves this app entirely and is watched somewhere else, so a code made on
+ * a laptop that said `localhost` would work for exactly one person. That is the
+ * opposite of the choice components/QrCode.tsx makes for the printed table card,
+ * and for the same reason — where the thing ends up decides which address is the
+ * true one.
+ *
+ * Small and in the corner, not the beat itself. A walkout is a fighter's own
+ * video and closes on the code at full size; this one closes on the show and the
+ * bout's sponsor, and a code the size of the sponsor's emblem would be EventIQ's
+ * plumbing shouting over what the promoter sold.
+ *
+ * Geometry, never text: it is drawn in the frame the exporter screenshots, with
+ * nothing to fetch and nothing to wait for. Pure, like everything else here.
+ */
+function ProgrammeCode({ slug, frame: f }: { slug: string; frame: number }) {
+  const code = qrPath(`${SITE_URL}/e/${slug}`);
+  const panel = 190;
+  const quiet = 2; // modules of margin, so the code is never flush to the panel
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 12,
+        justifyItems: "center",
+        opacity: progress(f, 34, 54),
+      }}
+    >
+      <div
+        style={{
+          width: panel,
+          height: panel,
+          background: CHALK,
+          padding: 12,
+          transform: `scale(${interpolate(f, [34, 56], [0.88, 1], easeOutBack)})`,
+        }}
+      >
+        <svg
+          viewBox={`${-quiet} ${-quiet} ${code.size + quiet * 2} ${code.size + quiet * 2}`}
+          width="100%"
+          height="100%"
+          shapeRendering="crispEdges"
+          aria-hidden="true"
         >
-          <Label size={16}>This bout brought to you by</Label>
-          <SponsorLockup sponsor={sponsor} size={82} />
-        </div>
-      ) : (
-        <div style={{ position: "absolute", bottom: 150, opacity: progress(f, 28, 48) }}>
-          <Label size={16} color={GOLD}>
-            Scan for the full programme
-          </Label>
-        </div>
-      )}
+          <path d={code.path} fill={INK} />
+        </svg>
+      </div>
+      <Label size={14} color={ASH}>
+        Scan for the programme
+      </Label>
     </div>
   );
 }
