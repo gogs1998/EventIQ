@@ -150,7 +150,13 @@ export function finishRate(f: Fighter): number | undefined {
   return Math.min(1, finishCount(f) / f.record.w);
 }
 
-export function isUndefeated(f: Fighter): boolean {
+/**
+ * A record with no losses on it. A type predicate rather than a boolean,
+ * because every caller then wants the wins out of the same record and was
+ * asserting past the null to get them — the one place in this file that
+ * claimed what the all-or-nothing rule says has to be proven.
+ */
+export function isUndefeated(f: Fighter): f is Fighter & { record: NonNullable<Fighter["record"]> } {
   return !!f.record && f.record.l === 0 && f.record.w > 0;
 }
 
@@ -405,10 +411,10 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
 
   if (isUndefeated(red) && isUndefeated(blue)) {
     hooks.push({ weight: 95, text: "Neither of them has ever lost." });
-  } else if (isUndefeated(red) && red.record!.w >= 3) {
-    hooks.push({ weight: 80, text: `${lastName(red)} is unbeaten in ${red.record!.w}.` });
-  } else if (isUndefeated(blue) && blue.record!.w >= 3) {
-    hooks.push({ weight: 80, text: `${lastName(blue)} is unbeaten in ${blue.record!.w}.` });
+  } else if (isUndefeated(red) && red.record.w >= 3) {
+    hooks.push({ weight: 80, text: `${lastName(red)} is unbeaten in ${red.record.w}.` });
+  } else if (isUndefeated(blue) && blue.record.w >= 3) {
+    hooks.push({ weight: 80, text: `${lastName(blue)} is unbeaten in ${blue.record.w}.` });
   }
 
   if (red.reachCm && blue.reachCm) {
@@ -450,10 +456,14 @@ export function buildHooks(bout: Bout, red: Fighter, blue: Fighter): string[] {
 
   for (const f of [red, blue]) {
     const rate = finishRate(f);
-    if (rate !== undefined && rate >= 0.75 && f.record!.w >= 2) {
+    // `finishRate` is only defined where there is a record with wins in it, but
+    // that is a fact about the function rather than one the types carry, so the
+    // record is read here instead of asserted past.
+    const wins = f.record?.w ?? 0;
+    if (rate !== undefined && rate >= 0.75 && wins >= 2) {
       hooks.push({
         weight: 55,
-        text: `${lastName(f)} has finished ${finishCount(f)} of ${f.record!.w} wins.`,
+        text: `${lastName(f)} has finished ${finishCount(f)} of ${wins} wins.`,
       });
     }
   }
