@@ -233,6 +233,23 @@ npm run cutouts -- --slug cage-county-12 --remote --refresh-cutouts
 
 [`scripts/cutouts.mjs`](scripts/cutouts.mjs) is idempotent, never regenerates a cutout that exists, and never fails a render: a photograph it cannot handle is logged and the video falls back to the photograph. `--list` on the renderer says which bouts have a photograph still waiting.
 
+The three videos about the whole show rather than one bout are a separate, smaller command:
+
+```bash
+npm run render:show -- --slug cage-county-12 --template countdown   # or card, or doors
+```
+
+It writes an mp4 with a poster frame beside it and stops there. These are for the promoter's own feed, so nothing on the site plays them: no bucket, no `render_jobs` row and no `--remote`. Section 11 of the handover says why that makes it a fraction of the bout renderer.
+
+### Is the picture still the picture
+
+```bash
+npm run golden-frames -- --base http://localhost:3105            # compare
+npm run golden-frames -- --base http://localhost:3105 --write    # accept the change
+```
+
+Six frames of the demo card's main event against signatures committed under `scripts/goldens/`. It is the only check of the *picture*: the composition is a pure function of a frame number, so every unit test of it tests the numbers going in, and a stray transition or a layer that now paints behind another leaves all of them green and the video wrong. The comparison is perceptual rather than exact, because two operating systems do not rasterise the same glyph to the same pixels — the script says so at length. [`.github/workflows/golden-frames.yml`](.github/workflows/golden-frames.yml) runs it on anything that touches the sequence.
+
 ## Regenerating assets
 
 ```bash
