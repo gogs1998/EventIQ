@@ -224,6 +224,29 @@ export function renderKeyFor(
 
 // ----------------------------------------------------------------- the queue
 
+/**
+ * The id of one bout's queue row, so the app and the renderer address the same
+ * one.
+ *
+ * Here rather than beside the queue itself in lib/db/render-jobs.ts, which is
+ * where it reads as belonging: that module imports drizzle and the bindings, so
+ * scripts/render-tape.mjs cannot load it and kept a copy of this line under a
+ * comment saying the two match. A copy held together by a comment is what every
+ * other constant in this file was moved here to stop being.
+ *
+ * The template is in it because a bout is more than one row now. Rows written
+ * before it existed were renamed by migration 0015 rather than left under a
+ * second naming rule: a table with two conventions in it is a table where the
+ * next reader picks the wrong one.
+ */
+export function renderJobId(
+  eventId: string,
+  boutNumber: number,
+  template: PublishedTemplate,
+): string {
+  return `rj_${eventId}_${boutNumber}_${template}`;
+}
+
 export type RenderStatus = "queued" | "running" | "done" | "failed";
 
 export type RenderJobState = {

@@ -7,10 +7,18 @@ import {
   PUBLISHED_TEMPLATES,
   isPublishedTemplate,
   renderFingerprint,
+  renderJobId,
   sponsorFingerprint,
   type PublishedTemplate,
   type RenderInputs,
 } from "@/lib/renders";
+
+// Re-exported because this is where callers already look for it, and because
+// the queue is what the id is for. It is *defined* in lib/renders.ts so that
+// scripts/render-tape.mjs can import the same function rather than keeping a
+// copy: this module reaches drizzle and the bindings, and a script cannot load
+// it at all.
+export { renderJobId };
 
 /**
  * The app's half of the render queue.
@@ -25,22 +33,6 @@ import {
  * rows and the shapes the pages use; this is a queue with leases and attempt
  * counts in it, which is a different job, and it changes for different reasons.
  */
-
-/**
- * Deterministic, so the app and the renderer address the same row.
- *
- * The template is in it because a bout is more than one row now. Rows written
- * before it existed were renamed by migration 0015 rather than left under a
- * second naming rule: a table with two conventions in it is a table where the
- * next reader picks the wrong one.
- */
-export function renderJobId(
-  eventId: string,
-  boutNumber: number,
-  template: PublishedTemplate,
-): string {
-  return `rj_${eventId}_${boutNumber}_${template}`;
-}
 
 /** Every video of one bout, by template. */
 export type BoutHashes = Record<number, Record<PublishedTemplate, string>>;

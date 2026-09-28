@@ -69,6 +69,7 @@ import {
   RENDER_LEASE_MS,
   isPublishedTemplate,
   renderFingerprint,
+  renderJobId,
   renderKeyFor,
   sponsorFingerprint,
 } from "../lib/renders.ts";
@@ -440,10 +441,6 @@ async function eventIdOf(eventSlug) {
   return row.id;
 }
 
-/** Matches renderJobId in lib/db/render-jobs.ts, so both sides address one row. */
-function jobId(eventId, boutNumber, template) {
-  return `rj_${eventId}_${boutNumber}_${template}`;
-}
 
 /**
  * Takes the bout, or does not.
@@ -482,7 +479,7 @@ export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
             (id, event_id, bout_number, template, status, input_hash, error, attempts,
              lease_until, requested_at)
           VALUES
-            (${lit(jobId(eventId, boutNumber, template))}, ${lit(eventId)}, ${boutNumber},
+            (${lit(renderJobId(eventId, boutNumber, template))}, ${lit(eventId)}, ${boutNumber},
              ${lit(template)}, 'running', ${lit(hash)}, NULL, 1, ${now + RENDER_LEASE_MS}, ${now})
           ON CONFLICT (event_id, bout_number, template) DO UPDATE SET
             status = 'running',
