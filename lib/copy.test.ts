@@ -45,6 +45,9 @@ import {
   renderCountLabel,
   RESET_COPY,
   RETURNING_FIGHTER,
+  reportAsOf,
+  reportSummary,
+  reportTapLabel,
   shareCountLabel,
   SHEET_ADDED,
   SHEET_IMPORT,
@@ -55,6 +58,7 @@ import {
   slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
+  SPONSOR_REPORT,
   STYLISED,
   tableCardNote,
   tapeForEveryBout,
@@ -67,6 +71,7 @@ import {
 } from "@/lib/copy";
 import { PASSWORD_MIN_LENGTH } from "@/lib/auth";
 import { CONSENT_TEXT, MINIMUM_AGE } from "@/lib/consent";
+import { unplacedTapsNote } from "@/lib/copy";
 
 /**
  * A show can be published before its running order goes in, so every one of
@@ -108,6 +113,12 @@ const EMPTY_STRINGS = [
   EMPTY_SPONSORS,
   RENDER_SECTION.empty,
   slotsAvailableNote(0),
+  // A sponsor report for a show nobody tapped is a page a sponsor reads, which
+  // makes a nought in a sentence there the most expensive one in the product.
+  reportSummary("Mouthguards.pro", "Cage County 12", 0),
+  reportTapLabel(0),
+  SPONSOR_REPORT.indexEmpty,
+  SPONSOR_REPORT.unpublished,
 ];
 
 const WITHDRAWN_STRINGS = Object.values(WITHDRAWN);
@@ -1660,6 +1671,76 @@ describe("the sheet import copy", () => {
       // would most obviously be sold on and the one nobody can stand behind.
       expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
       expect(line).not.toMatch(/organiz|customiz|color|!/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+});
+
+/**
+ * The one page here that goes to a sponsor rather than to a promoter or a
+ * fighter. It is held to the dashboard's rule — real counts or noughts, never an
+ * estimate — and to the share copy's rule that nothing is claimed about what
+ * happened after a tap left the page.
+ */
+describe("the sponsor report copy", () => {
+  const LINES = [
+    ...Object.values(SPONSOR_REPORT).flatMap((value) =>
+      typeof value === "string" ? [value] : Object.values(value),
+    ),
+    reportSummary("Mouthguards.pro", "Cage County 12", 1),
+    reportSummary("Mouthguards.pro", "Cage County 12", 1234),
+    reportSummary("Mouthguards.pro", "Cage County 12", 0),
+    reportTapLabel(1),
+    reportTapLabel(12),
+    unplacedTapsNote(1)!,
+    unplacedTapsNote(4)!,
+    reportAsOf("14 November 2026 at 21:40"),
+  ];
+
+  it("says on the page that nothing on it is estimated", () => {
+    expect(SPONSOR_REPORT.method.join(" ")).toMatch(/none of them are estimated/i);
+  });
+
+  it("claims nothing it cannot count", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/\b(reach|impressions?|page views?|followers?|engagement|roughly|approximately|estimated? (at|to be)|up to)\b/i);
+      expect(line).not.toMatch(/\d+\s*%|thousands?|millions?/i);
+    }
+  });
+
+  it("agrees with itself about one and several", () => {
+    expect(reportSummary("A", "B", 1)).toContain("tapped through once");
+    expect(reportSummary("A", "B", 1234)).toContain("1,234 times");
+    expect(reportTapLabel(1)).toBe("1 tap");
+    expect(reportTapLabel(12)).toBe("12 taps");
+    expect(unplacedTapsNote(1)).toMatch(/^One tap .* It is in the total/);
+    expect(unplacedTapsNote(4)).toMatch(/^4 taps .* They are in the total/);
+  });
+
+  it("never states a nought in a sentence", () => {
+    expect(reportSummary("A", "B", 0)).not.toMatch(/\d/);
+    expect(reportTapLabel(0)).not.toMatch(/\d/);
+    expect(unplacedTapsNote(0)).toBeNull();
+    expect(unplacedTapsNote(-1)).toBeNull();
+  });
+
+  it("names the sponsor and the show it was on", () => {
+    expect(reportSummary("Mouthguards.pro", "Cage County 12", 3)).toContain("Mouthguards.pro");
+    expect(reportSummary("Mouthguards.pro", "Cage County 12", 0)).toContain("Cage County 12");
+  });
+
+  it("never uses a gendered pronoun", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+    }
+  });
+
+  it("is plain and British", () => {
+    for (const line of LINES) {
+      expect(line).not.toMatch(/!|(amazing|incredible|smash|epic|stunning|crushed|killed it)/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|analyz/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
       expect(line.trim()).toBe(line);
       expect(line).not.toMatch(/undefined|NaN|TODO/);
     }

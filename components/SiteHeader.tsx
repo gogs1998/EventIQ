@@ -28,7 +28,7 @@ export function SiteHeader() {
     // The hairline is the same rule that divides every section below it, so the
     // masthead reads as the first band of the page rather than as furniture
     // bolted above it.
-    <header className="border-hairline shrink-0 border-b">
+    <header className="border-hairline shrink-0 border-b print:hidden">
       <div
         className={
           full

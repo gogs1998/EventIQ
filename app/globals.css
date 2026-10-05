@@ -172,3 +172,35 @@
     display: none !important;
   }
 }
+
+/* The sponsor report is a page a promoter saves as a PDF and sends on, so it
+   prints on A4 rather than the table card's A5, in black on white, and keeps
+   each placement on one page rather than splitting its figures from its name. */
+@page sponsor-report {
+  size: A4 portrait;
+  margin: 14mm;
+}
+
+@media print {
+  /* The layout asks for a dark colour scheme, and the canvas behind the page
+     margins follows it, so with background graphics on the paper came out with
+     a black frame. Paper is light whatever the screen was. */
+  :root {
+    color-scheme: light;
+  }
+
+  .sponsor-report {
+    page: sponsor-report;
+  }
+
+  .sponsor-report,
+  .sponsor-report * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #bbb !important;
+  }
+
+  .sponsor-report .report-block {
+    break-inside: avoid;
+  }
+}
