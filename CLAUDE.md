@@ -16,6 +16,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,300 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
+| [ROADMAP.md](ROADMAP.md) | What is next, in order, and how each item ships |
 
 When you need to know why something is written a particular way, HANDOVER.md almost certainly says, and it says it at length. Check there before assuming a decision was an accident. A surprising amount of this code is shaped by a specific failure that has already happened once.
 
@@ -164,7 +165,7 @@ The conversation that produced this, in order, because several of the decisions 
 
 ## What is outstanding
 
-**The list lives in [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next), and only there.** It used to be summarised here as well, which meant two orderings of the same work drifting apart — and the summary is the one that goes stale, because the reasoning that would tell you an item had moved is in the handover and not in the precis.
+**The ordered list is [ROADMAP.md](ROADMAP.md); the reasoning behind each item is [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next).** Keep them that way round: the roadmap is the short list a session starts from, the handover is where an item's history lives. It used to be summarised here as well, which meant two orderings of the same work drifting apart — and the summary is the one that goes stale, because the reasoning that would tell you an item had moved is in the handover and not in the precis.
 
 What is worth knowing from here is the shape of it. The list is in two halves: things that need the originator rather than a commit — a real show on the platform, and the consent wording, privacy notice, lawful basis and retention policy that block it — and things that need a commit, in rough order of value per unit of effort. The operational half of that, the parts that live in a Cloudflare dashboard or a password manager, is [DEPLOY.md's "Before the first real show"](DEPLOY.md#before-the-first-real-show).
 
