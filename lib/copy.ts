@@ -1597,3 +1597,95 @@ export const GALLERY = {
   /** No show on display, so there is nothing behind them to open. */
   unlinked: "Screenshots of the working demo, not mockups.",
 } as const;
+
+/* -------------------------------------------------------------------------
+ * The sponsor report
+ *
+ * The one page here written to be read by somebody who is not a promoter or a
+ * fighter: it goes to a sponsor, who paid for a placement and wants to know what
+ * it did. So it is the plainest copy in the product. Every figure is a count or
+ * a nought, set as a figure; the sentences around them never state a nought,
+ * because "0 taps" in a sentence reads as a verdict where the figure beside it
+ * already says it. And it claims nothing about what happened after a tap left
+ * the page, because nothing here can see that.
+ * ---------------------------------------------------------------------- */
+
+export const SPONSOR_REPORT = {
+  title: "Sponsor report",
+  /** The promoter's index of reports, above the list of sponsors. */
+  indexHeading: "Sponsor reports",
+  indexNote:
+    "One page for each sponsor on this card, with what was counted for each of their " +
+    "placements. Open one and save it as a PDF to send it on.",
+  /** No sponsor on the card and none ever tapped at this show. */
+  indexEmpty:
+    "No sponsor is on this card yet. Add one in the card editor and their report appears here.",
+  open: "Open report",
+  print: "Save as PDF or print",
+  back: "Back to the promoter view",
+  /** What each kind of placement is called on the page. */
+  placement: {
+    show: "Show sponsor",
+    bout: "Bout sponsor",
+    fighter: "Fighter sponsor",
+  },
+  /** Where each placement is, said once under its name. */
+  where: {
+    show: "On the sponsor strip at the foot of the programme, as a link.",
+    bout:
+      "At the top of the bout on the running order and of its tale of the tape. The mark " +
+      "is not a link there, so this placement is measured by how often the bout was opened.",
+    fighter: "Under the fighter's name on their bout and on their own page, as a link.",
+  },
+  figures: {
+    taps: "Taps through",
+    opened: "Bout opened",
+    played: "Video played",
+    profileViews: "Profile opened",
+    opens: "Programme opens",
+    visits: "Separate visits",
+  },
+  withdrawn: "This bout came off the card. Its place on the running order, and this placement, stayed.",
+  programmeHeading: "The programme as a whole",
+  programmeNote:
+    "Every placement above sits on the same programme. These are its totals for the show.",
+  unpublished:
+    "This show has not been published, so nobody has been able to open the programme yet.",
+  /** The method, set at the foot of every report. */
+  method: [
+    "Every figure here was counted from the programme itself, or is shown as a nought. None of them are estimated.",
+    "A tap is counted when somebody taps the sponsor's mark. What happens on the sponsor's own site afterwards is not something the programme can see, and nothing here claims it.",
+    "A visit is one phone's session on the programme. One left open past midnight is counted on each day it was open.",
+  ],
+  credit: "Counted by EventIQ",
+} as const;
+
+/** The first line of a report, saying what the sponsor's mark was tapped. */
+export function reportSummary(sponsor: string, event: string, taps: number): string {
+  if (taps <= 0) return `${sponsor} was on the programme for ${event}. No taps through were counted.`;
+  return `${sponsor} was on the programme for ${event} and was tapped through ${
+    taps === 1 ? "once" : `${taps.toLocaleString("en-GB")} times`
+  }.`;
+}
+
+/** Beside each sponsor on the index. */
+export function reportTapLabel(taps: number): string {
+  if (taps <= 0) return "No taps counted";
+  return `${taps.toLocaleString("en-GB")} ${taps === 1 ? "tap" : "taps"}`;
+}
+
+/**
+ * Taps on a placement the card no longer has. Null where there are none, which
+ * is nearly always, so the page does not mention a thing that did not happen.
+ */
+export function unplacedTapsNote(taps: number): string | null {
+  if (taps <= 0) return null;
+  return `${taps === 1 ? "One tap" : `${taps.toLocaleString("en-GB")} taps`} came from a placement that is no longer on the card. ${
+    taps === 1 ? "It is" : "They are"
+  } in the total above.`;
+}
+
+/** When the figures were read, because a report opened mid-show is a snapshot. */
+export function reportAsOf(when: string): string {
+  return `Figures as of ${when}`;
+}

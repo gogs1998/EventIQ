@@ -19,6 +19,7 @@ import {
   NOTHING_SENT,
   RENDER_SECTION,
   RENDER_STATE_COPY,
+  SPONSOR_REPORT,
   VIDEO_SHARE,
   boutCountLabel,
   countdown,
@@ -267,6 +268,12 @@ function Head({
           className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
         >
           Table card
+        </Link>
+        <Link
+          href={`/promoter/e/${event.slug}/report`}
+          className="border-hairline hover:border-chalk/40 label border px-3 py-2 transition-colors"
+        >
+          {SPONSOR_REPORT.indexHeading}
         </Link>
         <div className="ml-auto flex items-center gap-2">
           <Link
@@ -751,7 +758,16 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </p>
 
         {last ? (
-          <Counts totals={last.totals} sponsors={Object.keys(last.taps).length} />
+          <>
+            <Counts totals={last.totals} sponsors={Object.keys(last.taps).length} />
+            {/* The page this panel describes, one per sponsor, ready to send. */}
+            <Link
+              href={`/promoter/e/${last.event.slug}/report`}
+              className="border-hairline hover:border-chalk/40 label mt-4 inline-block border px-3 py-2 transition-colors"
+            >
+              {SPONSOR_REPORT.indexHeading}
+            </Link>
+          </>
         ) : (
           <p className="border-hairline text-ash border p-4 text-sm leading-relaxed">
             {event.name} is your first show on EventIQ, so there is nothing to report
