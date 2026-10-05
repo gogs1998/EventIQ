@@ -186,8 +186,22 @@ export function PosterCrop({
  * a fighter cropped off a poster and a fighter who sent their own picture reach
  * the video through the same kind of file.
  */
-export async function cropToJpeg(file: File, box: CropBox, max = 1000): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
+export async function cropToJpeg(
+  source: File | ImageBitmap,
+  box: CropBox,
+  max = 1000,
+): Promise<Blob> {
+  // A poster is decoded once by a caller cropping several fighters off it; a
+  // decoded phone photograph is tens of megabytes, so it is closed, not left to GC.
+  const bitmap = source instanceof File ? await createImageBitmap(source) : source;
+  try {
+    return await crop(bitmap, box, max);
+  } finally {
+    if (source instanceof File) bitmap.close();
+  }
+}
+
+function crop(bitmap: ImageBitmap, box: CropBox, max: number): Promise<Blob> {
   const sx = Math.round(box.x * bitmap.width);
   const sy = Math.round(box.y * bitmap.height);
   const sw = Math.max(1, Math.round(box.w * bitmap.width));
