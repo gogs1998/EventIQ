@@ -433,6 +433,7 @@ export const SHEET_IMPORT = {
     discipline: "discipline",
     weight: "weight",
     rounds: "rounds",
+    minutes: "length of each round",
   },
   assumedNote: "Standing in until somebody says otherwise. Change them here if they are wrong.",
 

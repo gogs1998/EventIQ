@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSheet, type SheetBout } from "@/lib/sheet";
+import { parseSheet, sanitiseRows, type SheetBout } from "@/lib/sheet";
 
 /**
  * The shapes a matchmaking sheet actually arrives in.
@@ -157,7 +157,7 @@ describe("what the sheet did not say", () => {
   it("takes the round count without inventing a length that was not given", () => {
     const bout = only("Aiden Roche v Kacper Zielinski - MMA 66kg 5 rounds");
 
-    expect(bout).toMatchObject({ rounds: 5, roundMinutes: 3, assumed: [] });
+    expect(bout).toMatchObject({ rounds: 5, roundMinutes: 3, assumed: ["minutes"] });
   });
 });
 
@@ -298,5 +298,20 @@ describe("what a name is allowed to be", () => {
   it("refuses a corner that is a number rather than a person", () => {
     const { problems } = parseSheet("12 v 14");
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe("the rows the promoter sends back", () => {
+  /**
+   * The namesake question beside a corner was asked about the name as it stood
+   * in the box. Stripping its full stop on the way in matched a different string
+   * and refused the sheet as out of date with nothing on screen to change.
+   */
+  it("keeps a corrected name as it was typed, spacing aside", () => {
+    const [row] = sanitiseRows([
+      { red: { name: "  Jay  Smith Jr. ", gym: "Leith" }, blue: { name: "Dre Osei", gym: "" } },
+    ]);
+    expect(row.red.name).toBe("Jay Smith Jr.");
+    expect(row.blue.name).toBe("Dre Osei");
   });
 });

@@ -39,7 +39,7 @@ export const SHEET_DEFAULTS = {
 } as const;
 
 /** A field that carries a default because the line said nothing about it. */
-export type SheetAssumption = "discipline" | "weight" | "rounds";
+export type SheetAssumption = "discipline" | "weight" | "rounds" | "minutes";
 
 export type SheetCorner = {
   name: string;
@@ -340,6 +340,9 @@ function boutFrom(line: number, red: SheetCorner, blue: SheetCorner, read: Attri
   if (read.discipline === undefined) assumed.push("discipline");
   if (read.weightKg === undefined) assumed.push("weight");
   if (read.rounds === undefined && read.roundMinutes === undefined) assumed.push("rounds");
+  // "5 rounds" says nothing about their length, and a defaulted length is as
+  // much an assumption as a defaulted count.
+  else if (read.roundMinutes === undefined) assumed.push("minutes");
 
   return {
     line,
@@ -462,10 +465,23 @@ function whole(value: unknown, fallback: number, max: number): number {
   return n;
 }
 
+/**
+ * A name as the promoter left it in the preview, spacing aside.
+ *
+ * Not `tidy`, which strips trailing punctuation off text read out of a pasted
+ * line. By this point the name is one the promoter has seen and may have
+ * corrected, and the namesake question beside it was asked about exactly that
+ * spelling: taking the full stop off "Jay Smith Jr." matched a different string
+ * from the one they answered about and refused the sheet as out of date.
+ */
+function asTyped(value: unknown, max: number): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+}
+
 function corner(value: unknown): SheetRowCorner {
   const row = (value ?? {}) as Record<string, unknown>;
   return {
-    name: string(row.name, NAME_MAX),
+    name: asTyped(row.name, NAME_MAX),
     gym: string(row.gym, NAME_MAX),
     // Not tidied like a name: it is an id or a sentinel, and anything else is
     // stale by the time `resolveCorner` sees it, which is the point.
