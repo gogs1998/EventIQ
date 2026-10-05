@@ -1,20 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_RENDER_ATTEMPTS,
+  PER_CORNER_TEMPLATES,
   PUBLISHED_TEMPLATES,
   RENDER_INPUT_FIELDS,
   RENDER_LEASE_MS,
+  RENDER_SLOTS,
   type RenderInputs,
   type RenderJobState,
   claimable,
   isPublishedTemplate,
   mp4For,
   renderFingerprint,
+  renderJobId,
   renderKeyFor,
   renderState,
   renderUrl,
+  slotOf,
   sponsorFingerprint,
   sponsorMark,
+  walkoutSlot,
 } from "@/lib/renders";
 
 /**
@@ -74,6 +79,31 @@ describe("renderFingerprint", () => {
     const tape = await renderFingerprint({ ...INPUTS, template: "tape" });
     const faceoff = await renderFingerprint({ ...INPUTS, template: "faceoff" });
     expect(tape).not.toBe(faceoff);
+  });
+
+  /**
+   * Every video of a bout has its own digest, the two walkouts included: they
+   * are the same template about two different people, and sharing a digest
+   * would mean sharing a key — one fighter's video published over the other's.
+   */
+  it("gives every slot of one bout a digest of its own", async () => {
+    const digests = await Promise.all(
+      RENDER_SLOTS.map(({ slot }) => renderFingerprint({ ...INPUTS, template: slot })),
+    );
+    expect(new Set(digests).size).toBe(RENDER_SLOTS.length);
+  });
+
+  /**
+   * Pinned, because publishing the walkout could have moved these and nothing
+   * else would say so. A digest that moves marks every tape and every promo on
+   * every show stale at once — migration 0015 did it once, on purpose — and the
+   * only sign is the hourly runner spending an afternoon re-rendering a card's
+   * worth of video per show. If this fails, the change has done that: either
+   * undo it or say so in DEPLOY.md, the way 0015 did.
+   */
+  it("still hashes the tape and the promo exactly as it did before the walkout", async () => {
+    expect(await renderFingerprint({ ...INPUTS, template: "tape" })).toBe("f080852a52ab385a");
+    expect(await renderFingerprint({ ...INPUTS, template: "faceoff" })).toBe("26bb026cb3e27206");
   });
 
   it("names the show, the promoter and the sponsors, not only the fighters", () => {
@@ -152,6 +182,16 @@ describe("renderKeyFor", () => {
   it("keeps a bout's two videos apart even at the same fingerprint", () => {
     expect(renderKeyFor("cage-county-12", 15, "faceoff", "abcdef0123456789")).not.toBe(
       renderKeyFor("cage-county-12", 15, "tape", "abcdef0123456789"),
+    );
+  });
+
+  /** Two fighters, two keys: neither walkout can be published over the other. */
+  it("puts the corner in a walkout's key", () => {
+    expect(renderKeyFor("cage-county-12", 15, "walkout-blue", "abcdef0123456789")).toBe(
+      "renders/cage-county-12/bout-15-walkout-blue-abcdef01.mp4",
+    );
+    expect(renderKeyFor("cage-county-12", 15, "walkout-red", "abcdef0123456789")).not.toBe(
+      renderKeyFor("cage-county-12", 15, "walkout-blue", "abcdef0123456789"),
     );
   });
 
@@ -280,18 +320,62 @@ describe("claimable", () => {
 
 describe("PUBLISHED_TEMPLATES", () => {
   /**
-   * The programme carries these two and nothing else. A walkout is one video per
-   * corner and the job row has no corner, so publishing one would replace a
-   * bout's promo and read as current afterwards — which is why the renderer
-   * refuses it and why that refusal is decided by this list rather than by a
-   * name typed into a condition somewhere.
+   * The site carries these three and nothing else. `social` has nowhere to be
+   * played, which is why the renderer refuses to publish it and why that
+   * refusal is decided by this list rather than by a name typed into a
+   * condition somewhere.
    */
-  it("is the tape and the promo, and says so about an id nobody publishes", () => {
-    expect([...PUBLISHED_TEMPLATES]).toEqual(["tape", "faceoff"]);
+  it("is the tape, the promo and the walkout, and says so about an id nobody publishes", () => {
+    expect([...PUBLISHED_TEMPLATES]).toEqual(["tape", "faceoff", "walkout"]);
     expect(isPublishedTemplate("tape")).toBe(true);
     expect(isPublishedTemplate("faceoff")).toBe(true);
-    expect(isPublishedTemplate("walkout")).toBe(false);
+    expect(isPublishedTemplate("walkout")).toBe(true);
     expect(isPublishedTemplate("social")).toBe(false);
+  });
+});
+
+describe("RENDER_SLOTS", () => {
+  /**
+   * A slot is one video. A template about both corners is one per bout and one
+   * about a single fighter is one per corner, and the list has to say exactly
+   * that: a walkout with one corner missing is a fighter whose video is never
+   * made, and a tape with a corner is a second tape.
+   */
+  it("is every published template once, or once per corner", () => {
+    for (const template of PUBLISHED_TEMPLATES) {
+      const corners = RENDER_SLOTS.filter((spec) => spec.template === template).map(
+        (spec) => spec.corner,
+      );
+      expect(corners, template).toEqual(
+        PER_CORNER_TEMPLATES.includes(template) ? ["red", "blue"] : [""],
+      );
+    }
+    expect(RENDER_SLOTS.every((spec) => isPublishedTemplate(spec.template))).toBe(true);
+  });
+
+  /**
+   * The tape and the promo are named after their template, which is what kept
+   * their fingerprints, their job ids and their keys from moving when the corner
+   * arrived. Rows written before the column existed carry an empty corner by
+   * default and are read back as the same slot.
+   */
+  it("names a composition of the whole bout after its template", () => {
+    expect(slotOf("tape", "")).toBe("tape");
+    expect(slotOf("faceoff", "")).toBe("faceoff");
+    expect(renderJobId("ev_1", 15, "tape")).toBe("rj_ev_1_15_tape");
+  });
+
+  it("reads a walkout's row as that corner's video", () => {
+    expect(slotOf("walkout", "red")).toBe(walkoutSlot("red"));
+    expect(slotOf("walkout", "blue")).toBe(walkoutSlot("blue"));
+  });
+
+  /** A row nobody could have meant is left out rather than read as somebody's video. */
+  it("refuses a walkout with no corner, a tape with one, and a template nobody publishes", () => {
+    expect(slotOf("walkout", "")).toBeUndefined();
+    expect(slotOf("tape", "red")).toBeUndefined();
+    expect(slotOf("social", "")).toBeUndefined();
+    expect(slotOf("walkout", "green")).toBeUndefined();
   });
 });
 

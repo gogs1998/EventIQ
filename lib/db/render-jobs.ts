@@ -4,13 +4,13 @@ import type { Db } from "@/lib/db";
 import { loadCardById, type LoadedCard } from "@/lib/db/queries";
 import { logError, type LogContext } from "@/lib/log";
 import {
-  PUBLISHED_TEMPLATES,
-  isPublishedTemplate,
+  RENDER_SLOTS,
   renderFingerprint,
   renderJobId,
+  slotOf,
   sponsorFingerprint,
-  type PublishedTemplate,
   type RenderInputs,
+  type RenderSlot,
 } from "@/lib/renders";
 
 // Re-exported because this is where callers already look for it, and because
@@ -34,8 +34,8 @@ export { renderJobId };
  * counts in it, which is a different job, and it changes for different reasons.
  */
 
-/** Every video of one bout, by template. */
-export type BoutHashes = Record<number, Record<PublishedTemplate, string>>;
+/** Every video of one bout, by slot. */
+export type BoutHashes = Record<number, Record<RenderSlot, string>>;
 
 /**
  * The fingerprint of every bout on a card that has already been loaded.
@@ -104,14 +104,16 @@ export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
       ].filter((entry): entry is string => entry !== null),
     };
 
-    // One digest per composition, from one set of inputs. The tape and the promo
-    // draw the same two people out of the same rows, so everything but the
-    // template is shared and a field added above reaches both by construction.
-    const perTemplate = {} as Record<PublishedTemplate, string>;
-    for (const template of PUBLISHED_TEMPLATES) {
-      perTemplate[template] = await renderFingerprint({ ...inputs, template });
+    // One digest per video, from one set of inputs. Every composition draws out
+    // of the same rows, so everything but the slot is shared and a field added
+    // above reaches all of them by construction. A walkout hashes its opponent
+    // too, because it names them: a few more re-renders than strictly needed is
+    // cheaper than a video naming somebody who is no longer on the bout.
+    const perSlot = {} as Record<RenderSlot, string>;
+    for (const { slot } of RENDER_SLOTS) {
+      perSlot[slot] = await renderFingerprint({ ...inputs, template: slot });
     }
-    hashes[bout.number] = perTemplate;
+    hashes[bout.number] = perSlot;
   }
 
   return hashes;
@@ -150,32 +152,34 @@ export async function enqueueRender(
   const hashes = await loadBoutFingerprints(db, eventId);
   const wanted = bouts === "all" ? Object.keys(hashes).map(Number) : bouts;
 
-  // Every published composition of every bout asked for. A bout is two videos
-  // now, and a promoter pressing "Render again" means the bout rather than one
-  // of them: offering the promo on the programme and then leaving it a week
-  // behind the tape would be worse than not offering it.
+  // Every published video of every bout asked for. A bout is four now, and a
+  // promoter pressing "Render again" means the bout rather than one of them:
+  // offering the promo on the programme and then leaving it a week behind the
+  // tape would be worse than not offering it.
   const rows = wanted
     .filter((boutNumber) => hashes[boutNumber])
     .flatMap((boutNumber) =>
-      PUBLISHED_TEMPLATES.map((template) => ({
-        id: renderJobId(eventId, boutNumber, template),
+      RENDER_SLOTS.map(({ slot, template, corner }) => ({
+        id: renderJobId(eventId, boutNumber, slot),
         eventId,
         boutNumber,
         template,
+        corner,
         status: "queued" as const,
-        inputHash: hashes[boutNumber][template],
+        inputHash: hashes[boutNumber][slot],
         attempts: 0,
         requestedAt: now,
       })),
     );
   if (!rows.length) return 0;
 
-  // D1 binds at most 100 parameters to one statement, and a row here is eight
+  // D1 binds at most 100 parameters to one statement, and a row here is nine
   // of them, so a fifteen-bout card in one insert is refused outright — which is
   // how a fighter's submission on the demo card queued nothing and said so only
-  // in the log. Ten rows a statement leaves room, and the batch keeps a card's
-  // worth of requests in one transaction. A card is thirty rows now rather than
-  // fifteen, which is three statements rather than two and nothing else.
+  // in the log. Eight rows a statement leaves room for the update clause's own
+  // parameters, and the batch keeps a card's worth of requests in one
+  // transaction. A card is sixty rows now, which is eight statements and
+  // nothing else.
   const statements = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
     statements.push(upsert(db, rows.slice(i, i + ROWS_PER_INSERT), now));
@@ -185,7 +189,7 @@ export async function enqueueRender(
   return rows.length;
 }
 
-const ROWS_PER_INSERT = 10;
+const ROWS_PER_INSERT = 8;
 
 function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: number) {
   return db
@@ -196,6 +200,7 @@ function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: nu
         schema.renderJobs.eventId,
         schema.renderJobs.boutNumber,
         schema.renderJobs.template,
+        schema.renderJobs.corner,
       ],
       set: {
         status: "queued",
@@ -241,20 +246,21 @@ export async function requestRenderQuietly(
 }
 
 /**
- * The queue rows of one show, by bout and then by template.
+ * The queue rows of one show, by bout and then by slot.
  *
- * Two levels because a bout is two videos. A row carrying a template nothing
- * publishes any more — a `walkout` left behind by a future change of mind — is
- * kept out rather than typed away, so the dashboard never reads a state for a
- * composition it does not show.
+ * Two levels because a bout is several videos. A row carrying a template nothing
+ * publishes any more — a `social` left behind by a future change of mind, or a
+ * walkout with no corner — is kept out rather than typed away, so the dashboard
+ * never reads a state for a video it does not show.
  */
-export function jobsByBout<T extends { boutNumber: number; template: string }>(
+export function jobsByBout<T extends { boutNumber: number; template: string; corner: string }>(
   rows: T[],
-): Record<number, Partial<Record<PublishedTemplate, T>>> {
-  const jobs: Record<number, Partial<Record<PublishedTemplate, T>>> = {};
+): Record<number, Partial<Record<RenderSlot, T>>> {
+  const jobs: Record<number, Partial<Record<RenderSlot, T>>> = {};
   for (const row of rows) {
-    if (!isPublishedTemplate(row.template)) continue;
-    jobs[row.boutNumber] = { ...jobs[row.boutNumber], [row.template]: row };
+    const slot = slotOf(row.template, row.corner);
+    if (!slot) continue;
+    jobs[row.boutNumber] = { ...jobs[row.boutNumber], [slot]: row };
   }
   return jobs;
 }

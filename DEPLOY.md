@@ -892,18 +892,30 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 where the programme reads it from. `--stale` takes the bouts that are queued,
 out of date, or worth another attempt.
 
-**A bout is two videos.** The tale of the tape, which the programme plays, and
-the promo, which it offers on the card and on both fighters' pages. They are two
-rows, two keys and two jobs, so one failing leaves the other alone. A run with no
-`--template` does both; `--template <id>` does exactly that one, and an id the
-programme has nowhere to put — `walkout`, `social` — is a sample to a file that
+**A bout is four videos.** The tale of the tape, which the programme plays; the
+promo, which it offers on the card and on both fighters' pages; and a walkout
+for each fighter, which their own page offers and "Send their video" sends them.
+They are four rows, four keys and four jobs, so one failing leaves the others
+alone. A run with no `--template` does all four; `--template <id>` does exactly
+that one, `--template walkout --corner blue` narrows a walkout to one fighter,
+and an id the site has nowhere to put — `social` — is a sample to a file that
 `--publish` refuses.
 
 Timings, on a warm laptop against a local dev server, with the cutouts already
-made: **53 seconds** for a tape's 480 frames and **39 seconds** for a promo's
-360, so **about 100 seconds a bout** and roughly **twenty-five minutes for a
-fifteen-bout card**, which is up from a quarter of an hour. Add the cutouts, the
-claim, the upload and the row on top.
+made: **53 seconds** for a tape's 480 frames, **39 seconds** for a promo's 360,
+and about **35 seconds** for each walkout's 300 — so **about 160 seconds a bout**
+and roughly **forty minutes for a fifteen-bout card** rendered from nothing. The
+workflow's ninety-minute timeout covers that with room; a run that does hit it
+leaves the rest to the next hour by lapsing, as any killed run does. Add the
+cutouts, the claim, the upload and the row on top.
+
+**Expect the walkouts to be made once after deploying migration `0017`, and
+nothing else.** The corner does not move the fingerprint of any tape or promo
+(HANDOVER section 11 says how, and a test pins it), so nothing reads "Worth
+remaking". What happens instead is that no bout has a walkout yet: every bout
+reads as missing two, the dashboard's "current" count drops until they are made,
+and the next hourly `--stale` run makes them — two walkouts a bout, about a
+quarter of an hour per fifteen-bout show.
 
 **Expect one full re-render after deploying migration `0015`.** The template is
 part of the fingerprint now, so every render made before it reads as "Worth

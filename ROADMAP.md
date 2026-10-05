@@ -18,7 +18,7 @@ EventIQ is **free for promoters**. The competition (myfightcard.com and the like
 - Paste the matchmaking sheet (`lib/sheet.ts`), or drop the posters and crop both corners.
 - Two review-and-fix passes over the whole codebase (38 commits; the findings are in the ledger).
 
-Six video templates exist in the renderer (`components/sequence/templates.ts`); only `tape` and `faceoff` are published. `walkout`, `social`, `countdown`, `card` and `doors` render from the command line and are not offered to promoters.
+Six video templates exist in the renderer (`components/sequence/templates.ts` and `show-templates.ts`); `tape`, `faceoff` and `walkout` are published, the last once per corner. `social`, `countdown`, `card` and `doors` render from the command line and are not offered to promoters.
 
 ## Next
 
@@ -41,7 +41,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 
 8. **Real sending** (M). WhatsApp Business API instead of deep links, with scheduled reminders to fighters who have not opened. Needs a Meta business account.
 9. **Push through the PWA** (M). "Your fighter is up in two bouts." No app store.
-10. **More published templates** (S each). `walkout` needs a `corner` column on `render_jobs` before it can be published; `countdown` and `doors` need a show-level job row. The plan is written at the foot of `components/sequence/templates.ts`.
+10. **More published templates** (S each). `walkout` is published (branch `claude/walkout-template`, migration `0017`): a `corner` on `render_jobs`, one video per fighter, offered on their own page and sent by "Send their video"; HANDOVER section 11. `social` needs no schema, only somewhere on the site to play it. `countdown` and `doors` still need a show-level job row.
 11. **A promoter's own domain** (M). Their programme on their name; EventIQ discreet, which is already the rule in `lib/masthead.ts`.
 
 ### Known debts, from the reviews
@@ -55,7 +55,7 @@ Judged too risky for a review commit; each is one small job.
 - `/api/health` reports `env: "production"` on a local dev server because `EVENTIQ_ENV` is a bound var. Make the label honest locally.
 - `arg()`, `run()` and `d1Query` are duplicated across seven scripts; one `scripts/cli.mjs` would do.
 - `npm audit` reports findings in the build chain only (wrangler → miniflare → sharp, the background-removal model, `qs`). None reach the Worker bundle. Fixing them means moving off the pinned wrangler; do it deliberately, with a staging deploy first.
-- Migration `0015` put `template` into the render fingerprint, which marked every existing render stale once; the hourly runner has since re-rendered them. `stylised` is not in the fingerprint and is covered by the fighter's `updatedAt`; adding it would do the same again.
+- Migration `0015` put `template` into the render fingerprint, which marked every existing render stale once; the hourly runner has since re-rendered them. `stylised` is not in the fingerprint and is covered by the fighter's `updatedAt`; adding it would do the same again. The walkout's `corner` went in through the slot rather than as a field for exactly that reason, and a test pins the tape's and the promo's digests (HANDOVER section 11).
 
 ## Only the owner can do these
 
@@ -74,5 +74,5 @@ A native app, AI-written fighter bios, AI likenesses of real fighters (a stylise
 - One agent per item, in its own git worktree off `main`, with a dev server on its own port. On an 8 GB machine, no more than two or three at once: six dev servers crashed workerd (bug 39).
 - Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 28-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
 - Merge to `main`, then `npm run deploy` (migrations first, then the Worker) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
-- Migrations are numbered in merge order; the next free number is `0016`. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
+- Migrations are numbered in merge order. `0016` is claimed by the ticket link and `0017` by the walkout, which were built in parallel; whichever merges second renumbers if it has to and rebuilds the snapshot chain so `npm run db:generate` reports nothing. The next free number after both is `0018`.
 - Commit messages name the wrong old behaviour in a sentence. New bugs go in HANDOVER section 14 with the rule they left behind. Copy goes in `lib/copy.ts` with the tone tests.

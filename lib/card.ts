@@ -119,6 +119,11 @@ export function promoTitle(card: Card, bout: Bout): string {
   return `${lastName(red)} v ${lastName(blue)} — ${card.event.name}`;
 }
 
+/** The same, for a walkout: one fighter and the show, which is all it is about. */
+export function walkoutTitle(card: Card, fighter: Fighter): string {
+  return `${fighter.name} — ${card.event.name}`;
+}
+
 
 /**
  * The emptiest profile on the card, with the bout and the opponent around it.

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Card } from "@/lib/card";
 import { GYM_TO_CONFIRM } from "@/lib/copy";
-import { PUBLISHED_TEMPLATES } from "@/lib/renders";
+import { PER_CORNER_TEMPLATES, PUBLISHED_TEMPLATES } from "@/lib/renders";
 import type { Bout, Fighter } from "@/lib/types";
 import { DEFAULT_TEMPLATE, TEMPLATE_IDS, TEMPLATES, templateOf } from "./templates";
 
@@ -136,12 +136,12 @@ describe("the template registry", () => {
    * a 404 on the capture page and a bout that fails every hour for ever, and it
    * would be found by watching the workflow rather than by anything failing.
    */
-  it("carries every composition the queue publishes, and draws both corners", () => {
+  it("carries every composition the queue publishes, one corner where it says so", () => {
     for (const id of PUBLISHED_TEMPLATES) {
       expect(TEMPLATES[id], id).toBeDefined();
-      // `render_jobs` carries a bout and a template and no corner, so a
-      // per-corner composition has nowhere to put its second video.
-      expect(TEMPLATES[id].perCorner, id).toBe(false);
+      // A per-corner composition queued as one video would be the red corner's
+      // walkout published as the bout's, and the blue fighter's never made.
+      expect(TEMPLATES[id].perCorner, id).toBe(PER_CORNER_TEMPLATES.includes(id));
     }
   });
 });

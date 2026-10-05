@@ -9,7 +9,7 @@ import { SendVideo } from "@/app/promoter/e/[slug]/SendVideo";
 import { SignOutButton } from "@/app/promoter/SignOutButton";
 import { NudgeButton } from "@/components/promoter/NudgeButton";
 import { SponsorLockup } from "@/components/SponsorLockup";
-import { boutsTopDown, cornersOf } from "@/lib/card";
+import { boutsTopDown } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadDashboardRows, rendersFrom, type AnalyticsTotals } from "@/lib/db/queries";
 import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
@@ -45,9 +45,10 @@ import {
   sponsorInventory,
 } from "@/lib/promoter";
 import {
-  PUBLISHED_TEMPLATES,
+  RENDER_SLOTS,
+  walkoutSlot,
   renderState,
-  type PublishedTemplate,
+  type RenderSlot,
   type RenderState,
 } from "@/lib/renders";
 import { currentPromoter } from "@/lib/session";
@@ -198,17 +199,27 @@ const RENDER_STYLE: Record<PanelState, string> = {
 };
 
 /**
- * What the two compositions are called on this page.
+ * What each of a bout's videos is called on this page.
  *
  * Words rather than ids, because a promoter did not choose the ids and "faceoff"
- * is not a thing anybody says. They match what the programme calls them, so a
- * promoter reading this panel and a spectator reading the card are looking at
- * the same two videos under the same two names.
+ * is not a thing anybody says. They match what the programme and the fighter's
+ * own page call them, so a promoter reading this panel and a spectator reading
+ * the card are looking at the same videos under the same names. A walkout says
+ * whose, by first name, because two rows both reading "The walkout" would leave
+ * the promoter to work out which corner is which.
  */
-const RENDER_TEMPLATE_LABEL: Record<PublishedTemplate, string> = {
-  tape: "Tale of the tape",
-  faceoff: VIDEO_SHARE.promo,
-};
+function renderSlotLabel(slot: RenderSlot, names: { red: string; blue: string }): string {
+  switch (slot) {
+    case "tape":
+      return "Tale of the tape";
+    case "faceoff":
+      return VIDEO_SHARE.promo;
+    case "walkout-red":
+      return `${VIDEO_SHARE.walkoutShort}, ${names.red}`;
+    case "walkout-blue":
+      return `${VIDEO_SHARE.walkoutShort}, ${names.blue}`;
+  }
+}
 
 const STATE_STYLE = {
   ready: { label: "Ready", className: "text-gold border-gold/40" },
@@ -590,8 +601,8 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           <span className="label">
             {renderCountLabel(
               bouts.filter(({ bout }) =>
-                PUBLISHED_TEMPLATES.every(
-                  (id) =>
+                RENDER_SLOTS.every(
+                  ({ slot: id }) =>
                     renderState(
                       jobs[bout.number]?.[id] ?? null,
                       fingerprints[bout.number]?.[id] ?? "",
@@ -621,12 +632,20 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           {boutsTopDown(card).map((bout) => {
             const boutJobs = jobs[bout.number] ?? {};
             const boutRenders = renders[bout.number] ?? {};
-            // Both compositions, each with its own state, because they are two
+            // Every video, each with its own state, because they are separate
             // jobs: a promo that failed must not make the tale of the tape read
-            // as missing, and a promo nobody has made yet must not make a bout
+            // as missing, and a walkout nobody has made yet must not make a bout
             // with a perfectly good tape read as done.
-            const states = PUBLISHED_TEMPLATES.map((id) => ({
-              template: id,
+            // Looked up rather than through cornersOf, which throws: this panel
+            // lists every bout, and one naming a fighter who is not there should
+            // read as a bout with no videos rather than take the dashboard down.
+            const fighters = { red: card.fighters[bout.redId], blue: card.fighters[bout.blueId] };
+            const names = {
+              red: fighters.red ? firstName(fighters.red) : "red corner",
+              blue: fighters.blue ? firstName(fighters.blue) : "blue corner",
+            };
+            const states = RENDER_SLOTS.map(({ slot: id }) => ({
+              slot: id,
               state: (bout.cancelled
                 ? "withdrawn"
                 : renderState(
@@ -640,9 +659,17 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
             // a bout that is already queued and tell the promoter nothing new.
             // Only where there is something to hand over. A control offering a
             // video that does not exist is worse than no control.
-            const promo = boutRenders.faceoff;
-            const corners = promo
-              ? Object.values(cornersOf(card, bout)).map((fighter) => ({
+            //
+            // Each fighter is sent their own walkout, which has their name on it
+            // and nobody else's, and the bout's promo until the walkout is made:
+            // a fighter waiting on a video that is the better one of the two is
+            // still better off with the other in the meantime.
+            const corners = (["red", "blue"] as const).flatMap((side) => {
+              const fighter = fighters[side];
+              const video = boutRenders[walkoutSlot(side)] ?? boutRenders.faceoff;
+              if (!fighter || !video) return [];
+              return [
+                {
                   id: fighter.id,
                   label: firstName(fighter),
                   sentAt: invites[fighter.id]?.videoSentAt,
@@ -650,14 +677,15 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                     firstName: firstName(fighter),
                     eventName: event.name,
                     boutLabel: boutBillingLabel(bout),
-                    videoUrl: `${SITE_URL}${promo}`,
+                    videoUrl: `${SITE_URL}${video}`,
                     // Their own page rather than the running order: it is the one
-                    // that is about them, and it is where the promo is offered a
-                    // second time to whoever they send it on to.
+                    // that is about them, and it is where their videos are offered
+                    // a second time to whoever they send it on to.
                     programmeUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
                   }),
-                }))
-              : [];
+                },
+              ];
+            });
             const inHand = states.every(
               ({ state }) => state === "queued" || state === "running" || state === "withdrawn",
             );
@@ -669,10 +697,10 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
 
                 <div className="mt-1.5 min-w-0 sm:mt-0 sm:flex-1">
                   <div className="grid gap-2">
-                    {states.map(({ template, state, job, mp4 }) => (
-                      <div key={template} className="flex flex-wrap items-center gap-2">
+                    {states.map(({ slot, state, job, mp4 }) => (
+                      <div key={slot} className="flex flex-wrap items-center gap-2">
                         <span className="label text-ash-dim w-24 shrink-0">
-                          {RENDER_TEMPLATE_LABEL[template]}
+                          {renderSlotLabel(slot, names)}
                         </span>
                         <Badge className={RENDER_STYLE[state]}>
                           {RENDER_STATE_COPY[state].label}
