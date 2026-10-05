@@ -157,8 +157,8 @@ describe("requestRender", () => {
 
     await requestRender(show.slug, "all");
 
-    // Three bouts, two compositions each.
-    expect(await db.select().from(schema.renderJobs)).toHaveLength(6);
+    // Three bouts, four videos each: the tape, the promo and a walkout a corner.
+    expect(await db.select().from(schema.renderJobs)).toHaveLength(12);
   });
 });
 

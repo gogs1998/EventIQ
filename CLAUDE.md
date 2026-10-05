@@ -13,7 +13,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,300 lines, and the most valuable thing in the repo. Section 14 is 46 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,300 lines, and the most valuable thing in the repo. Section 14 is 47 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 | [ROADMAP.md](ROADMAP.md) | What is next, in order, and how each item ships |

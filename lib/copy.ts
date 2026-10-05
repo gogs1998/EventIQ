@@ -627,13 +627,22 @@ export const VIDEO_SHARE = {
   promo: "The promo",
   promoNote:
     "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
-  /** The dashboard control that hands a fighter their own bout's promo. */
+  /** What a fighter's own video is called, on their page and on the dashboard. */
+  walkout: "The walkout",
+  /** The same, in the dashboard's narrow label column, where a name follows it. */
+  walkoutShort: "Walkout",
+  walkoutNote: "Ten seconds about one fighter, made for them to post.",
+  /**
+   * The dashboard control that hands a fighter their own walkout, or the bout's
+   * promo where the walkout is not made yet.
+   */
   send: "Send their video",
   sendHint: "Opens WhatsApp with the video and the programme link in the message",
   /** Under the videos panel, once there is something to send. */
   note:
-    "Where a promo is made, both fighters on the bout can be sent it. The message carries " +
-    "the file and the link to the programme, and the row records that it went out.",
+    "Each fighter can be sent their own walkout once it is made, or the bout's promo until " +
+    "then. The message carries the file and the link to the programme, and the row records " +
+    "that it went out.",
 } as const;
 
 /** What the dashboard says about how often a bout's video has been taken away. */

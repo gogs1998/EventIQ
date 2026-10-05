@@ -114,13 +114,15 @@ function card(over: Partial<LoadedCard> = {}): LoadedCard {
 
 describe("boutFingerprints", () => {
   it("agrees with the renderer about what this bout is made of", async () => {
-    // Both compositions, from both sides. The tape alone would let a field reach
-    // one digest and not the other, which is the drift this test exists to make
+    // Every video, from both sides. The tape alone would let a field reach one
+    // digest and not another, which is the drift this test exists to make
     // impossible.
     expect(await boutFingerprints(card())).toEqual({
       15: {
         tape: await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "tape")),
         faceoff: await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "faceoff")),
+        "walkout-red": await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "walkout-red")),
+        "walkout-blue": await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "walkout-blue")),
       },
     });
   });

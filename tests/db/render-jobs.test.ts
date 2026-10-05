@@ -13,8 +13,8 @@ import { testDatabase } from "./harness";
 /**
  * The queue, and the limit that made it fail silently.
  *
- * `enqueueRender` inserts a row per bout. D1 binds at most a hundred parameters
- * to a statement and a row here is seven of them, so a fifteen-bout card in one
+ * `enqueueRender` inserts a row per video. D1 binds at most a hundred parameters
+ * to a statement and a row here is nine of them, so a fifteen-bout card in one
  * insert is refused outright — which is exactly what happened: a fighter's
  * submission on the full demo card queued nothing and said so only in the log.
  * Nothing in a pure test can see that, because the limit is the database's.
@@ -39,9 +39,9 @@ const jobsOf = (db: ReturnType<typeof platform>["db"], eventId: string) =>
     .select()
     .from(schema.renderJobs)
     .where(eq(schema.renderJobs.eventId, eventId))
-    .orderBy(schema.renderJobs.boutNumber, schema.renderJobs.template);
+    .orderBy(schema.renderJobs.boutNumber, schema.renderJobs.template, schema.renderJobs.corner);
 
-/** The bout numbers with the duplicates collapsed: a bout is two rows now. */
+/** The bout numbers with the duplicates collapsed: a bout is four rows now. */
 const boutsOf = (rows: readonly { boutNumber: number }[]) => [
   ...new Set(rows.map((row) => row.boutNumber)),
 ];
@@ -50,9 +50,10 @@ describe("enqueueRender", () => {
   it("queues every bout of a fifteen-bout card, which one insert cannot", async () => {
     const { db, show } = await fullCard();
 
-    // Thirty rows: a bout is the tale of the tape and the promo, and they are
-    // separate jobs so that one failing leaves the other alone.
-    expect(await enqueueRender(db, show.eventId, "all")).toBe(30);
+    // Sixty rows: a bout is the tale of the tape, the promo and a walkout per
+    // corner, and they are separate jobs so that one failing leaves the others
+    // alone.
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(60);
 
     const rows = await jobsOf(db, show.eventId);
     expect(boutsOf(rows)).toEqual([...Array(15)].map((_, at) => at + 1));
@@ -61,17 +62,34 @@ describe("enqueueRender", () => {
   });
 
   /**
-   * Both compositions, every time. A promoter pressing "Render again" means the
-   * bout rather than half of it, and a programme offering a promo a week behind
-   * the tape would be worse than one offering none.
+   * Every video, every time. A promoter pressing "Render again" means the bout
+   * rather than part of it, and a programme offering a promo a week behind the
+   * tape would be worse than one offering none.
    */
-  it("queues both of a bout's videos, with a digest each", async () => {
+  it("queues all of a bout's videos, with a digest each", async () => {
     const { db, show } = await fullCard(2);
-    expect(await enqueueRender(db, show.eventId, [2])).toBe(2);
+    expect(await enqueueRender(db, show.eventId, [2])).toBe(4);
 
     const rows = await jobsOf(db, show.eventId);
-    expect(rows.map((row) => row.template)).toEqual(["faceoff", "tape"]);
-    expect(rows[0].inputHash).not.toBe(rows[1].inputHash);
+    expect(rows.map((row) => [row.template, row.corner])).toEqual([
+      ["faceoff", ""],
+      ["tape", ""],
+      ["walkout", "blue"],
+      ["walkout", "red"],
+    ]);
+    expect(new Set(rows.map((row) => row.inputHash)).size).toBe(4);
+  });
+
+  /**
+   * The empty corner is what makes the upsert an upsert. Were it NULL, SQLite
+   * would hold every request's row distinct from the last and a tape asked for
+   * twice would be two tapes.
+   */
+  it("asked twice, still has one row per video", async () => {
+    const { db, show } = await fullCard(1);
+    await enqueueRender(db, show.eventId, [1]);
+    await enqueueRender(db, show.eventId, [1], Date.now() + 1000);
+    expect(await jobsOf(db, show.eventId)).toHaveLength(4);
   });
 
   it("addresses the rows the renderer will claim", async () => {
@@ -80,14 +98,19 @@ describe("enqueueRender", () => {
 
     const rows = await jobsOf(db, show.eventId);
     expect(rows.map((row) => row.id).sort()).toEqual(
-      [renderJobId(show.eventId, 2, "tape"), renderJobId(show.eventId, 2, "faceoff")].sort(),
+      [
+        renderJobId(show.eventId, 2, "tape"),
+        renderJobId(show.eventId, 2, "faceoff"),
+        renderJobId(show.eventId, 2, "walkout-red"),
+        renderJobId(show.eventId, 2, "walkout-blue"),
+      ].sort(),
     );
   });
 
   it("queues the bouts it was asked for and no others", async () => {
     const { db, show } = await fullCard(15);
 
-    expect(await enqueueRender(db, show.eventId, [3, 7])).toBe(4);
+    expect(await enqueueRender(db, show.eventId, [3, 7])).toBe(8);
     expect(boutsOf(await jobsOf(db, show.eventId))).toEqual([3, 7]);
   });
 
@@ -104,7 +127,7 @@ describe("enqueueRender", () => {
       .set({ cancelled: true })
       .where(and(eq(schema.bouts.eventId, show.eventId), eq(schema.bouts.number, 2)));
 
-    expect(await enqueueRender(db, show.eventId, "all")).toBe(4);
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(8);
     expect(boutsOf(await jobsOf(db, show.eventId))).toEqual([1, 3]);
     // Asked for by name, it is still not queued: the fingerprints are the one
     // place that decides, so the two cannot come apart.
@@ -132,7 +155,7 @@ describe("enqueueRender", () => {
       .set({ photo: "/media/fighters/new-one.jpg", updatedAt: Date.now() + 1 })
       .where(eq(schema.fighters.id, show.fighterIds[0]));
 
-    expect(await enqueueRender(db, show.eventId, [1], Date.now() + 5000)).toBe(2);
+    expect(await enqueueRender(db, show.eventId, [1], Date.now() + 5000)).toBe(4);
 
     const after = (await jobsOf(db, show.eventId))[0];
     expect(after.status).toBe("queued");

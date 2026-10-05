@@ -26,7 +26,7 @@ export function renderUrl(key: string): string {
 }
 
 /**
- * The compositions made for every bout and published to the programme.
+ * The compositions made for every bout and published.
  *
  * The registry in components/sequence/templates.ts is the authority on what a
  * template *is* — it holds the component and the frame count — but it imports
@@ -34,11 +34,10 @@ export function renderUrl(key: string): string {
  * readable from both sides. So the list lives here and the registry is held to
  * it by a test rather than the other way round.
  *
- * `walkout` and `social` are deliberately not in it. A walkout is one video per
- * corner and the job row carries no corner, and nothing on the site plays
- * either, so both stay samples rendered to a file.
+ * `social` is deliberately not in it: nothing on the site plays it, so queueing
+ * it would be rendering for nobody. It stays a sample rendered to a file.
  */
-export const PUBLISHED_TEMPLATES = ["tape", "faceoff"] as const;
+export const PUBLISHED_TEMPLATES = ["tape", "faceoff", "walkout"] as const;
 
 export type PublishedTemplate = (typeof PUBLISHED_TEMPLATES)[number];
 
@@ -47,14 +46,67 @@ export function isPublishedTemplate(id: string): id is PublishedTemplate {
 }
 
 /**
- * What one bout has, keyed by template.
+ * Which corner a job is about, or neither.
  *
- * It used to be one URL per bout, because there was one video. A bout has two
- * now — the tale of the tape, which the programme plays, and the promo, which it
- * offers — so the shape has to say which is which rather than leaving a caller
- * to guess what a bare string was.
+ * Empty rather than NULL for a composition that draws both, because the column
+ * is in the queue's unique key and SQLite treats every NULL as distinct from
+ * every other: `ON CONFLICT` would never fire for the tape, and every request
+ * to render one would add a row beside the last instead of updating it.
  */
-export type BoutRenders = Partial<Record<PublishedTemplate, string>>;
+export type RenderCorner = "" | "red" | "blue";
+
+/** The templates that are one video per fighter rather than one per bout. */
+export const PER_CORNER_TEMPLATES: readonly PublishedTemplate[] = ["walkout"];
+
+/**
+ * One video of a bout: a template, and the corner where the template has one.
+ *
+ * The slot is the name everything downstream keys on — the fingerprint, the job
+ * id, the published key and what the programme reads back — and for a
+ * composition of the whole bout it is the template's own id. That is what kept
+ * the walkout from marking every tape and promo stale: their slot is the string
+ * they were already hashed under, so their digests did not move.
+ */
+export const RENDER_SLOTS = [
+  { slot: "tape", template: "tape", corner: "" },
+  { slot: "faceoff", template: "faceoff", corner: "" },
+  { slot: "walkout-red", template: "walkout", corner: "red" },
+  { slot: "walkout-blue", template: "walkout", corner: "blue" },
+] as const satisfies readonly {
+  slot: string;
+  template: PublishedTemplate;
+  corner: RenderCorner;
+}[];
+
+export type RenderSlot = (typeof RENDER_SLOTS)[number]["slot"];
+
+export type RenderSlotSpec = (typeof RENDER_SLOTS)[number];
+
+/**
+ * The slot a queue row is, or undefined for one nothing publishes.
+ *
+ * A walkout with no corner, a tape with one, or a template taken off the list
+ * all come back undefined, so a row nobody could have meant is left out rather
+ * than read as a video of the wrong fighter.
+ */
+export function slotOf(template: string, corner: string): RenderSlot | undefined {
+  return RENDER_SLOTS.find((spec) => spec.template === template && spec.corner === corner)?.slot;
+}
+
+export function slotSpec(slot: RenderSlot): RenderSlotSpec {
+  return RENDER_SLOTS.find((spec) => spec.slot === slot)!;
+}
+
+/**
+ * What one bout has, keyed by slot.
+ *
+ * It used to be one URL per bout, because there was one video. A bout has four
+ * now — the tale of the tape, which the programme plays, the promo, which it
+ * offers, and a walkout for each fighter, which their own page offers — so the
+ * shape has to say which is which rather than leaving a caller to guess what a
+ * bare string was.
+ */
+export type BoutRenders = Partial<Record<RenderSlot, string>>;
 
 export type Renders = Record<number, BoutRenders>;
 
@@ -66,14 +118,19 @@ export type Renders = Record<number, BoutRenders>;
  * row out of the several a bout now has is picking *this* one, and a bare
  * `"tape"` in a where clause reads as an example rather than as the rule.
  */
-export const TAPE_TEMPLATE: PublishedTemplate = "tape";
+export const TAPE_TEMPLATE = "tape" satisfies PublishedTemplate & RenderSlot;
+
+/** The walkout about one fighter. */
+export function walkoutSlot(corner: "red" | "blue"): RenderSlot {
+  return corner === "red" ? "walkout-red" : "walkout-blue";
+}
 
 export function mp4For(
   renders: Renders,
   boutNumber: number,
-  template: PublishedTemplate = TAPE_TEMPLATE,
+  slot: RenderSlot = TAPE_TEMPLATE,
 ): string | undefined {
-  return renders[boutNumber]?.[template];
+  return renders[boutNumber]?.[slot];
 }
 
 // --------------------------------------------------------------- fingerprint
@@ -100,6 +157,14 @@ export function mp4For(
  * Adding it marked every render made before it stale in one go, which is correct
  * and is a card's worth of rendering per show — see the rendering section of
  * DEPLOY.md, which says to expect it once.
+ *
+ * **It carries the slot, not the bare template.** For the tape and the promo
+ * those are the same string; for a walkout it is `walkout-red` or
+ * `walkout-blue`, so the two corners never share a digest or a key. The corner
+ * was deliberately not added as a field of its own: only the values are hashed,
+ * so a new field would have moved every digest there is and marked every video
+ * on every show stale for a column that changes nothing in any of them — the
+ * thing 0015 did once, for a reason. Handover section 11.
  */
 export const RENDER_INPUT_FIELDS = [
   "template",
@@ -202,9 +267,10 @@ export async function renderFingerprint(inputs: RenderInputs): Promise<string> {
  * would leave every phone that had already played the bout holding last week's
  * video with no way of finding out. A new key is a new URL and cannot be stale.
  *
- * The template is in it for the same reason at a smaller scale: a bout has more
+ * The slot is in it for the same reason at a smaller scale: a bout has more
  * than one video now, and two of them publishing over each other would be that
- * failure again.
+ * failure again. A walkout's says which corner, so the red fighter's video can
+ * never be published over the blue one's.
  *
  * **Keys written before the template existed are not renamed.** They are
  * `renders/<slug>/bout-<n>-<hash8>.mp4`, they are in the bucket, and phones have
@@ -216,10 +282,10 @@ export async function renderFingerprint(inputs: RenderInputs): Promise<string> {
 export function renderKeyFor(
   slug: string,
   boutNumber: number,
-  template: PublishedTemplate,
+  slot: RenderSlot,
   hash: string,
 ): string {
-  return `renders/${slug}/bout-${boutNumber}-${template}-${hash.slice(0, 8)}.mp4`;
+  return `renders/${slug}/bout-${boutNumber}-${slot}-${hash.slice(0, 8)}.mp4`;
 }
 
 // ----------------------------------------------------------------- the queue
@@ -234,17 +300,14 @@ export function renderKeyFor(
  * comment saying the two match. A copy held together by a comment is what every
  * other constant in this file was moved here to stop being.
  *
- * The template is in it because a bout is more than one row now. Rows written
- * before it existed were renamed by migration 0015 rather than left under a
- * second naming rule: a table with two conventions in it is a table where the
- * next reader picks the wrong one.
+ * The slot is in it because a bout is more than one row now. Rows written
+ * before the template existed were renamed by migration 0015 rather than left
+ * under a second naming rule: a table with two conventions in it is a table
+ * where the next reader picks the wrong one. Adding the corner renamed nothing,
+ * because a tape's slot is the template it was already named after.
  */
-export function renderJobId(
-  eventId: string,
-  boutNumber: number,
-  template: PublishedTemplate,
-): string {
-  return `rj_${eventId}_${boutNumber}_${template}`;
+export function renderJobId(eventId: string, boutNumber: number, slot: RenderSlot): string {
+  return `rj_${eventId}_${boutNumber}_${slot}`;
 }
 
 export type RenderStatus = "queued" | "running" | "done" | "failed";

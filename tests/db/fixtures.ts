@@ -1,7 +1,7 @@
 import * as schema from "@/db/schema";
 import { secretDigest } from "@/lib/auth";
 import { newInviteValues } from "@/lib/db/queries";
-import { TAPE_TEMPLATE, type PublishedTemplate } from "@/lib/renders";
+import { TAPE_TEMPLATE, slotSpec, type RenderSlot } from "@/lib/renders";
 import { currentPlatform, execWrites, type Db } from "./platform";
 
 /**
@@ -244,21 +244,23 @@ export async function plantBout(
  * A render job with a published video on it, which is the only column the
  * programme ever plays from — `status` is deliberately not what decides.
  *
- * The template defaults to the tape and is worth passing: a bout has a row per
- * composition, so anything reading one video out of a bout has to say which,
- * and a fixture that could only ever plant one row would never show it.
+ * The slot defaults to the tape and is worth passing: a bout has a row per
+ * video, so anything reading one video out of a bout has to say which, and a
+ * fixture that could only ever plant one row would never show it.
  */
 export async function plantRender(
   db: Db,
-  options: { eventId: string; boutNumber: number; key: string; template?: PublishedTemplate },
+  options: { eventId: string; boutNumber: number; key: string; slot?: RenderSlot },
 ): Promise<void> {
-  const template = options.template ?? TAPE_TEMPLATE;
+  const slot = options.slot ?? TAPE_TEMPLATE;
+  const { template, corner } = slotSpec(slot);
   await plant([
     db.insert(schema.renderJobs).values({
-      id: `rj_${options.eventId}_${options.boutNumber}_${template}`,
+      id: `rj_${options.eventId}_${options.boutNumber}_${slot}`,
       eventId: options.eventId,
       boutNumber: options.boutNumber,
       template,
+      corner,
       status: "done",
       currentR2Key: options.key,
       requestedAt: Date.now(),

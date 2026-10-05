@@ -27,8 +27,8 @@ import {
 import { logWarning } from "@/lib/log";
 import {
   TAPE_TEMPLATE,
-  isPublishedTemplate,
   renderUrl,
+  slotOf,
   sponsorMark,
   type Renders,
 } from "@/lib/renders";
@@ -880,7 +880,7 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
 }
 
 /**
- * Bout number to the playable URLs of that bout, by template.
+ * Bout number to the playable URLs of that bout, by slot.
  *
  * Old keys and new ones both come back. The key is a column, never parsed — a
  * render published before templates existed is `bout-<n>-<hash8>.mp4` and one
@@ -894,17 +894,23 @@ export async function loadPromoterEvents(db: Db, promoterId: string) {
  * and by nothing else, which is what makes that safe.
  */
 export function rendersFrom(
-  rows: readonly { boutNumber: number; template: string; currentR2Key: string | null }[],
+  rows: readonly {
+    boutNumber: number;
+    template: string;
+    corner: string;
+    currentR2Key: string | null;
+  }[],
 ): Renders {
   const renders: Renders = {};
   for (const row of rows) {
     // A row for a composition nothing publishes any more is not a video the
     // programme has anywhere to put, so it is left out here rather than handed
     // on to a caller that would have to ask the same question again.
-    if (!row.currentR2Key || !isPublishedTemplate(row.template)) continue;
+    const slot = slotOf(row.template, row.corner);
+    if (!row.currentR2Key || !slot) continue;
     renders[row.boutNumber] = {
       ...renders[row.boutNumber],
-      [row.template]: renderUrl(row.currentR2Key),
+      [slot]: renderUrl(row.currentR2Key),
     };
   }
   return renders;
@@ -916,6 +922,7 @@ export async function loadRenders(db: Db, eventId: string): Promise<Renders> {
       .select({
         boutNumber: schema.renderJobs.boutNumber,
         template: schema.renderJobs.template,
+        corner: schema.renderJobs.corner,
         currentR2Key: schema.renderJobs.currentR2Key,
       })
       .from(schema.renderJobs)

@@ -10,6 +10,7 @@ import type { Bout } from "@/lib/types";
 import { FACEOFF_FRAMES } from "./FaceOff";
 import { TaleOfTheTape } from "./TaleOfTheTape";
 import { Stage } from "./Stage";
+import { WALKOUT_FRAMES } from "./Walkout";
 import { SEQ } from "./timeline";
 
 type Status = "idle" | "playing" | "paused" | "ended";
@@ -68,14 +69,23 @@ export function TapePlayer({
  * offer, not a second headline.
  *
  * Exported because a fighter's own page draws it too, with nothing else around
- * it, and two players of the same file would eventually count differently.
+ * it, and two players of the same file would eventually count differently. That
+ * page also draws the fighter's walkout through it, which is the same offer of a
+ * different file: `kind` says which, so the name and the length on the button
+ * are the walkout's rather than the promo's.
  */
+const OFFERED = {
+  promo: { label: VIDEO_SHARE.promo, note: VIDEO_SHARE.promoNote, frames: FACEOFF_FRAMES },
+  walkout: { label: VIDEO_SHARE.walkout, note: VIDEO_SHARE.walkoutNote, frames: WALKOUT_FRAMES },
+} as const;
+
 export function PromoPlayer({
   slug,
   boutNumber,
   mp4,
   title,
   fighterId,
+  kind = "promo",
 }: {
   slug: string;
   boutNumber: number;
@@ -83,13 +93,15 @@ export function PromoPlayer({
   title: string;
   /** Set on a fighter's own page, so a share says whose page it left from. */
   fighterId?: string;
+  kind?: keyof typeof OFFERED;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
+  const { label, note, frames } = OFFERED[kind];
 
   return (
     <div className="grid gap-3">
-      <div className="label">{VIDEO_SHARE.promo}</div>
+      <div className="label">{label}</div>
       <Frame>
         <video
           ref={video}
@@ -100,12 +112,12 @@ export function PromoPlayer({
           className="block w-full"
           style={{ aspectRatio: `${SEQ.width} / ${SEQ.height}` }}
           onEnded={() => setStarted(false)}
-          aria-label={`${VIDEO_SHARE.promo}, ${title}`}
+          aria-label={`${label}, ${title}`}
         />
         {started ? null : (
           <PlayOverlay
-            label={VIDEO_SHARE.promo}
-            seconds={FACEOFF_FRAMES / SEQ.fps}
+            label={label}
+            seconds={frames / SEQ.fps}
             onPlay={() => {
               setStarted(true);
               track({ slug, kind: "tape_play", boutNumber });
@@ -114,7 +126,7 @@ export function PromoPlayer({
           />
         )}
       </Frame>
-      <p className="text-ash-dim text-xs leading-relaxed">{VIDEO_SHARE.promoNote}</p>
+      <p className="text-ash-dim text-xs leading-relaxed">{note}</p>
       <VideoShare
         slug={slug}
         mp4={mp4}

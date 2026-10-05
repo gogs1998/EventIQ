@@ -455,6 +455,39 @@ describe("loadRenders", () => {
     });
   });
 
+  /**
+   * Two walkouts per bout, one a fighter, and the corner is what tells them
+   * apart. A walkout row with no corner is nobody's: handing it back under
+   * either name would put one fighter's video on the other's page.
+   */
+  it("hands back each walkout under its own corner, and none with no corner", async () => {
+    const { db, published } = await twoPromoters();
+    const walkout = (corner: string, key: string) => ({
+      id: `rj_1_walkout_${corner || "none"}`,
+      eventId: published.eventId,
+      boutNumber: 1,
+      template: "walkout",
+      corner,
+      status: "done",
+      currentR2Key: key,
+      requestedAt: Date.now(),
+    });
+    await db
+      .insert(schema.renderJobs)
+      .values([
+        walkout("red", "renders/cage-county-12/bout-1-walkout-red-abcdef01.mp4"),
+        walkout("blue", "renders/cage-county-12/bout-1-walkout-blue-abcdef01.mp4"),
+        walkout("", "renders/cage-county-12/bout-1-walkout-abcdef01.mp4"),
+      ]);
+
+    expect(await loadRenders(db, published.eventId)).toEqual({
+      1: {
+        "walkout-red": "/media/renders/cage-county-12/bout-1-walkout-red-abcdef01.mp4",
+        "walkout-blue": "/media/renders/cage-county-12/bout-1-walkout-blue-abcdef01.mp4",
+      },
+    });
+  });
+
   it("offers nothing for a job that has never published one", async () => {
     const { db, published } = await twoPromoters();
     await db.insert(schema.renderJobs).values({

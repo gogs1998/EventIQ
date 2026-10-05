@@ -450,8 +450,8 @@ export const renderJobs = sqliteTable(
       .references(() => events.id, { onDelete: "cascade" }),
     boutNumber: integer("bout_number").notNull(),
     /**
-     * Which composition this row is about — `tape` or `faceoff`, the two in
-     * PUBLISHED_TEMPLATES in lib/renders.ts.
+     * Which composition this row is about — `tape`, `faceoff` or `walkout`, the
+     * three in PUBLISHED_TEMPLATES in lib/renders.ts.
      *
      * A bout has more than one video now, so the row that used to be "the bout"
      * is "the bout in one composition". It is in the unique key below and in the
@@ -463,6 +463,17 @@ export const renderJobs = sqliteTable(
      * what it already was.
      */
     template: text("template").notNull().default("tape"),
+    /**
+     * Which fighter, for a composition that is about one: `red` or `blue` for a
+     * walkout, empty for everything that draws both corners.
+     *
+     * Empty rather than NULL because it is in the unique key, and SQLite holds
+     * every NULL distinct from every other — the upsert would never see a
+     * conflict on a tape and would add a row per request instead. Defaulted, so
+     * every row written before the walkout was published says what it already
+     * was and keeps its id.
+     */
+    corner: text("corner").notNull().default(""),
     /** queued | running | done | failed. The job, not the video. */
     status: text("status").notNull(),
     error: text("error"),
@@ -490,10 +501,11 @@ export const renderJobs = sqliteTable(
     finishedAt: integer("finished_at"),
   },
   (table) => [
-    uniqueIndex("render_jobs_event_bout_template").on(
+    uniqueIndex("render_jobs_event_bout_template_corner").on(
       table.eventId,
       table.boutNumber,
       table.template,
+      table.corner,
     ),
   ],
 );

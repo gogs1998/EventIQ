@@ -392,14 +392,23 @@ describe("the shows on a fighter's own page", () => {
       eventId: past.eventId,
       boutNumber: 2,
       key: "renders/cage-county-11/bout-2-faceoff-abc.mp4",
-      template: "faceoff",
+      slot: "faceoff",
     });
     await plantRender(db, {
       eventId: past.eventId,
       boutNumber: 2,
       key: "renders/cage-county-11/bout-2-tape-abc.mp4",
-      template: "tape",
+      slot: "tape",
     });
+    // And a walkout a corner, which are two more rows for the same night.
+    for (const slot of ["walkout-red", "walkout-blue"] as const) {
+      await plantRender(db, {
+        eventId: past.eventId,
+        boutNumber: 2,
+        key: `renders/cage-county-11/bout-2-${slot}-abc.mp4`,
+        slot,
+      });
+    }
 
     const shows = await appearancesFor("owen-pryce");
     expect(shows.map((show) => show.slug)).toEqual(["cage-county-11"]);

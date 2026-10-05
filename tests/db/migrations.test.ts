@@ -136,6 +136,24 @@ describe("the migration chain, over a card that was already there", () => {
     expect(await columnsOf("render_jobs")).not.toContain("r2_key");
   });
 
+  /**
+   * 0017 put a corner into the queue's unique key. Every row before it is a
+   * video of both corners, so each has to come through it with the empty corner
+   * and the id it already had — a renamed id is a second row the next request
+   * writes beside it, and a NULL corner is a key `ON CONFLICT` can never match.
+   */
+  it("brings every render job through the corner with no corner and its own id", async () => {
+    const rows = await d1()
+      .prepare("SELECT id, template, corner FROM render_jobs ORDER BY id")
+      .all<{ id: string; template: string; corner: string | null }>();
+
+    expect(rows.results).toHaveLength(5);
+    for (const row of rows.results) {
+      expect(row).toMatchObject({ template: "tape", corner: "" });
+      expect(row.id).toMatch(/^rj_\d_tape$/);
+    }
+  });
+
   it("gives every invite an expiry dated from the migration, not from the row", async () => {
     const rows = await d1()
       .prepare("SELECT id, token, token_digest, expires_at, revoked_at FROM invites ORDER BY id")

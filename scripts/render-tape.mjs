@@ -1,11 +1,12 @@
 /**
  * Renders a bout's videos to vertical mp4s.
  *
- * A bout is two of them: the tale of the tape, which the programme plays, and
- * the promo, which it offers. They are two rows in `render_jobs` and two objects
- * in the bucket, claimed, rendered and published separately, so a promo that
- * will not render never takes the tale of the tape off a card people are
- * reading. A run without --template does both.
+ * A bout is four of them: the tale of the tape, which the programme plays, the
+ * promo, which it offers, and a walkout for each fighter, which their own page
+ * offers. They are four rows in `render_jobs` and four objects in the bucket,
+ * claimed, rendered and published separately, so a promo that will not render
+ * never takes the tale of the tape off a card people are reading. A run without
+ * --template does all four.
  *
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish
@@ -14,8 +15,9 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template faceoff
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template walkout --corner blue
  *
- * The last is a sample to a file: --publish takes the tape and the promo, and
- * refuses anything the programme has nowhere to put.
+ * The last is the blue corner's walkout alone; without --corner it is both.
+ * --template social is a sample to a file: --publish refuses anything nothing
+ * on the site has anywhere to put.
  *
  * Before rendering anything it makes the cutouts that do not exist yet, because
  * a fighter's photograph arrives through a Worker and background removal cannot
@@ -65,12 +67,14 @@ import { localBin } from "./local-bin.mjs";
 import { RENDER_KEY_HEADER } from "../lib/auth.ts";
 import {
   MAX_RENDER_ATTEMPTS,
-  PUBLISHED_TEMPLATES,
   RENDER_LEASE_MS,
+  RENDER_SLOTS,
   isPublishedTemplate,
   renderFingerprint,
   renderJobId,
   renderKeyFor,
+  slotOf,
+  slotSpec,
   sponsorFingerprint,
 } from "../lib/renders.ts";
 
@@ -129,20 +133,38 @@ const publish = Boolean(arg("publish"));
  *
  * **Naming a template means only that template.** Leaving it off means every
  * published one, which is what a run without a template is now for: a bout has
- * two videos and asking for "bout 15" means the bout rather than half of it.
+ * four videos and asking for "bout 15" means the bout rather than half of it.
  */
 const explicitTemplate = typeof arg("template") === "string" ? arg("template") : null;
 const template = str(arg("template", "tape"), "tape");
+/** Null where no corner was named, which for a walkout means both. */
+const cornerArg = (() => {
+  const named = str(arg("corner"), null);
+  return named === null ? null : named === "blue" ? "blue" : "red";
+})();
+const corner = cornerArg ?? "red";
 
 /**
- * The (bout, template) pairs one run is about.
+ * The videos one run is about, as slots: a template, and a corner where the
+ * template is about one fighter.
  *
- * Nothing but a named template may be published that is not on the list: a
- * walkout is one video per corner and the job row carries no corner, so a
- * published walkout would replace the bout's promo and read as current.
+ * A template nothing publishes — `social` — is a slot of its own with no corner
+ * and no hash, which is all a sample to a file needs; --publish refuses it
+ * before anything is claimed.
  */
-const wantedTemplates = explicitTemplate ? [explicitTemplate] : [...PUBLISHED_TEMPLATES];
-const corner = str(arg("corner", "red"), "red") === "blue" ? "blue" : "red";
+export function slotsWanted(templateId, cornerId) {
+  if (templateId === null) return [...RENDER_SLOTS];
+  if (!isPublishedTemplate(templateId)) {
+    return [{ slot: templateId, template: templateId, corner: "" }];
+  }
+  return RENDER_SLOTS.filter(
+    (spec) =>
+      spec.template === templateId &&
+      (cornerId === null || spec.corner === "" || spec.corner === cornerId),
+  );
+}
+
+const wantedSlots = slotsWanted(explicitTemplate, cornerArg);
 
 /** A flag given with no value comes back as `true`. Treat that as unset. */
 function str(value, fallback) {
@@ -234,9 +256,12 @@ async function d1(sql) {
  * Exported for the test that builds one bout from both sides and checks that the
  * two digests are the same.
  */
-export function renderInputsFrom(row, sponsorLockups, template) {
+export function renderInputsFrom(row, sponsorLockups, slot) {
   return {
-    template,
+    // The slot, which for a composition of both corners is the template's id.
+    // lib/renders.ts says why the corner rides in this field rather than one of
+    // its own.
+    template: slot,
     eventName: row.event_name,
     eventDate: row.event_date,
     eventVenue: row.event_venue,
@@ -344,19 +369,23 @@ async function boutsOf(eventSlug) {
     ]);
   }
 
-  // Every queue row for the show, by bout and template. A separate query rather
-  // than a join, because a bout has a row per composition and joining them onto
-  // the bout would return the card once per video.
+  // Every queue row for the show, by bout and slot. A separate query rather
+  // than a join, because a bout has a row per video and joining them onto the
+  // bout would return the card once per video.
   const jobs = new Map();
   for (const job of await d1(
-    `SELECT j.bout_number AS bout_number, j.template AS template, j.status AS status,
+    `SELECT j.bout_number AS bout_number, j.template AS template, j.corner AS corner,
+            j.status AS status,
             j.current_hash AS current_hash, j.current_r2_key AS current_r2_key,
             j.attempts AS attempts, j.lease_until AS lease_until, j.error AS error
        FROM render_jobs j
        JOIN events e ON e.id = j.event_id
       WHERE e.slug = ${lit(eventSlug)}`,
   )) {
-    jobs.set(`${job.bout_number}:${job.template}`, {
+    const slot = slotOf(job.template, job.corner ?? "");
+    // A row nothing publishes any more is not a video this run could make.
+    if (!slot) continue;
+    jobs.set(`${job.bout_number}:${slot}`, {
       status: job.status,
       attempts: job.attempts ?? 0,
       leaseUntil: job.lease_until ?? null,
@@ -376,14 +405,14 @@ async function boutsOf(eventSlug) {
         .map((id) => (id ? lockups.get(id) : null))
         .filter((entry) => entry != null);
 
-      // One digest per composition. The template is the largest thing on screen,
-      // so the tape and the promo of one bout are never the same video and must
-      // never share a fingerprint or a key.
+      // One digest per video. The template is the largest thing on screen, and
+      // the corner decides whose name is on a walkout, so no two videos of one
+      // bout ever share a fingerprint or a key.
       const hashes = {};
       const boutJobs = {};
-      for (const id of PUBLISHED_TEMPLATES) {
-        hashes[id] = await renderFingerprint(renderInputsFrom(row, sponsors, id));
-        boutJobs[id] = jobs.get(`${row.number}:${id}`) ?? null;
+      for (const { slot } of RENDER_SLOTS) {
+        hashes[slot] = await renderFingerprint(renderInputsFrom(row, sponsors, slot));
+        boutJobs[slot] = jobs.get(`${row.number}:${slot}`) ?? null;
       }
 
       return {
@@ -400,28 +429,30 @@ async function boutsOf(eventSlug) {
 }
 
 /**
- * One bout in one composition: the unit that is claimed, rendered and published.
+ * One video of one bout: the unit that is claimed, rendered and published.
  *
- * A bout is two videos, and they are two jobs. That matters beyond tidiness: a
+ * A bout is four videos, and they are four jobs. That matters beyond tidiness: a
  * promo that fails must not stop the tale of the tape being made, a `--stale`
- * run has to be able to take one and leave the other, and two runners on one
- * card must be able to hold different compositions of the same bout.
+ * run has to be able to take one and leave the others, and two runners on one
+ * card must be able to hold different videos of the same bout.
  *
  * A template nothing publishes gets a target with no hash, which is all a dry
  * run to a file needs — the claim and the publish are the two things that want
  * one, and both are refused for those templates before this is reached.
  */
-export function targetsOf(bouts, templates, now = Date.now()) {
+export function targetsOf(bouts, slots, now = Date.now()) {
   const targets = [];
   for (const bout of bouts) {
-    for (const template of templates) {
-      const job = bout.jobs?.[template] ?? null;
+    for (const { slot, template, corner: slotCorner } of slots) {
+      const job = bout.jobs?.[slot] ?? null;
       targets.push({
         number: bout.number,
+        slot,
         template,
+        corner: slotCorner,
         fighterIds: bout.fighterIds,
         pendingCutout: bout.pendingCutout,
-        hash: bout.hashes?.[template] ?? null,
+        hash: bout.hashes?.[slot] ?? null,
         job,
         // A finished render made before fingerprinting existed has no hash, so
         // it counts as stale. Re-rendering something that was already right is
@@ -466,7 +497,8 @@ async function eventIdOf(eventSlug) {
  * five seeded renders were exactly that, and every hourly run left them where
  * they were while reporting them as held by somebody else.
  */
-export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
+export function claimSql(eventId, boutNumber, slot, hash, { now, force }) {
+  const { template, corner: slotCorner } = slotSpec(slot);
   const wanted = force
     ? "1 = 1"
     : `(render_jobs.status = 'queued'
@@ -476,12 +508,13 @@ export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
                 AND render_jobs.current_hash IS NOT ${lit(hash)}))`;
 
   return `INSERT INTO render_jobs
-            (id, event_id, bout_number, template, status, input_hash, error, attempts,
-             lease_until, requested_at)
+            (id, event_id, bout_number, template, corner, status, input_hash, error,
+             attempts, lease_until, requested_at)
           VALUES
-            (${lit(renderJobId(eventId, boutNumber, template))}, ${lit(eventId)}, ${boutNumber},
-             ${lit(template)}, 'running', ${lit(hash)}, NULL, 1, ${now + RENDER_LEASE_MS}, ${now})
-          ON CONFLICT (event_id, bout_number, template) DO UPDATE SET
+            (${lit(renderJobId(eventId, boutNumber, slot))}, ${lit(eventId)}, ${boutNumber},
+             ${lit(template)}, ${lit(slotCorner)}, 'running', ${lit(hash)}, NULL, 1,
+             ${now + RENDER_LEASE_MS}, ${now})
+          ON CONFLICT (event_id, bout_number, template, corner) DO UPDATE SET
             status = 'running',
             input_hash = excluded.input_hash,
             error = NULL,
@@ -492,8 +525,8 @@ export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
           RETURNING id`;
 }
 
-async function claim(eventId, boutNumber, template, hash, { force }) {
-  const won = await d1(claimSql(eventId, boutNumber, template, hash, { now: Date.now(), force }));
+async function claim(eventId, boutNumber, slot, hash, { force }) {
+  const won = await d1(claimSql(eventId, boutNumber, slot, hash, { now: Date.now(), force }));
   return won.length > 0;
 }
 
@@ -504,12 +537,13 @@ async function claim(eventId, boutNumber, template, hash, { force }) {
  * programme plays, and a render that has just failed must not take a working
  * video off a card people are reading at a venue.
  */
-async function finishJob(eventId, boutNumber, template, fields) {
+async function finishJob(eventId, boutNumber, slot, fields) {
+  const { template: templateId, corner: slotCorner } = slotSpec(slot);
   const sets = Object.entries(fields).map(([name, value]) => `${name} = ${value}`);
   await d1(
     `UPDATE render_jobs SET ${sets.join(", ")}, lease_until = NULL, finished_at = ${Date.now()}
       WHERE event_id = ${lit(eventId)} AND bout_number = ${boutNumber}
-        AND template = ${lit(template)}`,
+        AND template = ${lit(templateId)} AND corner = ${lit(slotCorner)}`,
   );
 }
 
@@ -714,16 +748,17 @@ export async function seek(page, frame) {
  *
  * The template is always in it, including for the tape, so that four files for
  * one bout sitting in .renders/ say which is which without anybody having to
- * remember the order they were made in. The corner only where it is not the
- * default, because it means nothing for the three templates that draw both.
+ * remember the order they were made in. The corner only for a template that is
+ * about one, where it is always there: two walkouts of one bout that differed
+ * only by the absence of a word would be one file overwriting the other.
  */
-function outputName(bout, templateId = template) {
-  return `${slug}-bout-${bout}-${templateId}${corner === "red" ? "" : `-${corner}`}`;
+function outputName(bout, templateId, cornerId) {
+  return `${slug}-bout-${bout}-${templateId}${cornerId ? `-${cornerId}` : ""}`;
 }
 
 async function renderStill(bout, frame) {
   await mkdir(".stills", { recursive: true });
-  const file = path.join(".stills", `${outputName(bout)}-frame-${frame}.png`);
+  const file = path.join(".stills", `${outputName(bout, template, cornerArg)}-frame-${frame}.png`);
   await withPage(async (page) => {
     await openBout(page, bout);
     await seek(page, frame);
@@ -732,9 +767,9 @@ async function renderStill(bout, frame) {
   console.log(file);
 }
 
-async function renderBout(bout, templateId = template) {
+async function renderBout(bout, templateId, cornerId) {
   await mkdir(outDir, { recursive: true });
-  const out = path.join(outDir, `${outputName(bout, templateId)}.mp4`);
+  const out = path.join(outDir, `${outputName(bout, templateId, cornerId)}.mp4`);
 
   const ffmpeg = spawn("ffmpeg", [
     "-y",
@@ -778,8 +813,12 @@ async function renderBout(bout, templateId = template) {
   const started = Date.now();
   try {
     await withPage(async (page) => {
-      const duration = await openBout(page, bout, slug, templateId);
-      process.stdout.write(`bout ${bout} ${templateId}: ${duration} frames `);
+      // The capture page wants a corner whatever the template; one that draws
+      // both ignores it.
+      const duration = await openBout(page, bout, slug, templateId, cornerId || "red");
+      process.stdout.write(
+        `bout ${bout} ${templateId}${cornerId ? ` ${cornerId}` : ""}: ${duration} frames `,
+      );
 
       for (let frame = 0; frame < duration; frame += 1) {
         await seek(page, frame);
@@ -797,6 +836,13 @@ async function renderBout(bout, templateId = template) {
     // reads as a slow render rather than as a failure that has already happened.
     ffmpeg.stdin.destroy();
     ffmpeg.kill();
+    // Killing it makes `done` reject with "ffmpeg exited null", and nothing is
+    // going to await it now. Unhandled, that rejection ended the whole process:
+    // the rest of the card was never rendered, and under --publish the job just
+    // claimed was left reading "running" until its lease ran out, because the
+    // run died before it could record the failure. The capture's own error is
+    // the one worth reporting, and it is the one thrown.
+    done.catch(() => {});
     throw error;
   }
 
@@ -817,15 +863,15 @@ async function renderBout(bout, templateId = template) {
  * The superseded object is deleted afterwards rather than before, so that a put
  * or a D1 write that fails leaves the programme playing what it was playing.
  */
-async function publishBout(eventId, bout, templateId, file, hash, previousKey) {
-  const key = renderKeyFor(slug, bout, templateId, hash);
+async function publishBout(eventId, bout, slot, file, hash, previousKey) {
+  const key = renderKeyFor(slug, bout, slot, hash);
   await run("npx", [
     "wrangler", "r2", "object", "put", `${BUCKET}/${key}`,
     "--file", file,
     "--content-type", "video/mp4",
     scope,
   ]);
-  await finishJob(eventId, bout, templateId, {
+  await finishJob(eventId, bout, slot, {
     status: lit("done"),
     current_r2_key: lit(key),
     current_hash: lit(hash),
@@ -883,20 +929,18 @@ async function main() {
   const boutArg = arg("bout");
 
   /**
-   * Only what the programme carries may be published.
+   * Only what the site carries may be published.
    *
-   * `render_jobs` holds a row per bout per template now, so the tape and the
-   * promo have a key each and cannot write over one another. A walkout still
-   * cannot: it is one video per corner and the row carries no corner, so
-   * publishing one would replace the bout's promo and read as current
-   * afterwards. Refusing here is cheaper than finding out from a venue.
+   * `render_jobs` holds a row per bout per template per corner now, so every
+   * published video has a key of its own and none can write over another.
+   * `social` has no row because nothing on the site plays it, and publishing one
+   * would be a file in the bucket that no page links and no row points at.
    */
-  const unpublishable = wantedTemplates.filter((id) => !isPublishedTemplate(id));
+  const unpublishable = wantedSlots.filter((spec) => !isPublishedTemplate(spec.template));
   if (publish && unpublishable.length) {
     throw new Error(
-      `--template ${unpublishable[0]} cannot be published: render_jobs carries a bout and a ` +
-        "template, but no corner, so a walkout would replace the bout's promo and read as " +
-        "current. Drop --publish to render a sample to a file.",
+      `--template ${unpublishable[0].template} cannot be published: nothing on the site plays ` +
+        "it, so it has no row in render_jobs. Drop --publish to render a sample to a file.",
     );
   }
 
@@ -913,12 +957,12 @@ async function main() {
 
   if (arg("list")) {
     const pending = all.filter((bout) => bout.pendingCutout).length;
-    // Both compositions of every bout, whatever --template says: a list is what
-    // somebody reads to find out what the card is missing, and one showing half
+    // Every video of every bout, whatever --template says: a list is what
+    // somebody reads to find out what the card is missing, and one showing part
     // of each bout would answer a question nobody asked.
-    for (const target of targetsOf(all, PUBLISHED_TEMPLATES)) {
+    for (const target of targetsOf(all, RENDER_SLOTS)) {
       console.log(
-        `  bout ${String(target.number).padStart(2)}  ${target.template.padEnd(7)}  ` +
+        `  bout ${String(target.number).padStart(2)}  ${target.slot.padEnd(12)}  ` +
           `${stateOf(target)}` +
           `${target.pendingCutout ? "  (cutout to make)" : ""}` +
           `${target.job?.error ? `\n      ${target.job.error}` : ""}`,
@@ -964,13 +1008,13 @@ async function main() {
   if (boutArg && boutArg !== true) {
     const named = all.filter((b) => b.number === Number(boutArg));
     if (!named.length) throw new Error(`Bout ${boutArg} is not on "${slug}"`);
-    wanted = targetsOf(named, wantedTemplates);
+    wanted = targetsOf(named, wantedSlots);
     force = true;
   } else if (arg("stale")) {
-    wanted = targetsOf(all, wantedTemplates).filter(wantsRendering);
+    wanted = targetsOf(all, wantedSlots).filter(wantsRendering);
     if (!wanted.length) console.log("Every video on this card is already current.");
   } else if (arg("all")) {
-    wanted = targetsOf(all, wantedTemplates);
+    wanted = targetsOf(all, wantedSlots);
     force = true;
   } else {
     console.error(
@@ -980,10 +1024,10 @@ async function main() {
         "attempt; --all takes every bout on the card.\n" +
         "Cutouts are made first unless --no-cutouts; --refresh-cutouts remakes\n" +
         "the ones that already exist.\n" +
-        "Every bout is made in both published compositions — the tale of the tape\n" +
-        "and the promo — unless --template <id> names one. --corner red|blue picks\n" +
-        "the fighter where a template is about one, and a template the programme\n" +
-        "does not carry is a sample to a file: --publish refuses it.",
+        "Every bout is made in all its published videos — the tale of the tape,\n" +
+        "the promo and a walkout per corner — unless --template <id> names one.\n" +
+        "--corner red|blue narrows a walkout to one fighter, and a template the\n" +
+        "site does not carry is a sample to a file: --publish refuses it.",
     );
     return 1;
   }
@@ -992,7 +1036,7 @@ async function main() {
   let failures = 0;
 
   for (const target of wanted) {
-    const { number, template: id } = target;
+    const { number, slot: id } = target;
     // Without --publish nothing is recorded, so there is nothing to claim: it is
     // a dry run to a file, and two of those colliding costs nobody anything.
     if (publish && !(await claim(eventId, number, id, target.hash, { force }))) {
@@ -1001,7 +1045,7 @@ async function main() {
     }
 
     try {
-      const file = await renderBout(number, id);
+      const file = await renderBout(number, target.template, target.corner);
       if (publish) {
         await publishBout(eventId, number, id, file, target.hash, target.job?.currentR2Key);
       }

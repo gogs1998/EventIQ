@@ -15,15 +15,15 @@ import { SEQ } from "./timeline";
  * page and the exporter does not fail: it produces a video that ends early or
  * holds an empty frame for a second, which nobody notices until it is posted.
  *
- * `tape` is the default. It and `faceoff` are the two the queue makes for every
- * bout and the programme carries: that list is `PUBLISHED_TEMPLATES` in
- * lib/renders.ts, which is where it lives because the renderer is plain Node and
- * cannot import this file's .tsx. The registry is held to it by a test rather
- * than keeping a second copy.
+ * `tape` is the default. It, `faceoff` and `walkout` are the three the queue
+ * makes for every bout: that list is `PUBLISHED_TEMPLATES` in lib/renders.ts,
+ * which is where it lives because the renderer is plain Node and cannot import
+ * this file's .tsx. The registry is held to it by a test rather than keeping a
+ * second copy, and so is `perCorner`, which has to agree with
+ * `PER_CORNER_TEMPLATES` there or a walkout would be queued as one video.
  *
- * `walkout` and `social` stay local samples. A walkout is one video per corner
- * and `render_jobs` carries no corner, and nothing on the site plays either, so
- * queueing them would be rendering for nobody.
+ * `social` stays a local sample: nothing on the site plays it, so queueing it
+ * would be rendering for nobody.
  */
 
 export type TemplateProps = {
@@ -90,15 +90,19 @@ export function templateOf(id: string | undefined): Template | undefined {
 }
 
 /**
- * What putting `walkout` or `social` into the queue would still need.
+ * What putting the rest into the queue would still need.
  *
- * The first four steps are done: `template` is in the fingerprint, on the job
- * row and in its unique key, in `renderKeyFor`, and in what the programme and
- * the dashboard read back. What is left is the one thing only a walkout needs:
+ * `walkout` is published: `render_jobs` carries a `corner` beside `template`
+ * (migration 0017), in the unique key, and the fingerprint and the published key
+ * carry it through the slot — `walkout-red`, `walkout-blue` — rather than a field
+ * of their own, so the tape and the promo kept the digests they already had.
+ * Handover section 11 has why.
  *
- * - **A `corner` beside `template` in the unique key**, because a walkout is two
- *   videos for one bout and one row cannot hold both keys — and in the
- *   fingerprint and the published key with it. `social` needs none of that and
- *   is out of the queue only because nothing on the site plays it; giving it a
- *   place on the programme is the whole of its work.
+ * - **`social`** needs no schema at all. It is out of the queue only because
+ *   nothing on the site plays it, and giving it a place — on the programme, or
+ *   offered beside the promo — is the whole of its work: a slot in RENDER_SLOTS,
+ *   a name on the dashboard, a page that offers it.
+ * - **`countdown`, `card` and `doors`** are about a show rather than a bout, and
+ *   live in show-templates.ts. The plan for queueing those is written in
+ *   handover section 19, because it is a second table rather than a column.
  */

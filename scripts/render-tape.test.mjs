@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
-import { brokenImageMessage, claimSql, renderInputsFrom, sameOrigin } from "./render-tape.mjs";
+import {
+  brokenImageMessage,
+  claimSql,
+  renderInputsFrom,
+  sameOrigin,
+  slotsWanted,
+} from "./render-tape.mjs";
 
 /**
  * The renderer's pure parts. The capture loop needs a browser and a dev server
@@ -139,6 +145,31 @@ describe("brokenImageMessage", () => {
   });
 });
 
+describe("slotsWanted", () => {
+  const slots = (template, corner) => slotsWanted(template, corner).map((spec) => spec.slot);
+
+  /** A bout named with no template means every video it has, both walkouts included. */
+  it("is every published video when no template is named", () => {
+    expect(slots(null, null)).toEqual(["tape", "faceoff", "walkout-red", "walkout-blue"]);
+  });
+
+  it("is both corners of a walkout unless one is named", () => {
+    expect(slots("walkout", null)).toEqual(["walkout-red", "walkout-blue"]);
+    expect(slots("walkout", "blue")).toEqual(["walkout-blue"]);
+  });
+
+  /** A corner means nothing to a composition of both, so it does not narrow one away. */
+  it("ignores a corner for a template that draws both", () => {
+    expect(slots("tape", "blue")).toEqual(["tape"]);
+  });
+
+  it("makes a template nobody publishes a sample of its own", () => {
+    expect(slotsWanted("social", null)).toEqual([
+      { slot: "social", template: "social", corner: "" },
+    ]);
+  });
+});
+
 describe("claimSql", () => {
   const sql = (over = {}) =>
     claimSql("ev_1", 15, "tape", "abcdef0123456789", { now: 1000, force: false, ...over });
@@ -192,7 +223,7 @@ describe("claimSql", () => {
 
   it("addresses the row the app addresses", () => {
     expect(sql()).toContain("'rj_ev_1_15_tape'");
-    expect(sql()).toContain("ON CONFLICT (event_id, bout_number, template)");
+    expect(sql()).toContain("ON CONFLICT (event_id, bout_number, template, corner)");
   });
 
   /**
@@ -209,6 +240,26 @@ describe("claimSql", () => {
     expect(promo).toContain("'rj_ev_1_15_faceoff'");
     expect(promo).toContain("'faceoff'");
     expect(promo).not.toContain("'rj_ev_1_15_tape'");
+  });
+
+  /**
+   * A walkout is two rows, one a corner, and a claim takes one of them. Without
+   * the corner in the conflict target the blue fighter's claim would take the
+   * red fighter's row, and one of the two would never be made.
+   */
+  it("claims one corner of a walkout rather than both", () => {
+    const blue = claimSql("ev_1", 15, "walkout-blue", "abcdef0123456789", {
+      now: 1000,
+      force: false,
+    });
+    expect(blue).toContain("'rj_ev_1_15_walkout-blue'");
+    expect(blue).toContain("'walkout', 'blue'");
+    expect(blue).not.toContain("'red'");
+  });
+
+  /** A tape is about both corners, so its corner is the empty one every old row has. */
+  it("claims a composition of the whole bout with no corner", () => {
+    expect(sql()).toContain("'tape', ''");
   });
 
   /**
