@@ -135,6 +135,12 @@ export function parseTrackBody(body: unknown): TrackWrite | null {
     return null;
   }
 
+  // The ticket link is the show's, and is drawn once at the top of the page. A
+  // tap on it that names a bout, a fighter or a sponsor came from somewhere else.
+  if (kind === "ticket_tap" && (boutNumber !== null || fighterId !== null || sponsorId !== null)) {
+    return null;
+  }
+
   return { slug, kind: kind as AnalyticsKind, boutNumber, fighterId, sponsorId, sessionId };
 }
 

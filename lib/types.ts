@@ -87,6 +87,8 @@ export type FightEvent = {
   sanctioning?: string;
   promoter: { name: string; mark?: string; instagram?: string };
   backdrop?: string;
+  /** An https address, already checked when it was stored. lib/ticket-link.ts. */
+  ticketUrl?: string;
   showSponsorIds: string[];
   bouts: Bout[];
 };
@@ -169,6 +171,12 @@ export const ANALYTICS_KINDS = [
   "video_share",
   "sponsor_tap",
   "profile_view",
+  /**
+   * A tap on the show's ticket link. Names nothing but the show, and is only
+   * written while the programme is actually showing a link — see the route.
+   * Like a share, it counts the tap and never a sale.
+   */
+  "ticket_tap",
 ] as const;
 
 export type AnalyticsKind = (typeof ANALYTICS_KINDS)[number];

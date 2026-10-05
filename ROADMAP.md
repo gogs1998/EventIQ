@@ -35,7 +35,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 4. **Sponsor report** (M). A one-page PDF after the show with real counts per placement, ready to send. The counting is done; the shape of the page is the work. Probably what promoters would pay most for even while the product is free.
 5. **Sponsors buy in-app** (L). A sponsor picks a bout, pays by card, uploads an emblem, gets their own link and their own counts. Needs a payment provider decision; Stripe is the obvious one.
 6. **Self-serve signup** (M). Promoter accounts without an operator, with email verification. Today `npm run promoter -- create` is onboarding, which is fine until the day it is not.
-7. **Ticket link** (S), then **tickets** (L). A promoter's ticket link on the programme first; QR ticketing later, which gives the promoter a headcount before doors.
+7. ~~**Ticket link**~~ (S), done; then **tickets** (L). The link is on the programme until the show's day has passed, set from the card editor, https only and checked in the action, with taps counted (HANDOVER section 6i). QR ticketing is what is left, and it gives the promoter a headcount before doors.
 
 ### Tier four: polish that compounds
 
@@ -74,5 +74,5 @@ A native app, AI-written fighter bios, AI likenesses of real fighters (a stylise
 - One agent per item, in its own git worktree off `main`, with a dev server on its own port. On an 8 GB machine, no more than two or three at once: six dev servers crashed workerd (bug 39).
 - Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 28-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
 - Merge to `main`, then `npm run deploy` (migrations first, then the Worker) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
-- Migrations are numbered in merge order; the next free number is `0016`. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
+- Migrations are numbered in merge order; the next free number is `0017`. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
 - Commit messages name the wrong old behaviour in a sentence. New bugs go in HANDOVER section 14 with the rule they left behind. Copy goes in `lib/copy.ts` with the tone tests.

@@ -149,6 +149,12 @@ export const events = sqliteTable(
     city: text("city").notNull(),
     sanctioning: text("sanctioning"),
     backdrop: text("backdrop"),
+    /**
+     * Where tickets for the show are sold. An https address the promoter set,
+     * stored as the parsed URL's own `href` and checked again on the way out:
+     * lib/ticket-link.ts. Null is no link, never a placeholder.
+     */
+    ticketUrl: text("ticket_url"),
     /** Unpublished events are visible to their promoter and nobody else. */
     published: integer("published", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
@@ -514,7 +520,7 @@ export const analyticsEvents = sqliteTable(
     eventId: text("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view */
+    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view | ticket_tap */
     kind: text("kind").notNull(),
     boutNumber: integer("bout_number"),
     fighterId: text("fighter_id"),
@@ -583,7 +589,7 @@ export const analyticsDaily = sqliteTable(
      * timezone and a fold that guessed one would be wrong for half the year.
      */
     day: text("day").notNull(),
-    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view */
+    /** programme_open | bout_expand | tape_play | video_share | sponsor_tap | profile_view | ticket_tap */
     kind: text("kind").notNull(),
     boutNumber: integer("bout_number"),
     fighterId: text("fighter_id"),

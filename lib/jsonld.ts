@@ -33,6 +33,8 @@ export type SportsEventInput = {
   /** Absolute address of the programme. */
   url: string;
   tagline?: string;
+  /** The ticket link, only while the programme itself is showing it. */
+  ticketUrl?: string;
 };
 
 /**
@@ -64,5 +66,8 @@ export function sportsEventJsonLd(event: SportsEventInput): Record<string, unkno
       address: { "@type": "PostalAddress", addressLocality: event.city },
     },
     organizer: { "@type": "Organization", name: event.promoter },
+    // A url and nothing else: no price and no availability, because neither is
+    // anything this product knows, and the page states neither.
+    ...(event.ticketUrl ? { offers: { "@type": "Offer", url: event.ticketUrl } } : {}),
   };
 }

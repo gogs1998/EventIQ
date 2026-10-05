@@ -7,11 +7,13 @@ import { BoutRow } from "@/app/promoter/e/[slug]/card/BoutRow";
 import { EventForm } from "@/app/promoter/e/[slug]/card/EventForm";
 import { ImportSheetPanel } from "@/app/promoter/e/[slug]/card/ImportSheetPanel";
 import { SponsorRow } from "@/app/promoter/e/[slug]/card/SponsorRow";
+import { TicketLinkForm } from "@/app/promoter/e/[slug]/card/TicketLinkForm";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import {
   ADD_BOUT,
   EMPTY_CARD_EDITOR,
   EMPTY_SPONSORS,
+  TICKET_LINK,
   boutCountLabel,
   boutsOffLabel,
 } from "@/lib/copy";
@@ -98,6 +100,11 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
           </summary>
           <EventForm slug={event.slug} event={event} />
         </details>
+      </section>
+
+      <section className="mt-12">
+        <h2 className="display text-2xl">{TICKET_LINK.heading}</h2>
+        <TicketLinkForm slug={event.slug} ticketUrl={event.ticketUrl} />
       </section>
 
       <section className="mt-12">

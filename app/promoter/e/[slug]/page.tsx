@@ -19,6 +19,7 @@ import {
   NOTHING_SENT,
   RENDER_SECTION,
   RENDER_STATE_COPY,
+  TICKET_LINK,
   VIDEO_SHARE,
   boutCountLabel,
   countdown,
@@ -138,9 +139,16 @@ const INVITE_STYLE: Record<InviteStatus, string> = {
 function Counts({
   totals,
   sponsors,
+  ticketLink = false,
 }: {
   totals: AnalyticsTotals;
   sponsors: number;
+  /**
+   * Whether the show has a ticket link. Its count is shown where there is one
+   * or where anything was counted, and left off a show that never had a link,
+   * where a nought would be a statistic about something that was not there.
+   */
+  ticketLink?: boolean;
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -169,6 +177,13 @@ function Counts({
         value={totals.profile_view.toLocaleString("en-GB")}
         sub="A fighter's own page, deep-linked"
       />
+      {ticketLink || totals.ticket_tap > 0 ? (
+        <Stat
+          label={TICKET_LINK.statLabel}
+          value={totals.ticket_tap.toLocaleString("en-GB")}
+          sub={TICKET_LINK.statNote}
+        />
+      ) : null}
       <Stat
         label="Cost to print"
         value="£0"
@@ -736,7 +751,11 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
           Live, from the moment the first person scans the code. A zero here means nobody
           has looked yet, not that nothing is being counted.
         </p>
-        <Counts totals={analytics.totals} sponsors={Object.keys(analytics.taps).length} />
+        <Counts
+          totals={analytics.totals}
+          sponsors={Object.keys(analytics.taps).length}
+          ticketLink={!!event.ticketUrl}
+        />
       </section>
 
       {/* --------------------------------------------------------- last show */}

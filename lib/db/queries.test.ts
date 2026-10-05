@@ -162,6 +162,7 @@ describe("analyticsFrom", () => {
       tape_play: 0,
       sponsor_tap: 0,
       profile_view: 0,
+      ticket_tap: 0,
       spectators: 0,
     });
     expect(taps).toEqual({});

@@ -601,6 +601,39 @@ export function sponsorTapNote(sponsors: number): string {
 }
 
 /* -------------------------------------------------------------------------
+ * The ticket link
+ *
+ * On the programme it is a plain line rather than a button, because the page
+ * is the promoter's programme first and a box office second, and it names the
+ * site the tap goes to so a spectator knows where they are being sent before
+ * they pay anybody. On the dashboard the count says what it counts — a tap
+ * through to the ticket page — and never a sale: nothing here can see what
+ * happens on the other side, and a number that implied it could would be the
+ * invented figure section 9 exists to keep out.
+ * ---------------------------------------------------------------------- */
+
+export const TICKET_LINK = {
+  /** The programme's line, in the hero beside the date and the venue. */
+  label: "Tickets",
+  action: "Get tickets",
+  via: (host: string) => `on ${host}`,
+  /** The card editor. */
+  heading: "Ticket link",
+  hint: "Where tickets for this show are sold",
+  note:
+    "Shown on the programme as a plain link until the day of the show has passed, then taken " +
+    "off on its own. Leave it empty to show no ticket link.",
+  placeholder: "https://",
+  save: "Save the ticket link",
+  saving: "Saving…",
+  saved: "Saved.",
+  cleared: "Taken off. The programme now shows no ticket link.",
+  /** The dashboard's count. */
+  statLabel: "Ticket taps",
+  statNote: "Taps through to the ticket page, not tickets sold",
+} as const;
+
+/* -------------------------------------------------------------------------
  * The fighter's own video
  *
  * The second half of the loop the product is built on. A fighter fills the form
@@ -850,6 +883,20 @@ export const ACTION_ERRORS = {
   bothCornersOneFighter: "A bout needs two different fighters.",
   fighterNeedsName: "A fighter needs a name. It carries their bout on the card and in the video.",
   sponsorNeedsName: "A sponsor needs a name.",
+  /**
+   * The ticket link. Each says what to do next, and none calls the address
+   * wrong: it is usually a link copied from the wrong tab, and the fix is to
+   * copy it again from the ticket page itself.
+   */
+  ticketLinkNotHttps:
+    "A ticket link needs to start with https:// — copy the address from the ticket page itself " +
+    "and paste it in here.",
+  ticketLinkUnreadable:
+    "That does not read as the address of a web page. Copy it from the ticket page itself and " +
+    "paste it in here.",
+  ticketLinkTooLong:
+    "That address is longer than a ticket page needs. Copy it from the ticket page itself and " +
+    "paste it in here.",
   /**
    * The emblem. Separate sentences for the same reason the fighter's photograph
    * has three: a different file and a smaller file are different things to go

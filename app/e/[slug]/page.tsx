@@ -3,14 +3,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
+import { TicketLink } from "@/components/TicketLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card";
-import { EMPTY_PROGRAMME, SHOWS_LINK, boutCountLabel, programmeLinkNote } from "@/lib/copy";
+import {
+  EMPTY_PROGRAMME,
+  SHOWS_LINK,
+  TICKET_LINK,
+  boutCountLabel,
+  programmeLinkNote,
+} from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
 import { sportsEventJsonLd } from "@/lib/jsonld";
 import { SITE_URL } from "@/lib/site";
 import { formatEventDate, lastName } from "@/lib/tape";
+import { ticketLinkFor } from "@/lib/ticket-link";
 import { visibleCardFor } from "@/lib/visibility";
 
 export async function generateMetadata({
@@ -41,6 +49,8 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   // The bout the card calls the main event, not just the top of the list, so the
   // names under the show's own title are the pair wearing the label below.
   const main = featuredBout(card);
+  // Off the page from the day after the show, read against the real clock.
+  const tickets = ticketLinkFor(event);
 
   return (
     <main id="main" tabIndex={-1} className="mx-auto w-full max-w-xl">
@@ -71,6 +81,7 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
                 city: event.city,
                 promoter: event.promoter.name,
                 url: new URL(`/e/${event.slug}`, SITE_URL).toString(),
+                ticketUrl: tickets?.href,
               }),
             ).replace(/</g, "\\u003c"),
           }}
@@ -132,6 +143,14 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
                 Doors {event.doorsTime} · First bell {event.firstBellTime}
               </dd>
             </div>
+            {tickets ? (
+              <div className="flex gap-3">
+                <dt className="label w-20 shrink-0 pt-1">{TICKET_LINK.label}</dt>
+                <dd>
+                  <TicketLink slug={event.slug} link={tickets} />
+                </dd>
+              </div>
+            ) : null}
           </dl>
 
           {event.sanctioning ? (

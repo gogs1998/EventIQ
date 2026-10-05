@@ -1,7 +1,8 @@
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
-import { eventVisibility, trackRefsBelong } from "@/lib/db/queries";
+import { eventTicketLink, eventVisibility, trackRefsBelong } from "@/lib/db/queries";
 import { withinTrackLimit } from "@/lib/rate-limit";
+import { ticketLinkFor } from "@/lib/ticket-link";
 import { countableRequest, parseTrackBody, trackSignals } from "@/lib/track";
 
 /**
@@ -55,6 +56,13 @@ export async function POST(request: Request) {
     const event = await eventVisibility(db, write.slug);
     if (!event?.published) return ok();
     if (!(await trackRefsBelong(db, event.id, write))) return ok();
+    // A ticket tap names only the show, so the thing to verify is that the show
+    // was offering a link to tap: one set, well formed, and not yet past its day.
+    // The same function decides it as decides whether the programme draws it.
+    if (write.kind === "ticket_tap") {
+      const tickets = await eventTicketLink(db, event.id);
+      if (!tickets || !ticketLinkFor(tickets)) return ok();
+    }
 
     await db.insert(schema.analyticsEvents).values({
       eventId: event.id,

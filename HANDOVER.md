@@ -62,7 +62,7 @@ An independent audit after that found three more, all fixed: **the capture page 
 | `/f/demo` | The questionnaire as a walkthrough, saving nothing | public |
 | `/promoter` | Shows list, or straight to the dashboard if there is one | password |
 | `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
-| `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
+| `/promoter/e/[slug]/card` | Card editor: event, ticket link, bouts, fighters, sponsors | password |
 | `/promoter/login` | Sign in | public |
 | `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
 | `/media/[...key]` | Serves R2 objects | public |
@@ -496,6 +496,18 @@ The model is **`@cf/runwayml/stable-diffusion-v1-5-img2img`**, which is the imag
 
 **Two things worth knowing before touching it.** Approving one bumps `updated_at`, which is already in the render fingerprint, so the portrait reaches the video without a new field in the hash. And `next dev` has no AI binding at all: `remoteBindings` is off in next.config.ts because the moment an `ai` binding exists the dev server tries to open a remote proxy session, and without a `CLOUDFLARE_API_TOKEN` that fails and takes D1 and R2 down with it — every page reading the database answering 500. So the action answers "not available here" locally, and **this has not been run against the real model**.
 
+## 6i. The ticket link
+
+A promoter can give a show a ticket link from the card editor, and the programme shows it in the hero beside the date, the venue and the times — a plain underlined "Get tickets" with the site it goes to named after it, not a button. The page is the promoter's programme first and a box office second, and naming the host means a spectator knows whose page they are about to pay before they get there. QR ticketing — the headcount before doors — is the larger half of ROADMAP item 7 and is not this.
+
+**The column is `events.ticket_url`, migration `0016`.** Null is no link. It is set by its own action, `setTicketLink` in [app/promoter/actions.ts](app/promoter/actions.ts), rather than by another box on `updateEvent`, because `updateEvent` marks every bout's video out of date and a ticket link is in none of them.
+
+**The address is checked in the action, by [lib/ticket-link.ts](lib/ticket-link.ts).** The form's `type="url"` is a courtesy; the action is an endpoint, and `parseTicketUrl` is the whole of what may be stored. https only, because a programme handing a phone to a plain-http payment page is pointing at somebody else's mistake — and the scheme check is what refuses `javascript:` and `data:`, which are the two that would turn a promoter-set link into script on a spectator's tap. No credentials in the address, because `https://eventiq.win@elsewhere.example` reads as one host and goes to another. A dotted host name ending in letters, so not `localhost`, not an IP literal and not a bare word. No whitespace or control characters. At most 500 characters, **refused rather than cut**: the promoter actions' `text()` helper trims every field to a length, and an address cut short is not an invalid address but a different, valid one the promoter never typed — so this action reads the raw form value. What is stored is the parsed URL's own `href`, not the text as typed, and the same check runs again on the way out in `ticketLinkFor`, so a value planted by hand that would fail it is not drawn.
+
+**It shows through the show's own day and comes off the day after**, read against the real clock at request time — tickets on the door are still tickets, and a link to buy a seat at something that has happened is the programme getting a fact wrong in public. The day is the UTC calendar day `daysUntilShow` already counts in, which in a British summer keeps the link up for an hour past midnight: the safe side to be wrong on. The programme's structured data carries the link as an `Offer` with a `url` and nothing else, and only while the page shows it, which is the rule in [lib/jsonld.ts](lib/jsonld.ts): no price, no availability, nothing the page does not state.
+
+**Taps on it are counted, as `ticket_tap`, because the tap can be verified on the same terms as a programme open.** It names nothing but the show, so `parseTrackBody` refuses one that names a bout, a fighter or a sponsor; the show has to be published like every other count; and the route then asks whether the show was *offering a link to tap at that moment* — set, well formed and not past its day — through the same `ticketLinkFor` the programme draws it with. A tap on a link the page was not showing did not happen, so it is not written. The dashboard shows the count where the show has a link or anything was counted, and says what it is: taps through to the ticket page, **not tickets sold**. Nothing here can see the other side of that tap, and a number implying a sale would be the invented figure of section 9.
+
 ---
 
 ## 7. Where the content lives
@@ -621,7 +633,7 @@ Two properties are worth keeping if this is ever changed:
 
 ## 9. Counting
 
-[app/api/track/route.ts](app/api/track/route.ts) writes one row per interaction into `analytics_events`: `programme_open`, `bout_expand`, `tape_play`, `sponsor_tap`, `profile_view`. The client sends them with `sendBeacon` where it can, so a tap that navigates away still lands.
+[app/api/track/route.ts](app/api/track/route.ts) writes one row per interaction into `analytics_events`: `programme_open`, `bout_expand`, `tape_play`, `video_share`, `sponsor_tap`, `profile_view`, `ticket_tap`. The client sends them with `sendBeacon` where it can, so a tap that navigates away still lands.
 
 **There is no user identifier and none is wanted.** `sessionId` is a random value held for the length of one visit, so opens can be counted per spectator rather than per reload, and it is stored nowhere else.
 
@@ -643,7 +655,7 @@ The dashboard shows the counts twice: **This show so far**, live, and **Last sho
 
 **The invented "last show" figures are gone.** They were the most dangerous thing in the demo: plausible numbers that would have been repeated to a sponsor. The panel now shows real counts or explicit zeroes, and says in the footer that nothing on the page is estimated.
 
-Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Five things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), **whether the caller looks like a person reading a programme at all**, the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme.
+Which is exactly why the endpoint has to be narrow about what it will write. It takes no credential and cannot — the beacon is sent as the page goes — so an open route that wrote whatever it was handed would be a table anybody could fill, and these counts are the evidence a promoter puts in front of a sponsor. Five things bound it, and it still answers 204 to all of them: the caller's allowance (`TRACK_WRITES`, section 6d), **whether the caller looks like a person reading a programme at all**, the shape check in [lib/track.ts](lib/track.ts), the show having to be **published**, and the bout, fighter and sponsor named having to be on that show — a bout number that is on the card, a fighter in that bout's corner, a sponsor on the strip or the bout or one of its fighters. Absent is allowed and malformed is not: a programme open carries no bout number, and a bout number that is not one is a caller doing something other than reading a programme. A ticket tap adds one more: the show has to have been showing a ticket link when it was tapped, decided by the same function that draws it (section 6i).
 
 **The crawler check falls the opposite way from the one on invite links**, and that is the whole reason [lib/bots.ts](lib/bots.ts) now holds two lists. An unrecognised unfurler marking a fighter's link as opened costs a promoter one wasted phone call, so `isLinkPreviewBot` guesses towards recording; an unrecognised crawler counted as a spectator goes into the report a sponsor is handed, so `countableRequest` guesses towards dropping. Between them they take the unfurlers, the search and model crawlers, headless browsers and scripted clients by name, a request with no user agent at all, a POST carrying none of the `Sec-Fetch-*` headers every browser sends with a beacon, and one posted `cross-site` or with no page behind it. The walkthrough is the case that made the split necessary: it is real Chrome, it opens invite links for real, and its taps are a test run rather than an audience.
 
@@ -1259,7 +1271,7 @@ Deploy is done (section 12) and is no longer on this list.
 
     The framing is therefore load-bearing rather than cosmetic, and it is a constraint on the work rather than an afterthought: it is the crowd's opinion and it is never a result. Never adjacent to the official outcome in a way that invites comparison, no "the crowd got it right" language anywhere near it, and the promoter should almost certainly be able to switch it off per event — a promoter answerable to a sanctioning body may simply not want it, which is a legitimate position rather than a configuration edge case. This also touches the judgement in item 18. A scorecard is not live judging and needs neither round-by-round timing nor real-time reliability, since a bout can be scored once, after it ends, and that distinction is what keeps it out of the deferred product.
 
-    It is not already here under another name. There is no `votes` or `scores` table. The only spectator write path is [app/api/track/route.ts](app/api/track/route.ts), and its five `kind` values (`programme_open`, `bout_expand`, `tape_play`, `sponsor_tap`, `profile_view`) all record what a spectator did to the page, not an opinion they offered it. The `audiences` array on the pitch page names who benefits; `completeness()` in [lib/tape.ts](lib/tape.ts) measures how much of their profile a fighter has filled in. Neither is a scorecard.
+    It is not already here under another name. There is no `votes` or `scores` table. The only spectator write path is [app/api/track/route.ts](app/api/track/route.ts), and its `kind` values (`programme_open`, `bout_expand`, `tape_play`, `video_share`, `sponsor_tap`, `profile_view`, `ticket_tap`) all record what a spectator did to the page, not an opinion they offered it. The `audiences` array on the pitch page names who benefits; `completeness()` in [lib/tape.ts](lib/tape.ts) measures how much of their profile a fighter has filled in. Neither is a scorecard.
 
 10. **The post-event sponsor report.** The counting is done; what is missing is a one-page thing a promoter can send. Probably the thing promoters would actually pay more for. Item 9 wants to land in this, which is why the two sit together: a report that can quote scores cast is a stronger document than one that can quote taps, and building the report first would mean coming back to it.
 
@@ -1292,7 +1304,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 ### Explicitly out of scope so far
 
-Native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring here means round-by-round judging, not the crowd scorecard in item 9.
+Native app, ticketing, betting, live scoring, AI image-to-video models, music beds. Live scoring here means round-by-round judging, not the crowd scorecard in item 9. Ticketing here means selling or scanning tickets; a link to where the promoter already sells them is section 6i and is not that.
 
 ---
 

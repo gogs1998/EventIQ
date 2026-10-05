@@ -7,6 +7,7 @@ import {
   removeBout,
   setBoutOff,
   setPublished,
+  setTicketLink,
   updateBout,
   updateEvent,
   updateFighter,
@@ -83,6 +84,10 @@ async function snapshot(eventId: string): Promise<string> {
 const actions: { name: string; run: (show: PlantedShow) => Promise<ActionResult> }[] = [
   { name: "updateEvent", run: (show) => updateEvent(show.slug, form({ name: "Renamed" })) },
   { name: "setPublished", run: (show) => setPublished(show.slug, true) },
+  {
+    name: "setTicketLink",
+    run: (show) => setTicketLink(show.slug, form({ ticketUrl: "https://tickets.example.com/cc12" })),
+  },
   {
     name: "addBout",
     run: (show) => addBout(show.slug, form({ redName: "Owen Pryce", blueName: "Dre Osei" })),

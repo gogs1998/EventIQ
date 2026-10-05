@@ -41,7 +41,25 @@ describe("parseTrackBody", () => {
     });
   });
 
-  it("refuses a kind that is not one of the six", () => {
+  /**
+   * The ticket link is the show's own, drawn once at the top of the page. A tap
+   * on it carries the show and nothing else; one naming a bout came from
+   * somewhere that is not the programme.
+   */
+  it("takes a ticket tap that names only the show, and refuses one that names more", () => {
+    expect(parseTrackBody({ slug: "cage-county-12", kind: "ticket_tap" })).toMatchObject({
+      kind: "ticket_tap",
+      boutNumber: null,
+      fighterId: null,
+      sponsorId: null,
+    });
+    expect(parseTrackBody({ slug: "cage-county-12", kind: "ticket_tap", boutNumber: 3 })).toBeNull();
+    expect(
+      parseTrackBody({ slug: "cage-county-12", kind: "ticket_tap", sponsorId: "mouthguards-pro" }),
+    ).toBeNull();
+  });
+
+  it("refuses a kind that is not one of the known kinds", () => {
     expect(parseTrackBody({ ...open, kind: "sponsor_purchase" })).toBeNull();
     expect(parseTrackBody({ ...open, kind: "" })).toBeNull();
     expect(parseTrackBody({ slug: "cage-county-12" })).toBeNull();
