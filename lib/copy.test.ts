@@ -1627,6 +1627,7 @@ describe("the sheet import copy", () => {
     expect(SHEET_IMPORT.assumedNote).toMatch(/standing in/i);
     expect(Object.keys(SHEET_IMPORT.assumedField).sort()).toEqual([
       "discipline",
+      "minutes",
       "rounds",
       "weight",
     ]);

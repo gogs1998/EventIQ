@@ -80,3 +80,25 @@ export function resolveCorner(
 export function bothCornersAreOnePerson(red: CornerResolution, blue: CornerResolution): boolean {
   return red.kind === "reuse" && blue.kind === "reuse" && red.fighterId === blue.fighterId;
 }
+
+/**
+ * The strings `lower(name)` could return for a stored name whose fully lowered
+ * form is `key`.
+ *
+ * SQLite's `lower()` folds A–Z and nothing else, so a stored "Łukasz Nowak"
+ * lowers to "Łukasz nowak" and never equals the "łukasz nowak" a promoter's
+ * lowered input becomes: a returning fighter with a non-ASCII capital was minted
+ * again without the namesake question ever being asked. The index is on
+ * `lower(name)`, so rather than give it up the query asks for the forms the name
+ * is realistically stored in — as typed in lower case, capitalised word by word,
+ * and in capitals — each folded the way SQLite folds them. A name in plain ASCII
+ * gives one form, so the parameter count only grows for the names that need it.
+ */
+export function sqliteLowerForms(key: string): string[] {
+  const asciiLower = (value: string) => value.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const capitalised = key.replace(
+    /(^|[\s\-'’])(\p{Ll})/gu,
+    (_, before: string, letter: string) => before + letter.toUpperCase(),
+  );
+  return [...new Set([key, capitalised, key.toUpperCase()].map(asciiLower))];
+}

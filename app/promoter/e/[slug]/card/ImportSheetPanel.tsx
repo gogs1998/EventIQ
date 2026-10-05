@@ -7,7 +7,6 @@ import {
   importSheet,
   previewSheet,
   setFighterPhoto,
-  uploadPoster,
   type PreviewBout,
 } from "@/app/promoter/sheet-actions";
 import {
@@ -19,8 +18,15 @@ import {
 import { MatchPanel } from "@/app/promoter/e/[slug]/card/MatchPanel";
 import { PosterCrop, cropToJpeg, type PosterCrops } from "@/app/promoter/e/[slug]/card/PosterCrop";
 import { ActionStatus } from "@/components/ActionStatus";
-import { POSTER_PHOTOS_ADDED, SHEET_ADDED, SHEET_IMPORT, addTheseBouts } from "@/lib/copy";
+import {
+  ACTION_ERRORS,
+  POSTER_PHOTOS_ADDED,
+  SHEET_ADDED,
+  SHEET_IMPORT,
+  addTheseBouts,
+} from "@/lib/copy";
 import { cx } from "@/lib/cx";
+import { IMAGE_TYPES } from "@/lib/image-type";
 import { NEW_FIGHTER } from "@/lib/fighter-match";
 import type { Discipline } from "@/lib/types";
 import type { SheetAssumption, SheetProblem } from "@/lib/sheet";
@@ -406,7 +412,7 @@ function PosterDrop({ posters, onAdd }: { posters: Poster[]; onAdd: (posters: Po
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept={IMAGE_TYPES.join(",")}
         multiple
         onChange={(change) => {
           const chosen = [...(change.target.files ?? [])];
@@ -665,9 +671,12 @@ function NameBox({
  * The posters and the crops, after the bouts exist.
  *
  * It has to be after: a crop is a photograph on a fighter, and the fighters are
- * minted by the import. Each poster is stored once however many bouts point at
- * it, and every failure is collected rather than thrown, because by this point
- * the running order is on the card and nothing here is worth losing it over.
+ * minted by the import. The poster itself is never sent: it can carry faces and
+ * sponsors that are on no card, and only the crops are anybody's photograph.
+ * Every failure is collected rather than thrown, because by this point the
+ * running order is on the card and nothing here is worth losing it over. That
+ * includes a throw: a refused request or an image the browser cannot decode
+ * would otherwise skip the message saying the bouts went on.
  */
 async function sendPosters(
   slug: string,
@@ -677,31 +686,40 @@ async function sendPosters(
 ): Promise<{ photos: number; posterError: string | null }> {
   let photos = 0;
   let posterError: string | null = null;
-  const stored = new Set<string>();
+  const decoded = new Map<string, ImageBitmap | null>();
 
-  for (const [at, row] of rows.entries()) {
-    const poster = posters.find((one) => one.id === row.posterId);
-    const bout = landed[at];
-    if (!poster || !bout) continue;
+  try {
+    for (const [at, row] of rows.entries()) {
+      const poster = posters.find((one) => one.id === row.posterId);
+      const bout = landed[at];
+      if (!poster || !bout) continue;
 
-    if (!stored.has(poster.id)) {
-      stored.add(poster.id);
-      const form = new FormData();
-      form.append("poster", poster.file);
-      const kept = await uploadPoster(slug, form);
-      if (!kept.ok) posterError = kept.error;
+      if (!decoded.has(poster.id)) {
+        decoded.set(poster.id, await createImageBitmap(poster.file).catch(() => null));
+      }
+      const bitmap = decoded.get(poster.id);
+
+      for (const corner of ["red", "blue"] as const) {
+        const box = row.crops[corner];
+        if (!box) continue;
+        if (!bitmap) {
+          posterError = ACTION_ERRORS.posterNotStored;
+          continue;
+        }
+        try {
+          const blob = await cropToJpeg(bitmap, box);
+          const form = new FormData();
+          form.append("photo", new File([blob], `${corner}.jpg`, { type: "image/jpeg" }));
+          const put = await setFighterPhoto(slug, corner === "red" ? bout.redId : bout.blueId, form);
+          if (put.ok) photos += 1;
+          else posterError = put.error;
+        } catch {
+          posterError = ACTION_ERRORS.posterNotStored;
+        }
+      }
     }
-
-    for (const corner of ["red", "blue"] as const) {
-      const box = row.crops[corner];
-      if (!box) continue;
-      const blob = await cropToJpeg(poster.file, box);
-      const form = new FormData();
-      form.append("photo", new File([blob], `${corner}.jpg`, { type: "image/jpeg" }));
-      const put = await setFighterPhoto(slug, corner === "red" ? bout.redId : bout.blueId, form);
-      if (put.ok) photos += 1;
-      else posterError = put.error;
-    }
+  } finally {
+    for (const bitmap of decoded.values()) bitmap?.close();
   }
 
   return { photos, posterError };

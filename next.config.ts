@@ -131,6 +131,11 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
+      // Next refuses an action body over 1 MB by default, which sat underneath
+      // the 4 MB the photograph, portrait and poster actions say they allow, so
+      // their own size check and its message were never reached. The margin
+      // over four is the multipart framing around the file.
+      bodySizeLimit: "5mb",
       // Server actions check that the request came from us, and behind
       // Cloudflare the host header is the forwarded one, so the origins it will
       // accept are written out rather than inferred. If a promoter's action
