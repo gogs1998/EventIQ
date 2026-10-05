@@ -18,6 +18,8 @@ EventIQ is **free for promoters**. The competition (myfightcard.com and the like
 - Paste the matchmaking sheet (`lib/sheet.ts`), or drop the posters and crop both corners.
 - Two review-and-fix passes over the whole codebase (38 commits; the findings are in the ledger).
 
+**Sponsor report, 5 October 2026** — a one-page report per sponsor after the show, at `/promoter/e/[slug]/report`, with the real count for each of their placements and the method at the foot. A print stylesheet rather than a PDF library: the browser saves it as a PDF on A4. Owner only, through `loadOwnedCard`. No migration. HANDOVER section 9a.
+
 Six video templates exist in the renderer (`components/sequence/templates.ts`); only `tape` and `faceoff` are published. `walkout`, `social`, `countdown`, `card` and `doors` render from the command line and are not offered to promoters.
 
 ## Next
@@ -27,12 +29,11 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 ### Tier two: the night itself
 
 1. **Live on the night** (L). The MC or promoter enters results from a phone; the programme updates for everyone who has it open; "next up" is visible without a reload. Reliability is the whole job here: it was deferred on purpose and should ship behind a per-event switch, default off, with the programme degrading to the static card if anything is unsure. Do not build round-by-round judging.
-2. **Audience scorecard** (M). Crowd opinion after each bout, never a result, switchable off per event, feeding the sponsor report. HANDOVER section 19 item 9 for the risk, which is load-bearing.
+2. **Audience scorecard** (M). Crowd opinion after each bout, never a result, switchable off per event, feeding the sponsor report (done; scores cast would be one more figure on it). HANDOVER section 19 item 9 for the risk, which is load-bearing.
 3. **Highlights and recap** (M). A results video per bout and a full-card recap the morning after, rendered the same way the tape is. Templates exist; results data does not until item 1.
 
 ### Tier three: money
 
-4. **Sponsor report** (M). A one-page PDF after the show with real counts per placement, ready to send. The counting is done; the shape of the page is the work. Probably what promoters would pay most for even while the product is free.
 5. **Sponsors buy in-app** (L). A sponsor picks a bout, pays by card, uploads an emblem, gets their own link and their own counts. Needs a payment provider decision; Stripe is the obvious one.
 6. **Self-serve signup** (M). Promoter accounts without an operator, with email verification. Today `npm run promoter -- create` is onboarding, which is fine until the day it is not.
 7. **Ticket link** (S), then **tickets** (L). A promoter's ticket link on the programme first; QR ticketing later, which gives the promoter a headcount before doors.

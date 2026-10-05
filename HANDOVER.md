@@ -63,6 +63,8 @@ An independent audit after that found three more, all fixed: **the capture page 
 | `/promoter` | Shows list, or straight to the dashboard if there is one | password |
 | `/promoter/e/[slug]` | Dashboard: chase list, readiness, sponsors, live counts | password |
 | `/promoter/e/[slug]/card` | Card editor: event, bouts, fighters, sponsors | password |
+| `/promoter/e/[slug]/report` | Sponsor reports: one per sponsor on the card. Section 9a | password, owner only |
+| `/promoter/e/[slug]/report/[sponsor]` | One sponsor's report, printed or saved as a PDF to send on | password, owner only |
 | `/promoter/login` | Sign in | public |
 | `/render/[slug]/[bout]` | Capture surface for the mp4 exporter | the render key, or the promoter who owns the show. Section 6c |
 | `/media/[...key]` | Serves R2 objects | public |
@@ -650,6 +652,38 @@ Which is exactly why the endpoint has to be narrow about what it will write. It 
 The cost of that is under-counting, which is the error this product is allowed to make. Safari before 16.4 sent no `Sec-Fetch-*` headers, so those spectators go uncounted rather than miscounted.
 
 None of that changes what is stored. There is still no address, no cookie and nothing identifying a person; `sessionId` is bounded rather than parsed, and the user agent and `Sec-Fetch-*` headers the check reads are read and thrown away.
+
+---
+
+## 9a. The sponsor report
+
+`/promoter/e/[slug]/report` lists every sponsor on a show, and `/promoter/e/[slug]/report/[sponsor]` is one sponsor's page: what each of their placements did, the programme's totals beside them, and how it was counted. The promoter saves it as a PDF from the browser and sends it to that sponsor. It is the "last show" panel (section 10) turned into a document somebody outside the product reads, which is why section 19 called it probably the thing promoters would pay most for.
+
+**One page per sponsor, not one for the show.** The page goes to the sponsor, and each sponsor is owed their own figures and nobody else's. The index is the promoter's; the sponsor never sees it.
+
+**What a placement is measured by is what a spectator can actually do to it.** A sponsor is on a card three ways and they are not alike:
+
+- **The show strip** is a link, so it is taps.
+- **A bout.** The sponsor's mark sits at the top of the bout card, inside the button that opens the tale of the tape, so it is not a link — a link inside a button is not valid markup and would steal the tap that opens the bout. So a bout placement is measured by how often the bout was opened and its video started, and the page says in a sentence why there is no tap figure. Taps are still read for it, so if the mark ever becomes a link the figure will already be right. Making it one is a real improvement and a design change to the bout card, not a report change.
+- **A fighter.** The sponsor is under "Backed by" on the fighter's bout and on their own page, both links, so taps — and how often that page was opened.
+
+**A tap is credited by what its row names, never by inference.** `SponsorLink` already sends the bout number and fighter id with every tap, and `/api/track` already refuses a row naming a sponsor that is not on that show (section 9). So a row with a fighter id is that fighter's placement, a bout number on its own is the bout's, and neither is the strip. A tap whose placement the card no longer has — a sponsor taken off a fighter after the show — happened, so it stays in the sponsor's total and the page says how many of the total came from a placement no longer on the card. It is not moved to another line and not dropped. The same reasoning keeps a sponsor who was tapped and then taken off the card on the index: the promoter may still owe them the page.
+
+**The arithmetic is [lib/sponsor-report.ts](lib/sponsor-report.ts) and touches nothing**, the same split as `lib/promoter.ts`: a card and a list of grouped rows in, a report out. The rows come from one batch in `loadReportCounts` (`lib/db/queries.ts`) — the dashboard's own `analyticsStatements` for the programme's opens and visits, so the two pages cannot disagree about either, plus two statements grouping both counting tables by kind, bout, fighter and sponsor. Both tables, added, for the reason section 9 gives: a row moving from `analytics_events` to `analytics_daily` when the fold runs changes no figure on a report a promoter has already sent. No migration was needed: every column the report groups by was already on both tables, which is what the fold's design note promised.
+
+**Only the owner.** `loadOwnedReport` in [lib/db/sponsor-report.ts](lib/db/sponsor-report.ts) goes through `loadOwnedCard` before a single count is read, and is the only caller of `loadReportCounts`, which takes an event id precisely so it cannot be reached with a slug. A show that is not the promoter's and a show that does not exist answer 404 alike, and a sponsor id from another promoter's book is refused by the pure function as not on the card. `tests/db/sponsor-report.test.ts` holds all three against a real database with two promoters on it.
+
+**The rules it is held to**, all with tests in `lib/copy.test.ts`:
+
+- Every figure is a count or a nought, and a nought is printed as a nought — a figure is a figure. The sentences around them never state one: "No taps through were counted", not "0 taps". The foot of every report says none of it is estimated.
+- It claims nothing about what happened after a tap left the page. A sponsor will ask what the tap did on their own site, and the honest answer is that the programme cannot see it.
+- **"Separate visits", not "spectators".** The dashboard says spectators; a page handed to somebody outside says what the number actually is, which is distinct sessions per day summed across days (section 9), and the method line says that a phone left open past midnight counts on each day.
+- The sponsor's name is set in the app's type beside the emblem, through `SponsorLockup`, as everywhere else.
+- It is the promoter's document: their name heads it, EventIQ is a one-line credit at the foot, and the masthead does not print.
+
+**Why a print stylesheet and not a PDF library.** A PDF built in the Worker means a dependency in the bundle that every request pays to load, a second layout engine to keep in step with the first, and fonts embedded by hand — for a document the browser already makes perfectly from the page. The page prints on its own A4 named page (`@page sponsor-report` in `app/globals.css`, so the table card keeps its A5), black on white, each placement kept whole, with the figures beside the description so a sponsor on the strip, a bout and three fighters still fits one sheet. That was checked by printing every sponsor on the seeded card to PDF. One thing it found: the layout asks for a dark colour scheme and the canvas behind the page margins follows it, so with background graphics switched on every sheet came out in a black frame. Print sets `color-scheme: light` now, which fixes the table card too.
+
+**What it does not do yet.** It has no scorecard figures because there is no scorecard (ROADMAP item 2); when there is one, it is a row kind and a figure here, not a new page. It is a snapshot — the foot says when the figures were read, in London time — and is not emailed anywhere; sending it is the promoter's errand, the same as sending an invite.
 
 ---
 
@@ -1261,7 +1295,7 @@ Deploy is done (section 12) and is no longer on this list.
 
     It is not already here under another name. There is no `votes` or `scores` table. The only spectator write path is [app/api/track/route.ts](app/api/track/route.ts), and its five `kind` values (`programme_open`, `bout_expand`, `tape_play`, `sponsor_tap`, `profile_view`) all record what a spectator did to the page, not an opinion they offered it. The `audiences` array on the pitch page names who benefits; `completeness()` in [lib/tape.ts](lib/tape.ts) measures how much of their profile a fighter has filled in. Neither is a scorecard.
 
-10. **The post-event sponsor report.** The counting is done; what is missing is a one-page thing a promoter can send. Probably the thing promoters would actually pay more for. Item 9 wants to land in this, which is why the two sit together: a report that can quote scores cast is a stronger document than one that can quote taps, and building the report first would mean coming back to it.
+10. ~~**The post-event sponsor report.**~~ Done, before item 9 after all: a page per sponsor at `/promoter/e/[slug]/report/[sponsor]`, saved as a PDF from the browser. Section 9a. Coming back to it for scores cast is one row kind and one figure, which turned out to be a smaller cost than waiting.
 
 11. **The tenancy model, mostly decided.** There is still one promoter account, created by the seed, and no signup. Four things were going to become real problems the moment a second promoter existed; three are now settled and written down where the code is, and this is the design note for the fourth.
 
