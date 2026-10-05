@@ -508,6 +508,8 @@ A promoter can give a show a ticket link from the card editor, and the programme
 
 **Taps on it are counted, as `ticket_tap`, because the tap can be verified on the same terms as a programme open.** It names nothing but the show, so `parseTrackBody` refuses one that names a bout, a fighter or a sponsor; the show has to be published like every other count; and the route then asks whether the show was *offering a link to tap at that moment* — set, well formed and not past its day — through the same `ticketLinkFor` the programme draws it with. A tap on a link the page was not showing did not happen, so it is not written. The dashboard shows the count where the show has a link or anything was counted, and says what it is: taps through to the ticket page, **not tickets sold**. Nothing here can see the other side of that tap, and a number implying a sale would be the invented figure of section 9.
 
+**The demo card has no ticket link, on purpose.** Cage County 12 is invented and so would any ticket page for it be, and a dead link tapped in front of a promoter is worse than no link. The originator's call: in a pitch, paste the promoter's own ticket page into the card editor and let them watch it land on the programme. Do not seed one.
+
 ---
 
 ## 7. Where the content lives
