@@ -34,6 +34,7 @@ import {
 } from "@/lib/renders";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type { ShowListing } from "@/lib/shows";
+import { REPORT_KINDS, type ReportCounts, type ReportRow } from "@/lib/sponsor-report";
 import type {
   AnalyticsKind,
   Billing,
@@ -1194,6 +1195,71 @@ export function analyticsFrom(
   return { totals, taps };
 }
 
+
+// ---------------------------------------------------------- sponsor report
+
+/**
+ * One show's counting, grouped finely enough to credit each tap to the place on
+ * the card it came from.
+ *
+ * The dashboard's aggregations group by kind or by sponsor, which is the right
+ * size for a panel and too coarse for a page about one sponsor: a tap on the
+ * strip and a tap under a fighter's name are the same sponsor and different
+ * placements. So this groups by every column a row carries, over both tables for
+ * the reason `analyticsStatements` gives, and `lib/sponsor-report.ts` does the
+ * crediting. A fifteen-bout card produces a few hundred groups at most.
+ *
+ * The show-wide opens and visits come from `analyticsStatements` itself, in the
+ * same batch, so the report and the dashboard cannot disagree about either.
+ */
+function reportStatements(db: Db, eventId: string) {
+  const live = schema.analyticsEvents;
+  const folded = schema.analyticsDaily;
+  return [
+    db
+      .select({
+        kind: live.kind,
+        boutNumber: live.boutNumber,
+        fighterId: live.fighterId,
+        sponsorId: live.sponsorId,
+        count: sql<number>`count(*)`,
+      })
+      .from(live)
+      .where(and(eq(live.eventId, eventId), inArray(live.kind, [...REPORT_KINDS])))
+      .groupBy(live.kind, live.boutNumber, live.fighterId, live.sponsorId),
+    db
+      .select({
+        kind: folded.kind,
+        boutNumber: folded.boutNumber,
+        fighterId: folded.fighterId,
+        sponsorId: folded.sponsorId,
+        count: sql<number>`sum(${folded.count})`,
+      })
+      .from(folded)
+      .where(and(eq(folded.eventId, eventId), inArray(folded.kind, [...REPORT_KINDS])))
+      .groupBy(folded.kind, folded.boutNumber, folded.fighterId, folded.sponsorId),
+  ] as const;
+}
+
+/**
+ * Everything a sponsor report reads, in one round trip.
+ *
+ * Takes an event id rather than a slug on purpose: the only way to have one is
+ * to have been through a gate first. See `loadOwnedReport` in
+ * lib/db/sponsor-report.ts, which is the only caller.
+ */
+export async function loadReportCounts(db: Db, eventId: string): Promise<ReportCounts> {
+  const [kinds, taps, foldedKinds, foldedTaps, detail, foldedDetail] = await db.batch([
+    ...analyticsStatements(db, eventId),
+    ...reportStatements(db, eventId),
+  ]);
+  const { totals } = analyticsFrom([...kinds, ...foldedKinds], [...taps, ...foldedTaps]);
+  const rows: ReportRow[] = [...detail, ...foldedDetail].map((row) => ({
+    ...row,
+    count: Number(row.count ?? 0),
+  }));
+  return { programme: { opens: totals.programme_open, visits: totals.spectators }, rows };
+}
 
 // ------------------------------------------------- fighters across shows
 
