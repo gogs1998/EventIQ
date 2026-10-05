@@ -52,6 +52,7 @@ import {
   SHOWS,
   SHOWS_LINK,
   SHOWS_META,
+  TICKET_LINK,
   slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
@@ -1662,6 +1663,64 @@ describe("the sheet import copy", () => {
       expect(line).not.toMatch(/organiz|customiz|color|!/i);
       expect(line.trim()).toBe(line);
       expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+});
+
+/**
+ * The ticket link sits on the promoter's programme and beside the promoter's
+ * counts. On the programme it is one fact about the show among several, so it
+ * is plain rather than a sales line; on the dashboard it counts taps, and the
+ * product cannot see a sale, so nothing here may claim one.
+ */
+describe("the ticket link copy", () => {
+  const lines = [
+    TICKET_LINK.label,
+    TICKET_LINK.action,
+    TICKET_LINK.via("skiddle.com"),
+    TICKET_LINK.heading,
+    TICKET_LINK.hint,
+    TICKET_LINK.note,
+    TICKET_LINK.save,
+    TICKET_LINK.saved,
+    TICKET_LINK.cleared,
+    TICKET_LINK.statLabel,
+    TICKET_LINK.statNote,
+    ACTION_ERRORS.ticketLinkNotHttps,
+    ACTION_ERRORS.ticketLinkUnreadable,
+    ACTION_ERRORS.ticketLinkTooLong,
+  ];
+
+  it("is plain rather than a sales line", () => {
+    for (const line of lines) {
+      expect(line).not.toMatch(/!|\b(hurry|selling fast|last chance|don'?t miss|grab|limited)\b/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("never uses a gendered pronoun", () => {
+    for (const line of lines) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+    }
+  });
+
+  it("counts taps on the dashboard and never claims a sale", () => {
+    expect(TICKET_LINK.statLabel).toMatch(/taps/i);
+    expect(TICKET_LINK.statLabel).not.toMatch(/\b(sold|sales?|revenue|bought|conversions?)\b/i);
+    expect(TICKET_LINK.statNote).toMatch(/not tickets sold/);
+  });
+
+  /** Each refusal says what to do next, and none of them calls the promoter wrong. */
+  it("points a refused promoter at the fix", () => {
+    for (const error of [
+      ACTION_ERRORS.ticketLinkNotHttps,
+      ACTION_ERRORS.ticketLinkUnreadable,
+      ACTION_ERRORS.ticketLinkTooLong,
+    ]) {
+      expect(error).toMatch(/copy it from the ticket page|copy the address from the ticket page/i);
+      expect(error).not.toMatch(/\binvalid\b|\bwrong\b|\bincorrect\b/i);
     }
   });
 });

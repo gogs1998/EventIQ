@@ -56,6 +56,17 @@ describe("sportsEventJsonLd", () => {
     expect(written).not.toMatch(/offers|ticket|price|attendance(?!Mode)|performer/i);
   });
 
+  /**
+   * The ticket link is on the page while it is current, so it may be here too —
+   * as an address and nothing more. A price or an availability would be a fact
+   * this product does not have.
+   */
+  it("carries the ticket link as an offer with a url and nothing else", () => {
+    const block = sportsEventJsonLd({ ...SHOW, ticketUrl: "https://tickets.example.com/cc12" });
+    expect(block.offers).toEqual({ "@type": "Offer", url: "https://tickets.example.com/cc12" });
+    expect(JSON.stringify(block)).not.toMatch(/price|availability/i);
+  });
+
   it("serialises without anything that would break out of a script tag", () => {
     const written = JSON.stringify(sportsEventJsonLd({ ...SHOW, name: "A </script> show" }));
     // The page escapes it before writing it out; this pins that the raw form is

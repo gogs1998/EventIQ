@@ -1,0 +1,1 @@
+ALTER TABLE `events` ADD `ticket_url` text;

@@ -35,6 +35,7 @@ import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
 import { hasSlug } from "@/lib/slug";
+import { parseTicketUrl } from "@/lib/ticket-link";
 import { parseWeightKg } from "@/lib/tape";
 
 /**
@@ -214,6 +215,44 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
       revalidatePath(`/promoter/e/${slug}`);
       revalidatePath(`/e/${slug}`);
       return DONE;
+    },
+  );
+}
+
+/**
+ * The show's ticket link, set or taken off.
+ *
+ * Its own action rather than another box on `updateEvent`, because that one
+ * marks every bout's video out of date and a ticket link is in none of them.
+ * The address is checked here and not in the form: this is an endpoint, and
+ * `parseTicketUrl` is the whole of what may be stored. The raw value is read
+ * rather than `text()`'s, which cuts to a length and would turn a long address
+ * into a shorter one the promoter never typed.
+ */
+export async function setTicketLink(
+  slug: string,
+  form: FormData,
+): Promise<ActionResult<{ ticketUrl: string | null }>> {
+  return attempt(
+    { event: "setTicketLink", route: `/promoter/e/${slug}/card` },
+    ACTION_ERRORS.notSaved,
+    async (): Promise<ActionResult<{ ticketUrl: string | null }>> => {
+      const db = await getDb();
+      const owned = await ownedEvent(db, slug);
+      if (!owned.ok) return owned;
+
+      const parsed = parseTicketUrl(form.get("ticketUrl"));
+      if (!parsed.ok) return refuse(parsed.error);
+
+      await db
+        .update(schema.events)
+        .set({ ticketUrl: parsed.url, updatedAt: Date.now() })
+        .where(eq(schema.events.id, owned.card.eventId));
+
+      revalidatePath(`/promoter/e/${slug}`);
+      revalidatePath(`/promoter/e/${slug}/card`);
+      revalidatePath(`/e/${slug}`);
+      return done({ ticketUrl: parsed.url });
     },
   );
 }

@@ -180,6 +180,7 @@ function toEvent(
       instagram: optional(promoter.instagram),
     },
     backdrop: optional(row.backdrop),
+    ticketUrl: optional(row.ticketUrl),
     showSponsorIds,
     bouts,
   };
@@ -630,6 +631,19 @@ export async function eventVisibility(db: Db, slug: string) {
 }
 
 /**
+ * The two facts that decide whether a show is showing a ticket link, for the
+ * counter: a tap on a link the programme was not showing did not happen.
+ */
+export async function eventTicketLink(db: Db, eventId: string) {
+  const [row] = await db
+    .select({ ticketUrl: schema.events.ticketUrl, date: schema.events.date })
+    .from(schema.events)
+    .where(eq(schema.events.id, eventId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * The render keys that could be a credential for these promoters' cards: the
  * unscoped ones, which are the runner's, and the ones scoped to a promoter here.
  *
@@ -1018,6 +1032,7 @@ const EMPTY_TOTALS: AnalyticsTotals = {
   video_share: 0,
   sponsor_tap: 0,
   profile_view: 0,
+  ticket_tap: 0,
   spectators: 0,
 };
 
