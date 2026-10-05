@@ -24,6 +24,7 @@ import {
   newInviteToken,
   openToken,
 } from "@/lib/invite-token";
+import { sqliteLowerForms } from "@/lib/fighter-match";
 import { logWarning } from "@/lib/log";
 import {
   TAPE_TEMPLATE,
@@ -1230,9 +1231,9 @@ export function matchableName(name: string): string {
  * consent wording, and until that says otherwise the answer is no.
  *
  * Case-insensitive, because a promoter working off a matchmaking sheet is not
- * typing the capitals the fighter used. The comparison is `lower(name)` against
- * an already-lowered argument, which is the expression `fighters_name_lower` is
- * built on.
+ * typing the capitals the fighter used. The comparison is `lower(name)`, the
+ * expression `fighters_name_lower` is built on, against `sqliteLowerForms` of
+ * the input, because SQLite's `lower()` leaves every non-ASCII capital alone.
  *
  * It reads through the running order rather than straight off `fighters`, so a
  * row belonging to somebody else's card is never a candidate, and a row orphaned
@@ -1271,30 +1272,43 @@ export async function fightersNamedAny(
   const found = new Map<string, FighterMatch[]>();
   if (!wanted.length) return found;
 
-  const rows = await db
-    .select({
-      id: schema.fighters.id,
-      name: schema.fighters.name,
-      gym: schema.fighters.gym,
-      recordW: schema.fighters.recordW,
-      recordL: schema.fighters.recordL,
-      recordD: schema.fighters.recordD,
-      eventName: schema.events.name,
-      date: schema.events.date,
-    })
-    .from(schema.fighters)
-    .innerJoin(
-      schema.bouts,
-      or(eq(schema.bouts.redId, schema.fighters.id), eq(schema.bouts.blueId, schema.fighters.id)),
-    )
-    .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
-    .where(
-      and(
-        eq(schema.events.promoterId, promoterId),
-        inArray(sql`lower(${schema.fighters.name})`, wanted),
-      ),
-    )
-    .orderBy(desc(schema.events.date));
+  // Chunked under D1's hundred-parameter ceiling: a sheet of thirty names is
+  // thirty forms, but a sheet of Polish names can be three times that.
+  const forms = [...new Set(wanted.flatMap(sqliteLowerForms))];
+  const chunks: string[][] = [];
+  for (let at = 0; at < forms.length; at += 90) chunks.push(forms.slice(at, at + 90));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      db
+        .select({
+          id: schema.fighters.id,
+          name: schema.fighters.name,
+          gym: schema.fighters.gym,
+          recordW: schema.fighters.recordW,
+          recordL: schema.fighters.recordL,
+          recordD: schema.fighters.recordD,
+          eventName: schema.events.name,
+          date: schema.events.date,
+        })
+        .from(schema.fighters)
+        .innerJoin(
+          schema.bouts,
+          or(
+            eq(schema.bouts.redId, schema.fighters.id),
+            eq(schema.bouts.blueId, schema.fighters.id),
+          ),
+        )
+        .innerJoin(schema.events, eq(schema.events.id, schema.bouts.eventId))
+        .where(
+          and(
+            eq(schema.events.promoterId, promoterId),
+            inArray(sql`lower(${schema.fighters.name})`, chunk),
+          ),
+        ),
+    ),
+  );
+  const asked = new Set(wanted);
+  const rows = pages.flat().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   // Folded here rather than grouped in SQL. A fighter on three of the promoter's
   // shows is three rows, the first of which is the latest; picking the event
@@ -1305,6 +1319,7 @@ export async function fightersNamedAny(
     if (seen.has(row.id)) continue;
     seen.add(row.id);
     const key = matchableName(row.name).toLowerCase();
+    if (!asked.has(key)) continue;
     const matches = found.get(key) ?? [];
     matches.push({
       id: row.id,
@@ -1379,7 +1394,7 @@ export async function nameOnAnotherPromotion(
     .where(
       and(
         ne(schema.events.promoterId, promoterId),
-        sql`lower(${schema.fighters.name}) = ${wanted}`,
+        inArray(sql`lower(${schema.fighters.name})`, sqliteLowerForms(wanted)),
       ),
     )
     .limit(1);

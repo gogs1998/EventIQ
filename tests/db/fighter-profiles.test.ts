@@ -134,6 +134,33 @@ describe("fightersNamed", () => {
     const { db } = await twoPromotions();
     expect(await fightersNamed(db, "   ", "pr_cage")).toEqual([]);
   });
+
+  /**
+   * SQLite's lower() folds A–Z and nothing else, so a comparison against a
+   * lowered argument missed every name with an accented or Polish capital and
+   * the sheet import minted that fighter a second time without asking.
+   */
+  it("matches a name with a capital outside A to Z", async () => {
+    const { db, past } = await twoPromotions();
+    await plantFighter(db, { id: "orla-byrne", name: "Órla Byrne", gym: "Docklands" });
+    await plantFighter(db, { id: "lukasz-nowak", name: "ŁUKASZ NOWAK", gym: "Wisła" });
+    await plantBout(db, {
+      eventId: past.eventId,
+      number: 3,
+      redId: "orla-byrne",
+      blueId: "lukasz-nowak",
+    });
+
+    for (const typed of ["Órla Byrne", "órla byrne", "ÓRLA BYRNE"]) {
+      expect((await fightersNamed(db, typed, "pr_cage")).map((one) => one.id)).toEqual([
+        "orla-byrne",
+      ]);
+    }
+    expect((await fightersNamed(db, "Łukasz Nowak", "pr_cage")).map((one) => one.id)).toEqual([
+      "lukasz-nowak",
+    ]);
+    expect(await nameOnAnotherPromotion(db, "órla byrne", "pr_budo")).toBe(true);
+  });
 });
 
 describe("nameOnAnotherPromotion", () => {

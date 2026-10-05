@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FighterMatch } from "@/lib/db/queries";
-import { bothCornersAreOnePerson, NEW_FIGHTER, resolveCorner } from "@/lib/fighter-match";
+import {
+  bothCornersAreOnePerson,
+  NEW_FIGHTER,
+  resolveCorner,
+  sqliteLowerForms,
+} from "@/lib/fighter-match";
 
 /**
  * The decision that says whether a name a promoter typed is somebody already
@@ -99,4 +104,20 @@ describe("bothCornersAreOnePerson", () => {
   it("says nothing about two fresh rows, which are two different people", () => {
     expect(bothCornersAreOnePerson({ kind: "mint" }, { kind: "mint" })).toBe(false);
   });
+});
+
+describe("sqliteLowerForms", () => {
+  // What SQLite's lower() does: A–Z only.
+  const sqliteLower = (value: string) => value.replace(/[A-Z]/g, (c) => c.toLowerCase());
+
+  it("is one form for a name in plain ASCII", () => {
+    expect(sqliteLowerForms("declan lowe")).toEqual(["declan lowe"]);
+  });
+
+  it.each(["Łukasz Nowak", "Órla Byrne", "ÓRLA BYRNE", "órla byrne", "Seán Ó Briain", "Zoë-Ann Kelly"])(
+    "finds %s however it was stored",
+    (stored) => {
+      expect(sqliteLowerForms(stored.toLowerCase())).toContain(sqliteLower(stored));
+    },
+  );
 });
