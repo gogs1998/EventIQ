@@ -103,6 +103,6 @@ export function templateOf(id: string | undefined): Template | undefined {
  *   offered beside the promo — is the whole of its work: a slot in RENDER_SLOTS,
  *   a name on the dashboard, a page that offers it.
  * - **`countdown`, `card` and `doors`** are about a show rather than a bout, and
- *   live in show-templates.ts. They need a show-level job row before any of them
- *   can be queued.
+ *   live in show-templates.ts. The plan for queueing those is written in
+ *   handover section 19, because it is a second table rather than a column.
  */

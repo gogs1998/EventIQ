@@ -41,7 +41,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 
 8. **Real sending** (M). WhatsApp Business API instead of deep links, with scheduled reminders to fighters who have not opened. Needs a Meta business account.
 9. **Push through the PWA** (M). "Your fighter is up in two bouts." No app store.
-10. **More published templates** (S each). `walkout` is published (branch `claude/walkout-template`, migration `0017`): a `corner` on `render_jobs`, one video per fighter, offered on their own page and sent by "Send their video"; HANDOVER section 11. `social` needs no schema, only somewhere on the site to play it. `countdown` and `doors` still need a show-level job row.
+10. **More published templates** (S each). `walkout` is published (branch `claude/walkout-template`, migration `0017`): a `corner` on `render_jobs`, one video per fighter, offered on their own page and sent by "Send their video"; HANDOVER section 11. `social` needs no schema, only somewhere on the site to play it. `countdown` and `doors` (and `card`) need a show-level job table rather than a row, and that plan is HANDOVER section 19 item 19 (M rather than S, mostly the renderer refactor it starts with).
 11. **A promoter's own domain** (M). Their programme on their name; EventIQ discreet, which is already the rule in `lib/masthead.ts`.
 
 ### Known debts, from the reviews
