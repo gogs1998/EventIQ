@@ -68,13 +68,14 @@ describe("referencedKeys", () => {
 });
 
 describe("underManagedPrefix", () => {
-  it("covers the five prefixes this app writes", () => {
+  it("covers the prefixes this app writes, and the posters it once kept", () => {
     for (const key of [
       "fighters/a.jpg",
       "cutouts/a.webp",
       "portraits/a.png",
       "sponsors/p/a.png",
       "renders/s/1.mp4",
+      "posters/e/a.jpg",
     ]) {
       expect(underManagedPrefix(key), key).toBe(true);
     }

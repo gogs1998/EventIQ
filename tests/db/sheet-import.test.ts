@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
-import { importSheet, previewSheet, setFighterPhoto, uploadPoster } from "@/app/promoter/sheet-actions";
+import { importSheet, previewSheet, setFighterPhoto } from "@/app/promoter/sheet-actions";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { NEW_FIGHTER } from "@/lib/fighter-match";
 import { plantBout, plantFighter, plantPromoters, plantShow, type PlantedShow } from "./fixtures";
@@ -98,7 +98,6 @@ describe("the ownership boundary", () => {
       name: "setFighterPhoto",
       run: (show: PlantedShow) => setFighterPhoto(show.slug, show.fighterIds[0], jpegForm("photo")),
     },
-    { name: "uploadPoster", run: (show: PlantedShow) => uploadPoster(show.slug, jpegForm("poster")) },
   ];
 
   describe.each(cases)("$name", ({ run }) => {
@@ -645,17 +644,5 @@ describe("a photograph off a poster", () => {
       ok: false,
       error: ACTION_ERRORS.notOnThisCard,
     });
-  });
-
-  it("keeps the poster under the show it was pasted onto", async () => {
-    const { show } = await twoPromoters(1);
-    await signInAs("pr_cage");
-
-    const result = await uploadPoster(show.slug, jpegForm("poster"));
-
-    expect(result).toMatchObject({ ok: true });
-    if (!result.ok) return;
-    expect(result.path.startsWith(`/media/posters/${show.eventId}/`)).toBe(true);
-    expect(await platform().media.get(result.path.slice("/media/".length))).not.toBeNull();
   });
 });

@@ -76,7 +76,16 @@ const LOCAL_R2_STATE = path.join(".wrangler", "state", "v3", "r2", "miniflare-R2
  * knows — a backup, an export, something a person uploaded by hand — and a
  * sweep that took it would be the accident this script is meant to prevent.
  */
-export const MANAGED_PREFIXES = ["fighters/", "cutouts/", "portraits/", "sponsors/", "renders/"];
+// `posters/` is written by nothing any more. It is here so the posters an
+// earlier import kept, which no row ever pointed at, are swept rather than kept.
+export const MANAGED_PREFIXES = [
+  "fighters/",
+  "cutouts/",
+  "portraits/",
+  "sponsors/",
+  "renders/",
+  "posters/",
+];
 
 /**
  * How long an object is left alone whatever the rows say.

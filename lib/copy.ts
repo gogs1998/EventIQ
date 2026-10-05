@@ -836,8 +836,8 @@ export const ACTION_ERRORS = {
     "One fighter is confirmed on two bouts of this sheet. Check the corners and read it again.",
   /** A photograph the promoter cropped off a poster, on a fighter now on the card. */
   posterNotStored:
-    "That poster would not upload. The bouts are on the card — the photographs can be added " +
-    "to each fighter later, or left to the fighter to send.",
+    "A photograph could not be taken off that poster. The bouts are on the card — the " +
+    "photographs can be added to each fighter later, or left to the fighter to send.",
   posterNotAPhotograph: "That poster is not a JPEG, PNG or WebP image.",
   posterTooLarge: "That poster is too large to send. A photograph off a phone is about right.",
   /**

@@ -7,7 +7,6 @@ import {
   importSheet,
   previewSheet,
   setFighterPhoto,
-  uploadPoster,
   type PreviewBout,
 } from "@/app/promoter/sheet-actions";
 import {
@@ -672,11 +671,12 @@ function NameBox({
  * The posters and the crops, after the bouts exist.
  *
  * It has to be after: a crop is a photograph on a fighter, and the fighters are
- * minted by the import. Each poster is stored once however many bouts point at
- * it, and every failure is collected rather than thrown, because by this point
- * the running order is on the card and nothing here is worth losing it over.
- * That includes a throw: a refused request or an image the browser cannot
- * decode would otherwise skip the message saying the bouts went on.
+ * minted by the import. The poster itself is never sent: it can carry faces and
+ * sponsors that are on no card, and only the crops are anybody's photograph.
+ * Every failure is collected rather than thrown, because by this point the
+ * running order is on the card and nothing here is worth losing it over. That
+ * includes a throw: a refused request or an image the browser cannot decode
+ * would otherwise skip the message saying the bouts went on.
  */
 async function sendPosters(
   slug: string,
@@ -686,7 +686,6 @@ async function sendPosters(
 ): Promise<{ photos: number; posterError: string | null }> {
   let photos = 0;
   let posterError: string | null = null;
-  const stored = new Set<string>();
   const decoded = new Map<string, ImageBitmap | null>();
 
   try {
@@ -694,18 +693,6 @@ async function sendPosters(
       const poster = posters.find((one) => one.id === row.posterId);
       const bout = landed[at];
       if (!poster || !bout) continue;
-
-      if (!stored.has(poster.id)) {
-        stored.add(poster.id);
-        try {
-          const form = new FormData();
-          form.append("poster", poster.file);
-          const kept = await uploadPoster(slug, form);
-          if (!kept.ok) posterError = kept.error;
-        } catch {
-          posterError = ACTION_ERRORS.posterNotStored;
-        }
-      }
 
       if (!decoded.has(poster.id)) {
         decoded.set(poster.id, await createImageBitmap(poster.file).catch(() => null));
