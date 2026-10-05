@@ -836,6 +836,13 @@ async function renderBout(bout, templateId, cornerId) {
     // reads as a slow render rather than as a failure that has already happened.
     ffmpeg.stdin.destroy();
     ffmpeg.kill();
+    // Killing it makes `done` reject with "ffmpeg exited null", and nothing is
+    // going to await it now. Unhandled, that rejection ended the whole process:
+    // the rest of the card was never rendered, and under --publish the job just
+    // claimed was left reading "running" until its lease ran out, because the
+    // run died before it could record the failure. The capture's own error is
+    // the one worth reporting, and it is the one thrown.
+    done.catch(() => {});
     throw error;
   }
 

@@ -1098,6 +1098,10 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 
     Three lessons, and the third is the one to carry: a credential narrowed by a boundary that is not the one the risk lives on breaks the honest callers and protects nobody; **a check that cannot distinguish success from failure is not a check** — `complete` was the readiness test and it was true either way; and an empty `catch` on the one operation that knows an image is bad is how a pipeline reports success for sixteen seconds of nothing.
 
+### From publishing the walkout
+
+47. **One capture that failed ended the whole render run.** When Chrome would not open or a page would not load, `renderBout` killed the ffmpeg it had already started and rethrew — and killing ffmpeg rejects the promise waiting on it with "ffmpeg exited null", which nothing was awaiting any more. Node ends the process on an unhandled rejection. So the loop's own promise, that one bad video does not stop the others, held only for failures that came after ffmpeg finished: the first broken capture on a card took the rest of the card with it, and under `--publish` it took the failure record too, because the process died before `finishJob` could write it. The job it had just claimed sat reading "running" until its fifteen-minute lease ran out, which is the state the dashboard reports as a machine working on it. Found on the first local walkout render, with `CHROME_PATH` unset: the red corner crashed the run, and the next run reported it as "left to another runner". The rejection is now consumed where the capture's own error is rethrown, so the capture's error is the one reported, the job is marked failed, and the run goes on to the next bout and exits 1. **A promise nobody will await is still a promise that can end the process**; the one that is abandoned on purpose needs to be told so.
+
 ---
 
 ## 15. Environment notes
