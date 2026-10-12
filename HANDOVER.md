@@ -1185,32 +1185,38 @@ npm run e2e -- --base https://eventiq.win --password '...'
 
 ## 17. The sales recording
 
-Promoter pitches happen over WhatsApp more than in person, so a recording of the flow is a deliverable in its own right. Current cut: **65 seconds, 454x984, 2.5MB**, committed at `public/demo/eventiq-demo.mp4` and playing on the pitch page.
+Promoter pitches happen over WhatsApp and Instagram more than in person, so a recording of the product is a deliverable in its own right. Since 12 October 2026 there are two cuts, both made by [scripts/demo.mjs](scripts/demo.mjs) from the staging demo card:
 
-Produced by [scripts/tour.mjs](scripts/tour.mjs) — a scripted walkthrough, not a human clicking around:
+| Cut | Where it lives | Shape |
+| --- | --- | --- |
+| The walkthrough | `public/demo/eventiq-demo.mp4`, playing on the pitch page | 89 seconds, 1080x1920, 30fps, ~20MB. A title card, three chapters (the room, the fighters, the promoter), eleven beats each with a headline, one plain sentence and a ring on the thing being explained, and an end card. Captions as an `.srt` beside it |
+| The Instagram promo | Not committed; produced into whatever `--dest` says | 37 seconds at 1080x1920 for Reels, the same cut at 1080x1350 for the feed, and a 1080x1080 cover. Cut on a 120bpm grid (a beat is fifteen frames) so a track can be laid under it in the app. A silent AAC track, because Instagram refuses a video with no audio stream. Text kept out of the top 236px and the bottom 390px, where Instagram draws its own furniture |
 
 ```bash
-DISPLAY=:1 node scripts/tour.mjs setup     # chrome-less phone-shaped window
-# start screen recording here
-DISPLAY=:1 node scripts/tour.mjs tour      # ~72s
-# stop recording here
-DISPLAY=:1 node scripts/tour.mjs teardown
+node scripts/demo.mjs capture --base <staging> --password-file <file> --out .stills/demo
+node scripts/demo.mjs promo --out .stills/demo --dest <dir>          # reel, feed cut, cover
+node scripts/demo.mjs walkthrough --out .stills/demo --dest <dir>    # the pitch page's cut, poster, captions
+node scripts/demo.mjs promo --out .stills/demo --stills 120,640       # single frames to look at first
 ```
 
-Chrome runs in `--app` mode, which removes the tab strip and address bar — the difference between looking like a product and looking like somebody's localhost.
+**It is not a screen recording.** Capture signs in as the promoter on a 430x932 phone viewport at 2x and keeps each page as a still, tall pages as one strip to pan down, together with the real bounding box of everything a callout points at. Compose then draws every output frame in [scripts/demo-stage.html](scripts/demo-stage.html), a page whose picture is a pure function of the frame number — the rule `TaleOfTheTape.tsx` lives by, for the same reason — and screenshots it into ffmpeg. Scrolling, zooms, slides and fades are interpolated in JS. A slow machine makes a slow render, never a juddering video, and the whole thing is repeatable to the frame.
 
-**Hard-won details, all of which cost a re-record:**
+**The bout videos are cut in from their files**, not recorded playing. Capture downloads the mp4s the programme serves and compose shows their frames as images. Headless Chrome plays `<video>` unreliably, and a recording of a player shows the player's controls and buffering. Staging has the tale of the tape for five bouts and no face-off promo for any, so neither cut shows a promo yet; once staging has one, add it to the clip lists at the foot of `demo.mjs`.
 
-- Crop the capture to the window afterwards. Last run: `crop=454:985:719:106`. Re-measure with `xdotool getwindowgeometry`.
-- The VM desktop is XFCE. **Plank (the dock) respawns when killed**, so crop it out rather than fighting it.
-- Minimise any other Chrome window first, or it appears behind.
-- **Park the mouse pointer off screen before playing the video.** In the first attempt the cursor sat over the fighters' faces for sixteen seconds.
-- Click **in-page** (`el.click()` via `page.evaluate`) rather than through puppeteer, which scrolls the element and ruins the framing.
-- Reset the window to a neutral page before recording, or the previous run's final state appears in the opening seconds.
+Capture writes nothing to the card. The sheet is pasted and read for its preview, then cleared with "Paste a different sheet"; nothing presses Add. The password is read from the file and typed into the field, and the sign-in frame shows a fixed twelve dots rather than one per character of the real one.
 
-**Verify recordings by watching them.** A browser-driving agent reported the first take as flawless; review found the embedded video skipped after four seconds, developer tools were visible in the opening frame, and the cursor sat over the picture throughout.
+**Hard-won details:**
 
-The recording predates the rewrite and still shows the demo. **It needs re-recording**, because the flow it shows no longer includes the parts that are now the strongest thing to show: a fighter's entry appearing on the card, and the counts going up.
+- Wait for every image to `decode()` and then two animation frames before each screenshot (bug 31's lesson again). Without it a strip pans down into blank placeholders, and a reused `<img>` shows the previous frame.
+- Elements on the stage are reused between frames by key, so a 860x8000 strip is decoded once. The cost is that anything laid out from a measurement must measure only what it means to: the headline's corner bar once measured the sentence under it, which was still in the box from the frame before, and sat underneath it.
+- Later DOM paints over earlier, whatever was meant. A ring created in one scene and reused in the next ended up under the next scene's screenshot. Rings and labels carry an explicit `z-index`.
+- A punch-in zoom has to grow away from the headline. The first take scaled around the target and pushed the top of the phone up over the sentence it was meant to sit under; zooms now hold the top edge still.
+- Grain is four seeded noise tiles cycled, not random per frame, so frame *n* is the same every time.
+- The table card has no box of its own to find; the QR is the largest square image on the page.
+
+**Verify by looking.** `--stills` renders single frames without encoding, and every cut so far needed two or three rounds of it: a clip that ran out a second early showed as black, a ring was hidden, a sentence sat under the phone. Afterwards pull stills off the encoded file with `ffmpeg -ss <t> -i <mp4> -frames:v 1`, because the encode is what people see.
+
+The old method, [scripts/tour.mjs](scripts/tour.mjs), drove a visible `--app` window on an X desktop and screen-recorded it. It is kept for a live demo on a laptop; its notes (crop to the window, park the pointer, click in-page) are in that file's header and in this section's history.
 
 ---
 

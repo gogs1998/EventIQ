@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Demo stage</title>
+<!-- The product's own faces: Anton for headlines, Oswald under them. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600&family=Roboto+Mono:wght@500&display=block" rel="stylesheet">
+<style>
+  :root {
+    --ink: #07080a; --ink-2: #0d0f13; --panel: #12151b; --chalk: #f4f5f7; --ash: #9aa1ad;
+    --red: #e8121f; --red-hot: #ff3341; --blue: #1668f0; --blue-hot: #3a8dff; --gold: #f0c04a;
+  }
+  html, body { margin: 0; background: var(--ink); overflow: hidden; }
+  #stage { position: relative; overflow: hidden; background: var(--ink); }
+  #stage * { box-sizing: border-box; }
+  .abs { position: absolute; }
+  .display { font-family: Anton, "Arial Narrow", sans-serif; font-weight: 400; text-transform: uppercase; }
+  .sans { font-family: Oswald, "Helvetica Neue", sans-serif; }
+  .mono { font-family: "Roboto Mono", monospace; text-transform: uppercase; letter-spacing: 0.22em; }
+  img { display: block; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+/*
+ * Every frame of the promo and the walkthrough is drawn here from its number
+ * alone. Nothing animates by itself: no CSS transitions, no timers, no video
+ * elements. scripts/demo.mjs asks for frame n, waits for every image to decode,
+ * and screenshots it. HANDOVER section 17.
+ */
+const params = new URLSearchParams(location.search);
+const W = Number(params.get("w") ?? 1080);
+const H = Number(params.get("h") ?? 1920);
+const ROOT = params.get("root");
+const CUT = params.get("cut") ?? "promo";
+const TALL = H >= 1900;
+const SQUARE = H === W;
+const stageEl = document.getElementById("stage");
+stageEl.style.width = `${W}px`;
+stageEl.style.height = `${H}px`;
+
+/* Instagram draws its own furniture over the top 220px and the bottom 380px of
+   a reel, so nothing that has to be read goes there. The 4:5 feed cut has no
+   such overlay and keeps a plain margin. */
+let SAFE = TALL ? { top: 236, bottom: H - 390 } : { top: 56, bottom: H - 56 };
+
+/* ---------------------------------------------------------------- easing */
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, from, len) => clamp((t - from) / len);
+const outCubic = (t) => 1 - Math.pow(1 - t, 3);
+const inOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const outExpo = (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
+const outBack = (t) => { const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+
+/* ----------------------------------------------------- keyed DOM reuse */
+// Elements persist between frames by key, so a 860x8000 strip is decoded once
+// rather than once a frame. Anything not drawn this frame is removed.
+let live = new Map();
+let touched = new Set();
+function node(key, tag, parent, html) {
+  let el = live.get(key);
+  if (!el) {
+    el = document.createElement(tag);
+    el.dataset.key = key;
+    live.set(key, el);
+  }
+  if (el.parentElement !== parent) parent.appendChild(el);
+  if (html !== undefined && el.__html !== html) { el.innerHTML = html; el.__html = html; }
+  touched.add(key);
+  return el;
+}
+function style(el, css) {
+  if (el.__css !== css) { el.style.cssText = css; el.__css = css; }
+  return el;
+}
+function img(key, parent, src, css) {
+  const el = node(key, "img", parent);
+  if (el.getAttribute("src") !== src) el.setAttribute("src", src);
+  return style(el, css);
+}
+
+/* --------------------------------------------------------------- assets */
+let M = null;
+const cap = (name) => `${ROOT}/cap/${M.shots[name].file}`;
+const shot = (name) => M.shots[name];
+const frame = (clip, i) => `${ROOT}/frames/${clip}/${String(i + 1).padStart(4, "0")}.jpg`;
+
+// Film grain: four fixed noise tiles, cycled. Seeded, so frame n is the same
+// every time it is drawn.
+const GRAIN = [];
+function makeGrain() {
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 4; k++) {
+    const c = document.createElement("canvas");
+    c.width = 360; c.height = 640;
+    const g = c.getContext("2d");
+    const d = g.createImageData(c.width, c.height);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = Math.floor(rand() * 255);
+      d.data[i] = d.data[i + 1] = d.data[i + 2] = v;
+      d.data[i + 3] = 255;
+    }
+    g.putImageData(d, 0, 0);
+    GRAIN.push(c.toDataURL("image/png"));
+  }
+}
+
+/* ------------------------------------------------------------- pieces */
+function background(f, { glow = 1 } = {}) {
+  const drift = Math.sin(f / 70) * 40;
+  const bg = node("bg", "div", stageEl);
+  style(bg, `position:absolute;inset:0;background:
+    radial-gradient(900px 900px at ${-120 + drift}px ${H * 0.18}px, rgba(232,18,31,${0.22 * glow}), transparent 70%),
+    radial-gradient(1000px 1000px at ${W + 140 - drift}px ${H * 0.86}px, rgba(22,104,240,${0.24 * glow}), transparent 70%),
+    linear-gradient(180deg, #0b0c10 0%, #07080a 60%);`);
+}
+
+function grain(f, opacity = 0.07) {
+  img("grain", stageEl, GRAIN[f % 4], `position:absolute;inset:0;width:${W}px;height:${H}px;opacity:${opacity};mix-blend-mode:overlay;image-rendering:pixelated;pointer-events:none;z-index:50;`);
+}
+
+function flash(t, { len = 5, color = "255,255,255", peak = 0.85 } = {}) {
+  if (t < 0 || t >= len) return;
+  const el = node("flash", "div", stageEl);
+  style(el, `position:absolute;inset:0;background:rgba(${color},${peak * (1 - t / len)});z-index:40;`);
+}
+
+/** The red and blue corners as a single bar, the same split as the icon. */
+function cornerBar(key, parent, { x, y, w, t }) {
+  const p = outExpo(prog(t, 0, 10));
+  const el = node(key, "div", parent, `<div style="flex:1;background:var(--red)"></div><div style="flex:1;background:var(--blue)"></div>`);
+  style(el, `position:absolute;left:${x - (w * p) / 2}px;top:${y}px;width:${w * p}px;height:8px;display:flex;`);
+}
+
+/**
+ * A headline and the line under it. Returns the bottom edge so whatever it
+ * explains can sit beneath it rather than under it.
+ */
+function headline(key, t, { head, sub, top = SAFE.top, size = TALL ? 112 : 92, slam = true, align = "center", width = W - 100 }) {
+  const box = node(`${key}-box`, "div", stageEl);
+  style(box, `position:absolute;left:${(W - width) / 2}px;top:${top}px;width:${width}px;z-index:20;text-align:${align};`);
+  const lines = head.split("|");
+  let linesHeight = 0;
+  lines.forEach((line, i) => {
+    const p = prog(t, i * 3, 7);
+    const s = slam ? lerp(1.35, 1, outCubic(p)) : 1;
+    const y = slam ? 0 : lerp(30, 0, outCubic(p));
+    const el = node(`${key}-h${i}`, "div", box, line.replace(/\*(.+?)\*/g, '<span style="color:var(--gold)">$1</span>'));
+    style(el, `position:relative;z-index:${lines.length - i};font-family:Anton,sans-serif;text-transform:uppercase;color:var(--chalk);font-size:${size}px;line-height:0.98;letter-spacing:0.005em;opacity:${p};transform:translateY(${y}px) scale(${s});transform-origin:50% 60%;text-shadow:0 6px 30px rgba(0,0,0,0.6);`);
+    linesHeight += el.offsetHeight;
+  });
+  // Measured off the lines alone: the line under them is reused from the frame
+  // before and would otherwise be counted into its own position.
+  const barY = linesHeight + 22;
+  cornerBar(`${key}-bar`, box, { x: width / 2, y: barY, w: 150, t: t - 4 });
+  if (sub) {
+    const p = outCubic(prog(t, 8, 9));
+    const el = node(`${key}-sub`, "div", box, sub);
+    style(el, `position:relative;margin:56px auto 0;max-width:${width}px;font-family:Oswald,sans-serif;font-weight:500;font-size:${TALL ? 40 : 34}px;line-height:1.25;color:#d5d9e0;opacity:${p};transform:translateY(${lerp(18, 0, p)}px);`);
+  }
+  return top + box.offsetHeight;
+}
+
+/**
+ * The phone. `scroll` is in CSS pixels of the captured page; `zoom` punches in
+ * around a point given in CSS pixels of the page as well; `rings` point at
+ * boxes measured off the live page at capture time.
+ */
+const PHONE_W = 430;
+const PHONE_H = 932;
+function device(key, f, o) {
+  const s = o.s;
+  const bezel = Math.round(11 * s / 1.6);
+  const sw = PHONE_W * s;
+  const sh = PHONE_H * s;
+  const left = (W - sw) / 2 - bezel + (o.slideX ?? 0);
+  const wrap = node(`${key}-wrap`, "div", stageEl);
+  const zoom = o.zoom ?? 1;
+  const fx = o.focus ? bezel + o.focus.x * s : sw / 2;
+  const fy = o.focus ? bezel + (o.focus.y - o.scroll) * s : sh / 3;
+  style(wrap, `position:absolute;left:${left}px;top:${o.top + (o.slideY ?? 0)}px;width:${sw + bezel * 2}px;height:${sh + bezel * 2}px;
+    transform:scale(${zoom}) rotate(${o.rotate ?? 0}deg);transform-origin:${fx}px ${o.zoomFromTop === false ? fy : 0}px;opacity:${o.opacity ?? 1};z-index:10;`);
+  const shell = node(`${key}-shell`, "div", wrap);
+  style(shell, `position:absolute;inset:0;border-radius:${62 * s / 1.6}px;background:linear-gradient(145deg,#2a2e37,#121419 45%,#1d2027);
+    box-shadow:0 0 0 2px rgba(255,255,255,0.08) inset, 0 40px 120px rgba(0,0,0,0.75), 0 0 0 1px #000;`);
+  const screen = node(`${key}-screen`, "div", wrap);
+  style(screen, `position:absolute;left:${bezel}px;top:${bezel}px;width:${sw}px;height:${sh}px;border-radius:${50 * s / 1.6}px;overflow:hidden;background:var(--ink);`);
+  for (const layer of o.layers ?? [{ strip: o.strip, scroll: o.scroll, opacity: 1 }]) {
+    const st = shot(layer.strip);
+    img(`${key}-img-${layer.strip}`, screen, cap(layer.strip),
+      `position:absolute;z-index:0;left:0;top:0;width:${sw}px;height:${st.height * s}px;transform:translateY(${-layer.scroll * s}px);opacity:${layer.opacity};`);
+  }
+  for (const [i, ring] of (o.rings ?? []).entries()) {
+    if (!ring.box) continue;
+    const p = outBack(prog(ring.t, 0, 9));
+    const fade = prog(ring.t, 0, 4);
+    if (fade <= 0) continue;
+    const pad = 7;
+    const x = ring.box.x * s - pad;
+    const y = (ring.box.y - o.scroll) * s - pad;
+    const w = ring.box.w * s + pad * 2;
+    const h = ring.box.h * s + pad * 2;
+    const r = node(`${key}-ring${i}`, "div", screen);
+    style(r, `position:absolute;z-index:2;left:${x}px;top:${y}px;width:${w}px;height:${h}px;border:5px solid var(--gold);border-radius:12px;
+      box-shadow:0 0 0 4000px rgba(7,8,10,${0.45 * fade}), 0 0 34px rgba(240,192,74,0.75), inset 0 0 18px rgba(240,192,74,0.35);
+      opacity:${fade};transform:scale(${lerp(1.18, 1, p)});transform-origin:50% 50%;`);
+    if (ring.label) {
+      const lp = outCubic(prog(ring.t, 5, 8));
+      const above = ring.labelAt === "above";
+      const right = ring.labelAt === "right";
+      const lx = right ? x + w + 16 : clamp(x, 14, sw - 14 - ring.labelWidth);
+      const ly = right ? y + h / 2 - 27 : above ? y - 62 : y + h + 14;
+      const l = node(`${key}-ringlabel${i}`, "div", screen, ring.label);
+      style(l, `position:absolute;z-index:3;left:${lx}px;top:${ly}px;
+        background:var(--gold);color:var(--ink);font-family:Oswald,sans-serif;font-weight:600;font-size:${TALL ? 30 : 26}px;line-height:1;padding:12px 18px;border-radius:6px;
+        letter-spacing:0.02em;text-transform:uppercase;white-space:nowrap;opacity:${lp};transform:translateY(${lerp(above ? 10 : -10, 0, lp)}px);`);
+    }
+  }
+}
+
+/** A bout video, cut from its own frames, in a frame of its own. */
+function videoCard(key, clip, i, { x, y, w, rotate = 0, opacity = 1, radius = 28, border = "rgba(255,255,255,0.12)", objY = 50, h }) {
+  const hh = h ?? (w * 16) / 9;
+  const box = node(`${key}-box`, "div", stageEl);
+  style(box, `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${hh}px;border-radius:${radius}px;overflow:hidden;
+    transform:rotate(${rotate}deg);opacity:${opacity};box-shadow:0 30px 90px rgba(0,0,0,0.7), 0 0 0 2px ${border};z-index:10;`);
+  img(`${key}-img`, box, frame(clip, i), `width:100%;height:100%;object-fit:cover;object-position:50% ${objY}%;`);
+}
+
+function wordmark(key, { cx, cy, size, t }) {
+  const p = outBack(prog(t, 0, 10));
+  const el = node(key, "div", stageEl, `
+    <svg viewBox="0 0 16 16" width="${size}" height="${size}" style="display:block">
+      <path d="M3.25 0H8.5v16H3.25A3.25 3.25 0 0 1 0 12.75V3.25A3.25 3.25 0 0 1 3.25 0Z" fill="#e8121f"/>
+      <path d="M8 0h4.75A3.25 3.25 0 0 1 16 3.25v9.5A3.25 3.25 0 0 1 12.75 16H8Z" fill="#1668f0"/>
+      <path d="M6 4 12 8 6 12Z" fill="#fff"/>
+    </svg>
+    <span style="font-family:Anton,sans-serif;font-size:${size * 1.02}px;line-height:1;color:var(--chalk);letter-spacing:0.01em">EVENTIQ</span>`);
+  style(el, `position:absolute;left:0;width:${W}px;top:${cy - size / 2}px;display:flex;align-items:center;justify-content:center;gap:${size * 0.28}px;
+    opacity:${prog(t, 0, 4)};transform:scale(${lerp(1.5, 1, p)});transform-origin:50% 50%;z-index:20;`);
+}
+
+function text(key, html, css, t, delay = 0, len = 8) {
+  const p = outCubic(prog(t, delay, len));
+  const el = node(key, "div", stageEl, html);
+  style(el, `position:absolute;z-index:20;opacity:${p};transform:translateY(${lerp(24, 0, p)}px);${css}`);
+}
+
+/* ------------------------------------------------------- shared helpers */
+/** The phone's size and where it sits under a headline, for this canvas. */
+function phoneUnder(bottom) {
+  const s = TALL ? 1.6 : 1.26;
+  return { s, top: bottom + (TALL ? 64 : 40) };
+}
+/** Scroll so that a box sits a set fraction of the way down what is visible. */
+function scrollFor(strip, box, top, s, at = 0.42) {
+  const visible = (SAFE.bottom - top) / s;
+  const st = shot(strip);
+  const want = box.y + box.h / 2 - visible * at;
+  // Past the foot of a short page is allowed: the screen shows the page's own
+  // ground there, and it is below the part anybody reads.
+  return clamp(want, 0, Math.max(0, st.height - visible * 0.75));
+}
+const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+
+/* ============================================================== the promo */
+/* 120 bpm: a beat is fifteen frames, and every cut lands on one. */
+const B = 15;
+
+function promoScenes() {
+  const qrBox = shot("qr").boxes.qr;
+  const fighterPrev = shot("fighter").boxes.previous;
+  const dash = shot("dashboard").boxes;
+  const vids = shot("videos").boxes;
+  const sheet = shot("sheet-preview").boxes;
+  const tape = shot("tape").boxes;
+
+  return [
+    /* The hook: two fighters, then both of them, and the line over the top. */
+    { len: 7 * B, draw(t) {
+        const clip = t < 2 * B ? "tape-15@solo" : t < 4 * B ? "tape-15@osei" : "tape-15@vs";
+        const local = t < 2 * B ? t : t < 4 * B ? t - 2 * B : t - 4 * B;
+        const z = lerp(1.22, 1.0, outExpo(prog(local, 0, 9))) + local * 0.0012;
+        const full = node("hook", "div", stageEl);
+        style(full, `position:absolute;inset:0;overflow:hidden;z-index:5;`);
+        img("hook-img", full, frame(clip, local),
+          `position:absolute;left:0;top:${TALL ? 0 : SQUARE ? -40 : -150}px;width:${W}px;height:${(W * 16) / 9}px;transform:scale(${z});transform-origin:50% 35%;`);
+        const shade = node("hook-shade", "div", stageEl);
+        style(shade, `position:absolute;inset:0;z-index:6;background:linear-gradient(180deg, rgba(7,8,10,0) 30%, rgba(7,8,10,0.55) 48%, rgba(7,8,10,0.55) 64%, rgba(7,8,10,0) 80%);`);
+        // A slanted band in the corner colours, the broadcast way of putting a
+        // line over a picture without losing the picture.
+        const bandY = TALL ? 820 : SQUARE ? 690 : 560;
+        const bp = outExpo(prog(t, 0, 8));
+        const band = node("hook-band", "div", stageEl);
+        style(band, `position:absolute;left:${-60}px;top:${bandY}px;width:${(W + 120) * bp}px;height:${TALL ? 300 : 260}px;z-index:7;
+          background:linear-gradient(90deg, rgba(232,18,31,0.92), rgba(7,8,10,0.92) 38%, rgba(7,8,10,0.92) 62%, rgba(22,104,240,0.92));transform:skewY(-4deg);`);
+        const l1 = prog(t, 1, 5), l2 = prog(t, 2 * B, 5);
+        text("hook-1", "YOUR FIGHT NIGHT.", `left:0;width:${W}px;top:${bandY + (TALL ? 30 : 24)}px;text-align:center;font-family:Anton,sans-serif;font-size:${TALL ? 124 : 108}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l1))}) skewY(-4deg);opacity:${l1};`, 99);
+        text("hook-2", 'ON <span style="color:var(--gold)">EVERY PHONE.</span>', `left:0;width:${W}px;top:${bandY + (TALL ? 160 : 136)}px;text-align:center;font-family:Anton,sans-serif;font-size:${TALL ? 124 : 108}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l2))}) skewY(-4deg);opacity:${l2};`, 99);
+        flash(t, { len: 6 });
+        flash(t - 2 * B, { len: 5, peak: 0.6 });
+        flash(t - 4 * B, { len: 5, peak: 0.6 });
+      } },
+
+    /* The table card. */
+    { len: 6 * B, draw(t) {
+        background(t);
+        const bottom = headline("qr", t, { head: "One code|on the *table.*", sub: "Spectators scan it and the whole card opens." });
+        const { s, top } = phoneUnder(bottom);
+        const scroll = scrollFor("qr", qrBox, top, s, 0.5);
+        device("ph", t, { strip: "qr", s, top, scroll, slideY: lerp(260, 0, outExpo(prog(t, 0, 12))),
+          focus: centre(qrBox), zoom: lerp(1, 1.22, inOutCubic(prog(t, 2 * B, 3 * B))) });
+        flash(t, { len: 5, peak: 0.7 });
+      } },
+
+    /* The running order, down through the card. */
+    { len: 7 * B, draw(t) {
+        background(t);
+        const bottom = headline("prog", t, { head: "The whole *card.*", sub: "Every bout, every fighter and every sponsor, on every phone in the room." });
+        const { s, top } = phoneUnder(bottom);
+        const scroll = lerp(0, 2900, inOutCubic(prog(t, 8, 6 * B - 8)));
+        device("ph", t, { strip: "programme", s, top, scroll, slideX: lerp(W, 0, outExpo(prog(t, 0, 10))) });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* A bout opened into its tale of the tape. */
+    { len: 6 * B, draw(t) {
+        background(t);
+        const bottom = headline("tape", t, { head: "Tale of the *tape.*", sub: "Every bout, side by side." });
+        const { s, top } = phoneUnder(bottom);
+        const scroll = lerp(0, 560, inOutCubic(prog(t, 2 * B, 3 * B)));
+        device("ph", t, { strip: "tape", s, top, scroll, slideX: lerp(-W, 0, outExpo(prog(t, 0, 10))),
+          focus: { x: 215, y: 560 + 200 }, zoom: lerp(1, 1.12, inOutCubic(prog(t, 3 * B, 3 * B))) });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* Both bout videos, playing, side by side. */
+    { len: 9 * B, draw(t) {
+        background(t, { glow: 1.3 });
+        const bottom = headline("vid", t, { head: "Every bout|gets a *video.*", sub: "Made from the fighters' own photographs." });
+        const w = TALL ? 452 : 330;
+        const y = bottom + (TALL ? 70 : 40);
+        const a = outExpo(prog(t, 2, 12)), b = outExpo(prog(t, 6, 12));
+        videoCard("va", "tape-15@solo", Math.min(t, 89), { x: lerp(-w, W / 2 - w - 18, a), y, w, rotate: lerp(-14, -3, a), border: "rgba(232,18,31,0.9)" });
+        videoCard("vb", "tape-14", Math.min(t, 89), { x: lerp(W, W / 2 + 18, b), y: y + 60, w, rotate: lerp(14, 3, b), border: "rgba(22,104,240,0.9)" });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* A fighter's own page, kept from show to show. */
+    { len: 7 * B, draw(t) {
+        background(t);
+        const bottom = headline("ftr", t, { head: "Every fighter|keeps their *page.*", sub: "Their record, their story and every show they fight on." });
+        const { s, top } = phoneUnder(bottom);
+        const end = scrollFor("fighter", fighterPrev, top, s, 0.5);
+        const scroll = lerp(0, end, inOutCubic(prog(t, B, 3 * B)));
+        device("ph", t, { strip: "fighter", s, top, scroll, slideY: lerp(300, 0, outExpo(prog(t, 0, 12))),
+          rings: [{ box: fighterPrev, t: t - 4 * B, label: "Previous shows", labelAt: "above", labelWidth: 280 }] });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* The promoter's chase list. */
+    { len: 8 * B, draw(t) {
+        background(t);
+        const bottom = headline("chase", t, { head: "One tap to chase|the *stragglers.*", sub: "See who has not sent their details. Send them their link." });
+        const { s, top } = phoneUnder(bottom);
+        const end = scrollFor("dashboard", dash.firstRow, top, s, 0.45);
+        const scroll = lerp(Math.max(0, end - 700), end, inOutCubic(prog(t, 4, 3 * B)));
+        device("ph", t, { strip: "dashboard", s, top, scroll, slideX: lerp(W, 0, outExpo(prog(t, 0, 10))),
+          focus: centre(dash.send), zoom: lerp(1, 1.25, inOutCubic(prog(t, 4 * B, 3 * B))),
+          rings: [{ box: dash.send, t: t - 4 * B, label: "Link already in it", labelAt: "right", labelWidth: 300 }] });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* Paste the sheet; the preview builds. */
+    { len: 8 * B, draw(t) {
+        background(t);
+        const bottom = headline("sheet", t, { head: "Paste the card.|It builds *itself.*", sub: "Every bout read and laid out to check before anything is added." });
+        const { s, top } = phoneUnder(bottom);
+        const swap = prog(t, 3 * B, 6);
+        const box = sheet.preview;
+        const ringBox = { x: 18, y: box.y - 10, w: 394, h: 240 };
+        const end = scrollFor("sheet-preview", ringBox, top, s, 0.4);
+        const scroll = lerp(0, end, inOutCubic(prog(t, 3 * B, 2 * B)));
+        device("ph", t, { s, top, scroll, slideX: lerp(-W, 0, outExpo(prog(t, 0, 10))),
+          layers: [
+            { strip: "sheet-pasted", scroll: 0, opacity: 1 - swap },
+            { strip: "sheet-preview", scroll, opacity: swap },
+          ],
+          rings: [{ box: ringBox, t: t - 5 * B, label: "The preview", labelAt: "above", labelWidth: 230 }].filter(() => swap >= 1) });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* Shares counted. */
+    { len: 6 * B, draw(t) {
+        background(t);
+        const bottom = headline("share", t, { head: "Every share|*counted.*", sub: "Real numbers for you and your sponsors. Nothing estimated." });
+        const { s, top } = phoneUnder(bottom);
+        const row = { x: vids.current.x - 150, y: vids.current.y - 40, w: 430 - 2 * (vids.current.x - 150), h: vids.shared.y + vids.shared.h - vids.current.y + 48 };
+        const scroll = scrollFor("videos", row, top, s, 0.4);
+        device("ph", t, { strip: "videos", s, top, scroll, slideY: lerp(300, 0, outExpo(prog(t, 0, 12))),
+          rings: [{ box: { x: 16, y: row.y + 26, w: 398, h: row.h - 30 }, t: t - 2 * B, label: "Every video, every share", labelAt: "above", labelWidth: 400 }] });
+        flash(t, { len: 4, peak: 0.6 });
+      } },
+
+    /* The close. */
+    { len: 10 * B, draw(t) {
+        background(t, { glow: 1.4 });
+        const cy = TALL ? 820 : 560;
+        wordmark("wm", { cx: W / 2, cy, size: TALL ? 150 : 128, t });
+        cornerBar("close-bar", stageEl, { x: W / 2, y: cy + (TALL ? 120 : 104), w: 220, t: t - 6 });
+        text("close-free", "Free for promoters.", `left:0;width:${W}px;top:${cy + (TALL ? 170 : 146)}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:${TALL ? 92 : 80}px;line-height:1;color:var(--gold);`, t, 10);
+        text("close-url", "eventiq.win", `left:0;width:${W}px;top:${cy + (TALL ? 300 : 258)}px;text-align:center;font-family:Oswald,sans-serif;font-weight:500;font-size:${TALL ? 58 : 50}px;color:var(--chalk);letter-spacing:0.04em;`, t, 18);
+        text("close-line", "Digital fight programmes", `left:0;width:${W}px;top:${cy - (TALL ? 200 : 170)}px;text-align:center;font-family:'Roboto Mono',monospace;text-transform:uppercase;letter-spacing:0.28em;font-size:${TALL ? 30 : 26}px;color:var(--ash);`, t, 4);
+        flash(t, { len: 7, peak: 0.9 });
+      } },
+  ];
+}
+
+
+/* ======================================================== the walkthrough */
+/*
+ * The pitch page's recording: slower, one beat per thing the product does,
+ * each with a headline and one plain sentence held long enough to read, and a
+ * ring on the thing being explained. It plays on a web page, not in a feed, so
+ * it does not keep out of Instagram's margins.
+ */
+const FADE = 7;
+function dip(t, len) {
+  const a = Math.max(1 - prog(t, 0, FADE), prog(t, len - FADE, FADE));
+  if (a <= 0) return;
+  const el = node("dip", "div", stageEl);
+  style(el, `position:absolute;inset:0;background:var(--ink);opacity:${a};z-index:45;`);
+}
+
+function chapter(n, title, len) {
+  return { len, caption: null, draw(t) {
+    background(t, { glow: 0.8 });
+    text("ch-n", n, `left:0;width:${W}px;top:${H / 2 - 200}px;text-align:center;font-family:'Roboto Mono',monospace;letter-spacing:0.3em;font-size:34px;color:var(--ash);`, t, 2);
+    text("ch-t", title, `left:0;width:${W}px;top:${H / 2 - 130}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:170px;line-height:1;color:var(--chalk);`, t, 5);
+    cornerBar("ch-bar", stageEl, { x: W / 2, y: H / 2 + 80, w: 200, t: t - 9 });
+    dip(t, len);
+  } };
+}
+
+function walkScenes() {
+  SAFE = { top: 130, bottom: H - 70 };
+  const head = (key, t, h, sub) => headline(key, t, { head: h, sub, size: 92, slam: false, top: 130 });
+  const S = 1.6;
+  const under = (bottom) => ({ s: S, top: bottom + 60 });
+  const qrBox = shot("qr").boxes.qr;
+  const fighterPrev = shot("fighter").boxes.previous;
+  const dash = shot("dashboard").boxes;
+  const vids = shot("videos").boxes;
+  const sheet = shot("sheet-preview").boxes;
+  const show = shot("shows").boxes.show;
+
+  return [
+    { len: 105, caption: "EventIQ. Digital fight programmes. Free for promoters.", draw(t) {
+        background(t, { glow: 1.2 });
+        const cy = H / 2 - 120;
+        wordmark("wm", { cx: W / 2, cy, size: 160, t });
+        text("t-line", "Digital fight programmes.", `left:0;width:${W}px;top:${cy + 140}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:76px;line-height:1;color:var(--chalk);`, t, 10);
+        cornerBar("t-bar", stageEl, { x: W / 2, y: cy + 250, w: 200, t: t - 16 });
+        text("t-free", "Free for promoters.", `left:0;width:${W}px;top:${cy + 290}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:76px;line-height:1;color:var(--gold);`, t, 20);
+        dip(t, 105);
+      } },
+    chapter("01", "The room", 60),
+    { len: 210, caption: "One code on the table. Nothing goes to print, so the card can still change.", draw(t) {
+        background(t);
+        const bottom = head("qr", t, "One code on the *table*", "Every spectator scans it. Nothing goes to print, so the card can still change an hour before doors.");
+        const { s, top } = under(bottom);
+        device("ph", t, { strip: "qr", s, top, scroll: scrollFor("qr", qrBox, top, s, 0.45), focus: centre(qrBox),
+          zoom: lerp(1, 1.12, inOutCubic(prog(t, 60, 90))),
+          rings: [{ box: qrBox, t: t - 50, label: "Scan for the programme", labelWidth: 380 }] });
+        dip(t, 210);
+      } },
+    { len: 270, caption: "The whole card, on every phone in the building. Free for promoters.", draw(t) {
+        background(t);
+        const bottom = head("prog", t, "The whole *card*", "The full running order on every phone in the building, main event first. Free for promoters.");
+        const { s, top } = under(bottom);
+        // Small steps with holds, never one long glide: a reader's scroll.
+        const steps = [[40, 0, 600], [100, 600, 1300], [160, 1300, 2050], [215, 2050, 2700]];
+        let scroll = 0;
+        for (const [at, from, to] of steps) if (t >= at) scroll = lerp(from, to, inOutCubic(prog(t, at, 40)));
+        device("ph", t, { strip: "programme", s, top, scroll });
+        dip(t, 270);
+      } },
+    { len: 210, caption: "Any bout opens into its tale of the tape.", draw(t) {
+        background(t);
+        const bottom = head("tape", t, "Tale of the *tape*", "Any bout opens into the two fighters side by side: record, age, reach, gym and the bout sponsor.");
+        const { s, top } = under(bottom);
+        const scroll = lerp(0, 600, inOutCubic(prog(t, 80, 60)));
+        device("ph", t, { strip: "tape", s, top, scroll });
+        dip(t, 210);
+      } },
+    { len: 300, caption: "A video for every bout, made from the fighters' own photographs.", draw(t) {
+        background(t, { glow: 1.3 });
+        const bottom = head("vid", t, "A video for every *bout*", "Built from the two fighters' own photographs. Here, the main event's tale of the tape, then the co-main's.");
+        const w = 620;
+        const y = bottom + 60;
+        const second = t >= 170;
+        const clip = second ? "tape-14@walk" : "tape-15@walk";
+        const i = second ? t - 170 : t;
+        const a = outCubic(prog(i, 0, 10));
+        videoCard("wv", clip, i, { x: (W - w) / 2, y: lerp(y + 40, y, a), w, border: second ? "rgba(22,104,240,0.9)" : "rgba(232,18,31,0.9)" });
+        flash(second ? t - 170 : -99, { len: 5, color: "7,8,10", peak: 1 });
+        dip(t, 300);
+      } },
+    chapter("02", "The fighters", 60),
+    { len: 240, caption: "Every fighter keeps their page from show to show.", draw(t) {
+        background(t);
+        const bottom = head("ftr", t, "Every fighter|keeps their *page*", "Their record, their story and the shows they have fought on, carried from one show to the next.");
+        const { s, top } = under(bottom);
+        const end = scrollFor("fighter", fighterPrev, top, s, 0.55);
+        const scroll = lerp(0, end, inOutCubic(prog(t, 50, 70)));
+        device("ph", t, { strip: "fighter", s, top, scroll,
+          rings: [{ box: fighterPrev, t: t - 125, label: "Previous shows", labelAt: "above", labelWidth: 280 }] });
+        dip(t, 240);
+      } },
+    { len: 180, caption: "Every show, findable.", draw(t) {
+        background(t);
+        const bottom = head("shows", t, "Every show, *findable*", "Published shows are listed in one place, by town and by date.");
+        const { s, top } = under(bottom);
+        device("ph", t, { strip: "shows", s, top, scroll: 0,
+          rings: [{ box: show, t: t - 50, label: "Open the programme", labelAt: "above", labelWidth: 330 }] });
+        dip(t, 180);
+      } },
+    chapter("03", "The promoter", 60),
+    { len: 330, caption: "Who still has to send their details, and one tap to ask.", draw(t) {
+        background(t);
+        const bottom = head("chase", t, "Who still has to|send their *details*", "The chase list puts the top of the card first. One tap sends a fighter their own link.");
+        const { s, top } = under(bottom);
+        const end = scrollFor("dashboard", dash.firstRow, top, s, 0.45);
+        const scroll = t < 140 ? 0 : lerp(0, end, inOutCubic(prog(t, 140, 60)));
+        const swap = prog(t, 70, 8);
+        device("ph", t, { s, top, scroll,
+          layers: [
+            { strip: "login", scroll: 0, opacity: 1 - swap },
+            { strip: "dashboard", scroll, opacity: swap },
+          ],
+          focus: centre(dash.send), zoom: lerp(1, 1.18, inOutCubic(prog(t, 215, 50))),
+          rings: [{ box: dash.send, t: t - 215, label: "Their own link, in the message", labelAt: "above", labelWidth: 500 }].filter(() => t >= 200) });
+        dip(t, 330);
+      } },
+    { len: 270, caption: "Paste the sheet. The card builds itself.", draw(t) {
+        background(t);
+        const bottom = head("sheet", t, "Paste the sheet.|The card builds *itself*", "Paste the running order as it is written. Nothing goes on until the preview has been checked.");
+        const { s, top } = under(bottom);
+        const swap = prog(t, 105, 8);
+        const box = sheet.preview;
+        const ringBox = { x: 18, y: box.y - 10, w: 394, h: 240 };
+        const end = scrollFor("sheet-preview", ringBox, top, s, 0.4);
+        const scroll = lerp(0, end, inOutCubic(prog(t, 120, 50)));
+        const pasted = shot("sheet-pasted").boxes.box;
+        device("ph", t, { s, top, scroll,
+          layers: [
+            { strip: "sheet-pasted", scroll: 0, opacity: 1 - swap },
+            { strip: "sheet-preview", scroll, opacity: swap },
+          ],
+          rings: t < 100
+            ? [{ box: pasted, t: t - 30, label: "Three lines pasted", labelAt: "above", labelWidth: 330 }]
+            : t >= 180 ? [{ box: ringBox, t: t - 180, label: "The preview, to check first", labelAt: "above", labelWidth: 470 }] : [],
+        });
+        dip(t, 270);
+      } },
+    { len: 210, caption: "Shares counted, never estimated.", draw(t) {
+        background(t);
+        const bottom = head("share", t, "Shares counted,|never *estimated*", "Each bout's videos, whether they are up to date, and how often each one has been shared.");
+        const { s, top } = under(bottom);
+        const row = { x: 16, y: vids.current.y - 14, w: 398, h: vids.shared.y + vids.shared.h - vids.current.y + 22 };
+        device("ph", t, { strip: "videos", s, top, scroll: scrollFor("videos", row, top, s, 0.3),
+          rings: [{ box: row, t: t - 60, label: "Current, and shared", labelAt: "above", labelWidth: 330 }] });
+        dip(t, 210);
+      } },
+    { len: 165, caption: "Every fighter's story, one tap away. eventiq.win", draw(t) {
+        background(t, { glow: 1.4 });
+        const cy = H / 2 - 220;
+        text("e-line", "Every fighter&rsquo;s story,<br>one tap away.", `left:0;width:${W}px;top:${cy}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:96px;line-height:1;color:var(--chalk);`, t, 4);
+        cornerBar("e-bar", stageEl, { x: W / 2, y: cy + 230, w: 200, t: t - 14 });
+        wordmark("wm", { cx: W / 2, cy: cy + 360, size: 110, t: t - 20 });
+        text("e-free", "Free for promoters.", `left:0;width:${W}px;top:${cy + 460}px;text-align:center;font-family:Anton,sans-serif;text-transform:uppercase;font-size:70px;line-height:1;color:var(--gold);`, t, 28);
+        text("e-url", "eventiq.win", `left:0;width:${W}px;top:${cy + 560}px;text-align:center;font-family:Oswald,sans-serif;font-weight:500;font-size:56px;color:var(--chalk);letter-spacing:0.04em;`, t, 34);
+        dip(t, 165 + FADE);
+      } },
+  ];
+}
+
+/** The square cover: the hook's last frame, with the name on it. */
+function coverScenes() {
+  const hook = promoScenes()[0];
+  return [{ len: 1, draw() {
+    hook.draw(100);
+    const foot = node("cover-foot", "div", stageEl);
+    style(foot, `position:absolute;left:0;right:0;bottom:0;height:190px;z-index:8;background:linear-gradient(180deg, rgba(7,8,10,0), rgba(7,8,10,0.97) 45%);`);
+    wordmark("cover-wm", { cx: W / 2, cy: H - 62, size: 54, t: 99 });
+  } }];
+}
+
+/* ================================================================ runtime */
+let scenes = [];
+let starts = [];
+const stage = {
+  frames: 0,
+  async load(manifest) {
+    M = manifest;
+    makeGrain();
+    await document.fonts.load("112px Anton");
+    await document.fonts.load("500 42px Oswald");
+    await document.fonts.load("600 30px Oswald");
+    await document.fonts.load("500 30px 'Roboto Mono'");
+    await document.fonts.ready;
+    scenes = CUT === "promo" ? promoScenes() : CUT === "cover" ? coverScenes() : walkScenes();
+    let at = 0;
+    starts = scenes.map((s) => { const a = at; at += s.len; return a; });
+    stage.frames = at;
+    stage.captions = scenes.map((sc, i) => ({ from: starts[i], to: starts[i] + sc.len, text: sc.caption ?? null }));
+    return at;
+  },
+  async draw(f) {
+    touched = new Set();
+    const i = starts.findLastIndex((a) => a <= f);
+    scenes[i].draw(f - starts[i], f);
+    grain(f);
+    for (const [key, el] of live) if (!touched.has(key)) { el.remove(); live.delete(key); }
+    await Promise.all([...stageEl.querySelectorAll("img")].map((im) => im.decode().catch(() => null)));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  },
+};
+window.stage = stage;
+</script>
+</body>
+</html>

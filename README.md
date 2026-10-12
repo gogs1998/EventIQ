@@ -267,15 +267,15 @@ This is for the demo card's artwork. Cutouts for photographs a fighter actually 
 
 ## Recording the sales demo
 
-Promoter pitches happen over WhatsApp more than in person, so a recording of the flow is a deliverable in its own right. [`scripts/tour.mjs`](scripts/tour.mjs) scripts it: Chrome runs in app mode at phone dimensions so there is no tab strip or address bar in shot, and the scroll and pause timings live in the script so a take is repeatable.
+Promoter pitches happen over WhatsApp and Instagram more than in person, so a recording of the product is a deliverable in its own right. [`scripts/demo.mjs`](scripts/demo.mjs) captures the staging demo card on a phone viewport and composes every frame from those captures, so a cut is repeatable to the frame and needs no screen recorder:
 
 ```bash
-node scripts/tour.mjs setup     # chrome-less phone-shaped window
-node scripts/tour.mjs tour      # run the walkthrough while recording the screen
-node scripts/tour.mjs teardown
+node scripts/demo.mjs capture --base <staging> --password-file <file> --out .stills/demo
+node scripts/demo.mjs walkthrough --out .stills/demo --dest <dir>   # the pitch page's cut
+node scripts/demo.mjs promo --out .stills/demo --dest <dir>         # Instagram reel, feed cut, cover
 ```
 
-Crop the capture to the window afterwards. The committed cut at `public/demo/eventiq-demo.mp4` predates the database and needs re-recording.
+HANDOVER section 17 has the method and what each take taught. [`scripts/tour.mjs`](scripts/tour.mjs), the older screen-recorded tour, is kept for driving a live demo window.
 
 ## Product screenshots
 
