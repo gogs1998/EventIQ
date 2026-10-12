@@ -34,7 +34,9 @@ export function DemoReel({
         playsInline
         controls={started}
         className="block w-full"
-        style={{ aspectRatio: "454 / 984" }}
+        // The cut is composed at 1080x1920 by scripts/demo.mjs; the frame holds
+        // that shape before a byte of it has loaded.
+        style={{ aspectRatio: "1080 / 1920" }}
         onEnded={() => setStarted(false)}
         aria-label="Walkthrough of the EventIQ demo"
       />

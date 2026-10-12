@@ -49,12 +49,15 @@ const steps = [
 
 /** Timings read off the recording itself, not off the tour script. */
 const reel = [
-  { at: "0:00", what: "The code that goes on the table" },
-  { at: "0:04", what: "The running order, down through all fifteen bouts" },
-  { at: "0:20", what: "One bout opened out into the tale of the tape" },
-  { at: "0:24", what: "The video for it, start to finish" },
-  { at: "0:48", what: "The fighters' own words, and the bout sponsor" },
-  { at: "0:52", what: "The form a fighter gets sent, filled in as you watch" },
+  { at: "0:05", what: "The code that goes on the table" },
+  { at: "0:12", what: "The running order on a phone" },
+  { at: "0:21", what: "One bout opened out into the tale of the tape" },
+  { at: "0:28", what: "The videos, made from the fighters' own photographs" },
+  { at: "0:40", what: "A fighter's page, kept from show to show" },
+  { at: "0:48", what: "Every show, in one list" },
+  { at: "0:56", what: "The promoter's chase list, and the link it sends" },
+  { at: "1:07", what: "Pasting the running order in, and the preview" },
+  { at: "1:16", what: "The videos panel, and what has been shared" },
 ];
 
 const audiences = [
@@ -257,9 +260,9 @@ export default async function PitchPage() {
               The whole product, end to end
             </h2>
             <p className="text-ash mt-5 text-sm leading-relaxed">
-              Recorded off the demo as it stands, on a phone-shaped screen. The card on
-              the table, the running order, a bout opening into the tape, the video, and
-              the form a fighter gets sent. No narration and no sound.
+              Captured from the demo card as it stands, on a phone-sized screen, with the
+              bout videos cut in from the files the programme serves. The room, the
+              fighters and the promoter, one thing at a time. No narration and no sound.
             </p>
             <p className="text-ash mt-4 text-sm leading-relaxed">
               This is the version to forward on WhatsApp, which is where most of these
@@ -281,7 +284,7 @@ export default async function PitchPage() {
             <DemoReel
               src="/demo/eventiq-demo.mp4"
               poster="/demo/eventiq-demo-poster.webp"
-              seconds={76}
+              seconds={89}
             />
           </div>
         </div>
