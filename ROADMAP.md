@@ -49,6 +49,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 Judged too risky for a review commit; each is one small job.
 
 - `loadCard`'s `inArray` over fighter ids hits D1's 100-parameter limit at about 50 bouts (`lib/db/queries.ts`). Real cards are 15. Chunk it before anyone runs a tournament.
+- A newly published template is never queued for bouts that already exist: migration `0015` backfilled only `tape` jobs, so no card had a face-off until `render.yml` was dispatched by hand per slug on 12 October 2026. Any future template needs a backfill that enqueues it for every published bout, or the hourly `--stale` run should treat a missing job row for a published template as stale.
 - `loadShowcase` gates itself in `lib/db/queries.ts` rather than beside the other gates in `lib/visibility.ts`. Move it.
 - `scripts/r2-orphans.mjs` does not know the `posters/` prefix; `uploadPoster` can leave an object no row points at.
 - `PosterCrop` is drag-only; a keyboard path is owed.
