@@ -430,7 +430,7 @@ const PROMO = {
   name: "promo",
   clips: [
     ["tape-15@solo", 3.2, 3],
-    ["tape-15@osei", 7.2, 1.2],
+    ["tape-15@osei", 7.0, 2.4],
     ["tape-15@vs", 9.6, 1.7],
     ["tape-14", 9.4, 3.1],
   ],

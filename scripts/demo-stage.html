@@ -281,30 +281,68 @@ function promoScenes() {
   const tape = shot("tape").boxes;
 
   return [
-    /* The hook: two fighters, then both of them, and the line over the top. */
+    /*
+     * The hook: one fighter, the other, then the two of them driven together
+     * from either side. Every frame of it is filled to the edges: the bout
+     * video's portraits are scaled from their top edge so the faces sit in the
+     * upper middle and the body runs to the foot of the frame.
+     */
     { len: 7 * B, draw(t) {
-        const clip = t < 2 * B ? "tape-15@solo" : t < 4 * B ? "tape-15@osei" : "tape-15@vs";
-        const local = t < 2 * B ? t : t < 4 * B ? t - 2 * B : t - 4 * B;
-        const z = lerp(1.22, 1.0, outExpo(prog(local, 0, 9))) + local * 0.0012;
+        // Large enough that the name plate at the foot of the portrait falls off
+        // the bottom of the frame rather than being cut through.
+        // Per shape: the faces above the band, the band across the middle.
+        const FILL = TALL ? 1.6 : 1.1;
+        const LIFT = TALL ? -150 : SQUARE ? -80 : -115;
+        const imgCss = (dx, z) => `position:absolute;left:${dx}px;top:${LIFT}px;width:${W}px;height:${(W * 16) / 9}px;
+          transform:scale(${FILL * z});transform-origin:50% 0;`;
         const full = node("hook", "div", stageEl);
-        style(full, `position:absolute;inset:0;overflow:hidden;z-index:5;`);
-        img("hook-img", full, frame(clip, local),
-          `position:absolute;left:0;top:${TALL ? 0 : SQUARE ? -40 : -150}px;width:${W}px;height:${(W * 16) / 9}px;transform:scale(${z});transform-origin:50% 35%;`);
+        style(full, `position:absolute;inset:0;overflow:hidden;z-index:5;background:var(--ink);`);
+        if (t < 4 * B) {
+          const reeves = t < 2 * B;
+          const local = reeves ? t : t - 2 * B;
+          const z = lerp(1.18, 1.0, outExpo(prog(local, 0, 9))) + local * 0.0015;
+          img("hook-img", full, frame(reeves ? "tape-15@solo" : "tape-15@osei", local), imgCss(0, z));
+        } else {
+          // The clash: each corner in from its own side, meeting on a diagonal.
+          const local = t - 4 * B;
+          const hit = outExpo(prog(local, 0, 6));
+          const shake = local >= 6 && local < 14 ? Math.sin(local * 2.6) * 14 * (1 - (local - 6) / 8) : 0;
+          const z = 1 + local * 0.0016;
+          const left = node("hook-l", "div", full);
+          style(left, `position:absolute;inset:0;clip-path:polygon(0 0, 61% 0, 39% 100%, 0 100%);
+            transform:translate(${lerp(-W * 0.7, 0, hit) + shake}px, ${shake * 0.5}px);`);
+          img("hook-l-img", left, // Before 6s: after it the portrait is already crossing to Osei.
+          frame("tape-15@solo", Math.min(70, 30 + local)), imgCss(-W * 0.25, z));
+          const right = node("hook-r", "div", full);
+          style(right, `position:absolute;inset:0;clip-path:polygon(61% 0, 100% 0, 100% 100%, 39% 100%);
+            transform:translate(${lerp(W * 0.7, 0, hit) - shake}px, ${-shake * 0.5}px);`);
+          img("hook-r-img", right, frame("tape-15@osei", Math.min(71, 30 + local)), imgCss(W * 0.27, z));
+          // The seam, lit at the moment they meet.
+          const seam = node("hook-seam", "div", full);
+          const glow = local >= 5 ? 1 - prog(local, 5, 30) * 0.6 : 0;
+          style(seam, `position:absolute;left:${W / 2 - 5}px;top:-200px;width:10px;height:${H + 400}px;background:var(--gold);
+            transform:rotate(${(Math.atan2(W * 0.22, H) * 180) / Math.PI}deg);box-shadow:0 0 60px 18px rgba(240,192,74,0.6);opacity:${glow};`);
+          // The corners' own light, either side of the seam.
+          const tint = node("hook-tint", "div", full);
+          style(tint, `position:absolute;inset:0;background:linear-gradient(90deg, rgba(232,18,31,0.22), transparent 40%, transparent 60%, rgba(22,104,240,0.22));`);
+        }
         const shade = node("hook-shade", "div", stageEl);
-        style(shade, `position:absolute;inset:0;z-index:6;background:linear-gradient(180deg, rgba(7,8,10,0) 30%, rgba(7,8,10,0.55) 48%, rgba(7,8,10,0.55) 64%, rgba(7,8,10,0) 80%);`);
-        // A slanted band in the corner colours, the broadcast way of putting a
-        // line over a picture without losing the picture.
-        const bandY = TALL ? 820 : SQUARE ? 690 : 560;
+        style(shade, `position:absolute;inset:0;z-index:6;background:linear-gradient(180deg, rgba(7,8,10,0) 34%, rgba(7,8,10,0.5) 46%, rgba(7,8,10,0.5) 62%, rgba(7,8,10,0.15) 72%, rgba(7,8,10,0.95) 90%);`);
+        // A slanted band in the corner colours across the middle third, the
+        // broadcast way of putting a line over a picture without losing it.
+        const bandH = TALL ? 300 : 260;
+        const bandY = SQUARE ? H - bandH - 120 : Math.round(H * 0.5 - bandH / 2 + (TALL ? 20 : 0));
         const bp = outExpo(prog(t, 0, 8));
         const band = node("hook-band", "div", stageEl);
-        style(band, `position:absolute;left:${-60}px;top:${bandY}px;width:${(W + 120) * bp}px;height:${TALL ? 300 : 260}px;z-index:7;
-          background:linear-gradient(90deg, rgba(232,18,31,0.92), rgba(7,8,10,0.92) 38%, rgba(7,8,10,0.92) 62%, rgba(22,104,240,0.92));transform:skewY(-4deg);`);
+        style(band, `position:absolute;left:${-60}px;top:${bandY}px;width:${(W + 120) * bp}px;height:${bandH}px;z-index:7;
+          background:linear-gradient(90deg, rgba(232,18,31,0.92), rgba(7,8,10,0.9) 38%, rgba(7,8,10,0.9) 62%, rgba(22,104,240,0.92));transform:skewY(-4deg);`);
         const l1 = prog(t, 1, 5), l2 = prog(t, 2 * B, 5);
-        text("hook-1", "YOUR FIGHT NIGHT.", `left:0;width:${W}px;top:${bandY + (TALL ? 30 : 24)}px;text-align:center;font-family:Anton,sans-serif;font-size:${TALL ? 124 : 108}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l1))}) skewY(-4deg);opacity:${l1};`, 99);
-        text("hook-2", 'ON <span style="color:var(--gold)">EVERY PHONE.</span>', `left:0;width:${W}px;top:${bandY + (TALL ? 160 : 136)}px;text-align:center;font-family:Anton,sans-serif;font-size:${TALL ? 124 : 108}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l2))}) skewY(-4deg);opacity:${l2};`, 99);
+        const size = TALL ? 124 : 108;
+        text("hook-1", "YOUR FIGHT NIGHT.", `left:0;width:${W}px;top:${bandY + (TALL ? 30 : 24)}px;text-align:center;font-family:Anton,sans-serif;font-size:${size}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l1))}) skewY(-4deg);opacity:${l1};`, 99);
+        text("hook-2", 'ON <span style="color:var(--gold)">EVERY PHONE.</span>', `left:0;width:${W}px;top:${bandY + (TALL ? 160 : 136)}px;text-align:center;font-family:Anton,sans-serif;font-size:${size}px;line-height:1;color:var(--chalk);transform:scale(${lerp(1.5, 1, outCubic(l2))}) skewY(-4deg);opacity:${l2};`, 99);
         flash(t, { len: 6 });
         flash(t - 2 * B, { len: 5, peak: 0.6 });
-        flash(t - 4 * B, { len: 5, peak: 0.6 });
+        flash(t - 4 * B - 5, { len: 6, peak: 0.9 });
       } },
 
     /* The table card. */
@@ -343,11 +381,11 @@ function promoScenes() {
     { len: 9 * B, draw(t) {
         background(t, { glow: 1.3 });
         const bottom = headline("vid", t, { head: "Every bout|gets a *video.*", sub: "Made from the fighters' own photographs." });
-        const w = TALL ? 452 : 330;
-        const y = bottom + (TALL ? 70 : 40);
+        const w = TALL ? 520 : 360;
+        const y = bottom + (TALL ? 50 : 30);
         const a = outExpo(prog(t, 2, 12)), b = outExpo(prog(t, 6, 12));
-        videoCard("va", "tape-15@solo", Math.min(t, 89), { x: lerp(-w, W / 2 - w - 18, a), y, w, rotate: lerp(-14, -3, a), border: "rgba(232,18,31,0.9)" });
-        videoCard("vb", "tape-14", Math.min(t, 89), { x: lerp(W, W / 2 + 18, b), y: y + 60, w, rotate: lerp(14, 3, b), border: "rgba(22,104,240,0.9)" });
+        videoCard("va", "tape-15@solo", Math.min(t, 89), { x: lerp(-w, W / 2 - w + 20, a), y, w, rotate: lerp(-14, -3, a), border: "rgba(232,18,31,0.9)" });
+        videoCard("vb", "tape-14", Math.min(t, 89), { x: lerp(W, W / 2 - 20, b), y: y + 70, w, rotate: lerp(14, 3, b), border: "rgba(22,104,240,0.9)" });
         flash(t, { len: 4, peak: 0.6 });
       } },
 
@@ -372,7 +410,7 @@ function promoScenes() {
         const scroll = lerp(Math.max(0, end - 700), end, inOutCubic(prog(t, 4, 3 * B)));
         device("ph", t, { strip: "dashboard", s, top, scroll, slideX: lerp(W, 0, outExpo(prog(t, 0, 10))),
           focus: centre(dash.send), zoom: lerp(1, 1.25, inOutCubic(prog(t, 4 * B, 3 * B))),
-          rings: [{ box: dash.send, t: t - 4 * B, label: "Link already in it", labelAt: "right", labelWidth: 300 }] });
+          rings: [{ box: dash.send, t: t - 4 * B, label: "Their own link, ready to send", labelWidth: 470 }] });
         flash(t, { len: 4, peak: 0.6 });
       } },
 
@@ -391,7 +429,7 @@ function promoScenes() {
             { strip: "sheet-pasted", scroll: 0, opacity: 1 - swap },
             { strip: "sheet-preview", scroll, opacity: swap },
           ],
-          rings: [{ box: ringBox, t: t - 5 * B, label: "The preview", labelAt: "above", labelWidth: 230 }].filter(() => swap >= 1) });
+          rings: [{ box: ringBox, t: t - 5 * B, label: "Check it before it goes on", labelAt: "above", labelWidth: 420 }].filter(() => swap >= 1) });
         flash(t, { len: 4, peak: 0.6 });
       } },
 
@@ -403,13 +441,30 @@ function promoScenes() {
         const row = { x: vids.current.x - 150, y: vids.current.y - 40, w: 430 - 2 * (vids.current.x - 150), h: vids.shared.y + vids.shared.h - vids.current.y + 48 };
         const scroll = scrollFor("videos", row, top, s, 0.4);
         device("ph", t, { strip: "videos", s, top, scroll, slideY: lerp(300, 0, outExpo(prog(t, 0, 12))),
-          rings: [{ box: { x: 16, y: row.y + 26, w: 398, h: row.h - 30 }, t: t - 2 * B, label: "Every video, every share", labelAt: "above", labelWidth: 400 }] });
+          rings: [{ box: { x: 16, y: row.y + 26, w: 398, h: row.h - 30 }, t: t - 2 * B, label: "Shares counted per video", labelAt: "above", labelWidth: 400 }] });
         flash(t, { len: 4, peak: 0.6 });
       } },
 
     /* The close. */
     { len: 10 * B, draw(t) {
         background(t, { glow: 1.4 });
+        // The two fighters from the opening, behind the name, so the close is
+        // the same night rather than a blank page.
+        const back = node("close-back", "div", stageEl);
+        style(back, `position:absolute;inset:0;overflow:hidden;opacity:${0.6 * prog(t, 0, 10)};z-index:1;`);
+        const lift = TALL ? -40 : -110;
+        const z = 1.35 + t * 0.0008;
+        const half = (key, clip, i, poly, dx) => {
+          const el = node(key, "div", back);
+          style(el, `position:absolute;inset:0;clip-path:${poly};`);
+          img(`${key}-img`, el, frame(clip, i),
+            `position:absolute;left:${dx}px;top:${lift}px;width:${W}px;height:${(W * 16) / 9}px;transform:scale(${z});transform-origin:50% 0;`);
+        };
+        half("close-l", "tape-15@solo", 60, "polygon(0 0, 61% 0, 39% 100%, 0 100%)", -W * 0.25);
+        half("close-r", "tape-15@osei", 50, "polygon(61% 0, 100% 0, 100% 100%, 39% 100%)", W * 0.27);
+        const fade = node("close-fade", "div", stageEl);
+        style(fade, `position:absolute;inset:0;z-index:2;background:linear-gradient(180deg, rgba(7,8,10,0.15) 0%, rgba(7,8,10,0.35) ${TALL ? 22 : 18}%, rgba(7,8,10,0.92) ${TALL ? 36 : 38}%, rgba(7,8,10,0.92) ${TALL ? 66 : 80}%, rgba(7,8,10,0.98) 100%),
+          linear-gradient(90deg, rgba(232,18,31,0.18), transparent 45%, transparent 55%, rgba(22,104,240,0.18));`);
         const cy = TALL ? 820 : 560;
         wordmark("wm", { cx: W / 2, cy, size: TALL ? 150 : 128, t });
         cornerBar("close-bar", stageEl, { x: W / 2, y: cy + (TALL ? 120 : 104), w: 220, t: t - 6 });
@@ -597,7 +652,7 @@ function coverScenes() {
     hook.draw(100);
     const foot = node("cover-foot", "div", stageEl);
     style(foot, `position:absolute;left:0;right:0;bottom:0;height:190px;z-index:8;background:linear-gradient(180deg, rgba(7,8,10,0), rgba(7,8,10,0.97) 45%);`);
-    wordmark("cover-wm", { cx: W / 2, cy: H - 62, size: 54, t: 99 });
+    wordmark("cover-wm", { cx: W / 2, cy: H - 46, size: 46, t: 99 });
   } }];
 }
 
