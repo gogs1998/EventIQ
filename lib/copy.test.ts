@@ -32,6 +32,7 @@ import {
   NOT_FOUND,
   NOTHING_SENT,
   PAGE_ERROR,
+  HERO,
   PITCH,
   PREVIOUS_SHOWS,
   PRIVACY,
@@ -393,6 +394,7 @@ describe("the pitch", () => {
     PITCH.signIn,
     PITCH.howToGetAnAccount,
     ...PITCH.differences.flatMap((d) => [d.label, d.body]),
+    ...Object.values(HERO),
   ];
 
   it("says the price plainly and does not argue with itself about it", () => {
@@ -414,6 +416,22 @@ describe("the pitch", () => {
    * back to the person who showed them this, and there is no contact route in
    * the repository for it to point at.
    */
+  /**
+   * The first phone screen holds one headline, one line, the price and two
+   * buttons. A line that grows into a paragraph pushes the buttons below the
+   * fold, which is what the page was rebuilt to stop.
+   */
+  it("keeps the first screen to a headline, one line, the price and two ways in", () => {
+    expect(HERO.headline.length).toBeLessThan(48);
+    expect(HERO.line.length).toBeLessThan(130);
+    expect(HERO.line).toMatch(/whole card/i);
+    expect(HERO.line).toMatch(/every bout/i);
+    expect(HERO.free).toMatch(/^free for promoters$/i);
+    for (const button of [HERO.live, HERO.watch, PITCH.signIn]) {
+      expect(button.length).toBeLessThan(24);
+    }
+  });
+
   it("says how to get an account without inventing somewhere to write to", () => {
     expect(PITCH.howToGetAnAccount).toMatch(/no sign-up form/i);
     expect(PITCH.howToGetAnAccount).not.toMatch(/@|mailto:|https?:/i);

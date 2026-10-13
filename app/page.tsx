@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { preload } from "react-dom";
 import { DemoReel } from "@/components/DemoReel";
+import { HeroVideo } from "@/components/HeroVideo";
 import { ScreenGallery } from "@/components/ScreenGallery";
 import { TapePlayer } from "@/components/sequence/TapePlayer";
 import { cardCompleteness, featuredBout } from "@/lib/card";
@@ -7,6 +9,7 @@ import {
   chaseHeading,
   chaseNote,
   GALLERY,
+  HERO,
   NO_SHOWCASE,
   PITCH,
   PRIVACY,
@@ -83,6 +86,40 @@ const audiences = [
 export const dynamic = "force-dynamic";
 
 /**
+ * A 10-second cut of the main event's render, 720 wide and under a megabyte,
+ * made with ffmpeg from public/renders/bout-15.mp4. The poster is its first
+ * frame, so the loop starting is not a jump.
+ */
+const HERO_VIDEO = "/hero/hero-faceoff.mp4";
+const HERO_POSTER = "/hero/hero-faceoff.webp";
+
+/** One monoline mark per difference, in the order PITCH lists them. */
+function DifferenceIcon({ index }: { index: number }) {
+  const paths = [
+    // A form on a phone.
+    "M7 2.75h10a1.25 1.25 0 0 1 1.25 1.25v16a1.25 1.25 0 0 1-1.25 1.25H7A1.25 1.25 0 0 1 5.75 20V4A1.25 1.25 0 0 1 7 2.75ZM9 7.5h6M9 11h6M9 14.5h3.5",
+    // Play.
+    "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM10 8.5v7l5.5-3.5L10 8.5Z",
+    // A count going up.
+    "M4 20h16M6.5 16.5v-4M11 16.5V9M15.5 16.5v-6M20 4l-5 4.5-3-2.5-6 4.5",
+  ];
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden
+      className="text-gold mt-0.5 h-6 w-6 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={paths[index] ?? paths[0]} />
+    </svg>
+  );
+}
+
+/**
  * The pitch page runs on the show named in SHOWCASE_SLUG, not on a fixture and
  * no longer on whatever happens to be published with the furthest-out date.
  *
@@ -100,6 +137,9 @@ export const dynamic = "force-dynamic";
  * than showing a page of holes.
  */
 export default async function PitchPage() {
+  // The poster is the first paint of the page on a phone, so it is asked for
+  // ahead of the stylesheet that would otherwise discover it.
+  preload(HERO_POSTER, { as: "image", fetchPriority: "high" });
   const db = await getDb();
   const card = await loadShowcase(db, await readVar("SHOWCASE_SLUG"));
 
@@ -121,71 +161,94 @@ export default async function PitchPage() {
   return (
     <main id="main" tabIndex={-1} className="w-full">
       {/* ------------------------------------------------------------ hero */}
-      {/* Four things before a promoter scrolls: what it is, what it costs, the
-          three things the paper programme and a card viewer cannot do, and the
-          way in. The price and the three differences used to be spread over five
-          sections further down, which meant the first screen made an argument
-          any digital programme could have made. */}
-      <section className="mx-auto max-w-5xl px-5 pb-12 pt-14">
-        <h1 className="display anim-slam max-w-3xl text-5xl leading-[0.9] sm:text-6xl">
-          Every fighter&rsquo;s story, one tap away.
-        </h1>
-        <p className="text-ash mt-6 max-w-2xl text-base leading-relaxed">
-          One code on the table puts the whole card on every phone in the building: every
-          fighter&rsquo;s record, photo and story,{" "}
-          {tapeForEveryBout(event?.bouts.length ?? 0)}, and a broadcast video for the ones
-          that matter. The room knows exactly who is walking out.
-        </p>
-        <p className="text-chalk mt-5 max-w-2xl text-base leading-relaxed">{PITCH.free}</p>
-
-        <dl className="border-hairline mt-10 grid gap-6 border-t pt-6 sm:grid-cols-3">
-          {PITCH.differences.map((point) => (
-            <div key={point.label}>
-              <dt className="display text-chalk text-lg leading-tight">{point.label}</dt>
-              <dd className="text-ash mt-2 text-sm leading-relaxed">{point.body}</dd>
+      {/* The first phone screen is a fighter, the headline, the price and a
+          button, in that order. It used to be a headline and four blocks of grey
+          text, which made the argument for the video without showing one. The
+          loop is a cut of a real bout render, so the first thing a promoter sees
+          is the thing their fighters would get. */}
+      <section className="relative">
+        <div className="mx-auto grid max-w-5xl lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:items-center lg:gap-12 lg:px-5 lg:py-16">
+          <figure className="relative lg:order-2">
+            {/* The frame holds the loop's shape before a byte of it arrives, so
+                nothing below it moves when it does. */}
+            <div className="lg:border-hairline relative aspect-[5/4] w-full overflow-hidden bg-ink-2 lg:border">
+              <HeroVideo
+                src={HERO_VIDEO}
+                poster={HERO_POSTER}
+                label={HERO.video}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              <div
+                aria-hidden
+                className="from-ink via-ink/40 absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t to-transparent lg:hidden"
+              />
             </div>
-          ))}
-        </dl>
+            <figcaption className="label text-ash-dim mt-3 hidden lg:block">{HERO.video}</figcaption>
+          </figure>
 
-        <div className="mt-10 flex flex-wrap gap-3">
-          {/* The promoter's own way in leads, because the reader of this page is
-              a promoter. The two below it open the demo, which is the argument
-              rather than the product they would be signing in to. */}
-          <Link
-            href="/promoter"
-            className="bg-chalk text-ink display hover:bg-gold px-6 py-3.5 text-lg transition-colors"
-          >
-            {PITCH.signIn}
-          </Link>
-          {event ? (
-            <>
+          <div className="relative z-10 -mt-14 px-5 pb-12 lg:order-1 lg:mt-0 lg:px-0 lg:pb-0">
+            <p className="bg-gold text-ink inline-block px-2.5 py-1 font-mono text-[0.7rem] font-semibold uppercase tracking-[0.18em]">
+              {HERO.free}
+            </p>
+            <h1 className="display anim-slam mt-4 text-[2.9rem] leading-[0.9] sm:text-6xl lg:text-7xl">
+              {HERO.headline}
+            </h1>
+            <p className="text-chalk/85 mt-4 max-w-xl text-base leading-snug sm:text-lg lg:mt-6">
+              {HERO.line}
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-3 lg:mt-8">
               <Link
-                href={`/e/${event.slug}`}
-                className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+                href={event ? `/e/${event.slug}` : "#how-it-works"}
+                className="bg-red-corner hover:bg-red-corner-hot display text-chalk px-3 py-3.5 text-center text-base transition-colors sm:px-5 sm:text-lg"
               >
-                Open the programme
+                {event ? HERO.live : HERO.watch}
               </Link>
+              {/* Second, because the reader who has an account already knows
+                  where it is, and the one who does not wants to see the thing. */}
               <Link
-                href="/f/demo"
-                className="border-hairline hover:border-chalk/50 display border px-6 py-3.5 text-lg transition-colors"
+                href="/promoter"
+                className="border-chalk/25 hover:border-chalk/60 display border px-3 py-3.5 text-center text-base transition-colors sm:px-5 sm:text-lg"
               >
-                See what a fighter gets
+                {PITCH.signIn}
               </Link>
-            </>
-          ) : null}
+            </div>
+            <p className="mt-5">
+              <Link href="/shows" className="text-ash hover:text-chalk text-sm transition-colors">
+                {SHOWS_LINK}
+              </Link>
+            </p>
+          </div>
         </div>
-        {/* Plain, and beside the demo rather than competing with it. The
-            showcase is the argument; the list is for a reader who wants to see
-            that other people are on here too, and it is true with no showcase
-            named at all — which is why it is outside the card's own branch. */}
-        <p className="mt-4">
-          <Link href="/shows" className="text-ash hover:text-chalk text-sm transition-colors">
-            {SHOWS_LINK}
-          </Link>
-        </p>
-        <p className="text-ash-dim mt-4 max-w-2xl text-sm leading-relaxed">
-          {PITCH.howToGetAnAccount}
-        </p>
+      </section>
+
+      {/* ------------------------------------------------------ differences */}
+      {/* The three things the paper programme and a card viewer cannot do, as a
+          row rather than three paragraphs. The long version of the hero's line
+          leads it, because it is the one place the card's own count is said. */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-12">
+          <p className="text-chalk max-w-3xl text-lg leading-snug">{PITCH.free}</p>
+          <p className="text-ash mt-3 max-w-3xl text-sm leading-relaxed">
+            One code on the table puts the whole card on every phone in the building: every
+            fighter&rsquo;s record, photo and story, {tapeForEveryBout(event?.bouts.length ?? 0)},
+            and a broadcast video for the ones that matter. The room knows exactly who is
+            walking out.
+          </p>
+          <dl className="mt-8 grid gap-3 sm:grid-cols-3">
+            {PITCH.differences.map((point, i) => (
+              <div key={point.label} className="border-hairline bg-ink-2 flex gap-3 border p-4">
+                <DifferenceIcon index={i} />
+                <div>
+                  <dt className="display text-chalk text-lg leading-tight">{point.label}</dt>
+                  <dd className="text-ash mt-1.5 text-sm leading-snug">{point.body}</dd>
+                </div>
+              </div>
+            ))}
+          </dl>
+          <p className="text-ash-dim mt-6 max-w-2xl text-sm leading-relaxed">
+            {PITCH.howToGetAnAccount}
+          </p>
+        </div>
       </section>
 
       {/* ------------------------------------------------------ no showcase */}
@@ -252,7 +315,7 @@ export default async function PitchPage() {
       </section>
 
       {/* --------------------------------------------------------- the reel */}
-      <section className="border-hairline border-t">
+      <section id="how-it-works" className="border-hairline scroll-mt-4 border-t">
         <div className="mx-auto grid max-w-5xl gap-10 px-5 py-14 lg:grid-cols-[1fr_minmax(0,340px)] lg:items-center">
           <div className="lg:order-1">
             <span className="label">End to end</span>

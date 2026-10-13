@@ -106,20 +106,16 @@ export const PITCH = {
     {
       label: "Fighters fill their own in",
       body:
-        "Every fighter on the card gets a link to a form of their own. Their record, their " +
-        "photograph and their story are what they sent, not what somebody typed for them.",
+        "Every fighter gets a form of their own, so their record, photograph and story " +
+        "are what they sent.",
     },
     {
       label: "Every bout gets a video",
-      body:
-        "A vertical tale-of-the-tape for each bout, built from the two fighters' own " +
-        "photographs. It plays in the programme and the fighter posts it to their following.",
+      body: "A vertical tale of the tape for each bout, built from the two fighters' own photographs.",
     },
     {
       label: "Sponsors get a slot and a count",
-      body:
-        "Every bout carries a sponsor placement of its own, and every placement comes with " +
-        "a count of what was opened and tapped, taken from the programme itself.",
+      body: "Every bout carries a sponsor of its own, with a count of what was opened and tapped.",
     },
   ],
   /** The way in for a promoter, and the reason there is no form beside it. */
@@ -133,6 +129,28 @@ export const PITCH = {
   howToGetAnAccount:
     "There is no sign-up form. Accounts are set up by hand — ask whoever showed you " +
     "EventIQ and they will make you one.",
+} as const;
+
+/**
+ * The first screen of the pitch page, read on a phone before anything is
+ * scrolled. One headline, one line under it, the price as a badge and two ways
+ * in. Everything longer than a line lives further down, because the fighter in
+ * the video beside it is doing the arguing.
+ */
+export const HERO = {
+  headline: "Every fighter’s story, one tap away.",
+  /** The two things the room gets, and nothing that has to be taken on trust. */
+  line:
+    "One code on the table puts the whole card on every phone in the room, and every " +
+    "bout gets a video of its own.",
+  /** The price as a badge. The sentence that says it in full sits further down. */
+  free: "Free for promoters",
+  /** To the showcase card, which is a published programme anybody can open. */
+  live: "See a live programme",
+  /** With no showcase there is no programme to open, so it points at the reel. */
+  watch: "Watch how it works",
+  /** What the loop is, for a screen reader and as the caption beside it. */
+  video: "A bout video, made from the two fighters' own photographs",
 } as const;
 
 /** The pitch page's hero line, which counts the card it is running on. */
