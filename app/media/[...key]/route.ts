@@ -1,5 +1,6 @@
 import { getDb, getMedia } from "@/lib/db";
 import { SERVABLE_TYPES } from "@/lib/image-type";
+import { parseRange, rangeHeaders } from "@/lib/range";
 import { mediaVisibility } from "@/lib/visibility";
 
 /**
@@ -38,7 +39,15 @@ export async function GET(request: Request, context: { params: Promise<{ key: st
   if (!access.visible) return new Response("Not found", { status: 404 });
 
   const media = await getMedia();
-  const object = await media.get(path);
+  const head = await media.head(path);
+  if (!head) return new Response("Not found", { status: 404 });
+
+  // An iPhone will not play a video from a server that ignores Range (bug 47).
+  const range = parseRange(request.headers.get("range"), head.size);
+  if (range === "unsatisfiable") {
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${head.size}` } });
+  }
+  const object = await media.get(path, range ? { range } : undefined);
   if (!object) return new Response("Not found", { status: 404 });
 
   // Built by hand rather than with writeHttpMetadata, whose Headers type comes
@@ -66,7 +75,12 @@ export async function GET(request: Request, context: { params: Promise<{ key: st
     `${access.public ? "public" : "private"}, max-age=31536000, immutable`,
   );
 
-  return new Response(object.body as unknown as ReadableStream, { headers });
+  for (const [name, value] of Object.entries(rangeHeaders(range, head.size))) headers.set(name, value);
+
+  return new Response(object.body as unknown as ReadableStream, {
+    status: range ? 206 : 200,
+    headers,
+  });
 }
 
 /** The last segment of the key, with anything that would break the header out. */

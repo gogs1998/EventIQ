@@ -90,7 +90,7 @@ export const dynamic = "force-dynamic";
  * made with ffmpeg from public/renders/bout-15.mp4. The poster is its first
  * frame, so the loop starting is not a jump.
  */
-const HERO_VIDEO = "/hero/hero-faceoff.mp4";
+const HERO_VIDEO = "/clips/hero-faceoff.mp4";
 const HERO_POSTER = "/hero/hero-faceoff.webp";
 
 /** One monoline mark per difference, in the order PITCH lists them. */
@@ -345,7 +345,7 @@ export default async function PitchPage() {
           </div>
           <div className="lg:order-2">
             <DemoReel
-              src="/demo/eventiq-demo.mp4"
+              src="/clips/eventiq-demo.mp4"
               poster="/demo/eventiq-demo-poster.webp"
               seconds={89}
             />

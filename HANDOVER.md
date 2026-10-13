@@ -1084,6 +1084,10 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 
     Three lessons, and the third is the one to carry: a credential narrowed by a boundary that is not the one the risk lives on breaks the honest callers and protects nobody; **a check that cannot distinguish success from failure is not a check** — `complete` was the readiness test and it was true either way; and an empty `catch` on the one operation that knows an image is bad is how a pipeline reports success for sixteen seconds of nothing.
 
+47. **No video on the site played on an iPhone.** The hero loop, the sales demo and every tale of the tape and face-off on every programme showed Safari's struck-through play button. Chrome and every desktop check played them, which is why it shipped. Safari opens an mp4 by asking for two bytes (`Range: bytes=0-1`) and refuses to play from a server that answers with the whole file and a 200, and nothing here answered ranges: `/media` handed back the R2 object whole, and the Workers assets binding does the same for files in `public/`.
+
+    `lib/range.ts` parses a single range and builds the 206 headers. `/media` reads the object's size with `head()` and asks R2 for the slice. The pitch page's two videos go through `app/clips/[name]/route.ts`, which serves an allowlist of two names out of the assets binding and cuts the slice itself, buffering the file because the binding streams without a length. The check is `curl -H "Range: bytes=0-1"` against a video URL: anything but a 206 with a `content-range` is a video an iPhone will not play. **Test playback on the phone the audience holds, not the browser the developer has open.**
+
 ---
 
 ## 15. Environment notes
