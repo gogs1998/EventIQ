@@ -46,12 +46,49 @@ export type Portrait =
  * is replaced — the same rule the cutout is held to. Generated art is never what
  * a fighter gets for sending a picture and saying nothing.
  */
-export function portraitOf(fighter: Pick<Fighter, "cutout" | "photo" | "stylised">): Portrait {
+export function portraitOf(
+  fighter: Pick<Fighter, "cutout" | "photo" | "stylised" | "cutoutQuality">,
+): Portrait {
   if (fighter.stylised) return { kind: "stylised", src: fighter.stylised };
-  if (fighter.cutout) return { kind: "cutout", src: fighter.cutout };
+  if (cutoutUsable(fighter)) return { kind: "cutout", src: fighter.cutout! };
   if (fighter.photo) return { kind: "photo", src: fighter.photo };
   return { kind: "plate" };
 }
+
+/**
+ * Whether there is a cutout and the renderer thought it worth showing.
+ *
+ * A "poor" cutout — a subject too small to read, a head through the top of the
+ * frame, two people the mask could not separate (scripts/photo-quality.mjs) — is
+ * kept on the row and never shown. What is shown instead is the photograph,
+ * which is the fighter's own face in a rectangle and is never worse than a
+ * cutout that is wrong; the plate only where there is no photograph at all,
+ * which cannot be the case here because a cutout is only ever made from one.
+ *
+ * No verdict is not a poor one. The curated cutouts and anything cut before the
+ * renderer judged its work have none, and they were all shown before this
+ * existed: silence is not evidence, in either direction.
+ */
+export function cutoutUsable(fighter: Pick<Fighter, "cutout" | "cutoutQuality">): boolean {
+  return !!fighter.cutout && fighter.cutoutQuality !== "poor";
+}
+
+/**
+ * Everything derived from one particular photograph, as it is set when that
+ * photograph is replaced.
+ *
+ * One list, because the upload, the poster crop and the questionnaire's save all
+ * replace a photograph and each of them used to name the columns it cleared:
+ * a derived column added later and forgotten in one of them is a verdict, a
+ * cutout or a drawing of somebody's previous picture left on their card.
+ */
+export const CLEARED_WITH_PHOTO = {
+  cutout: null,
+  cutoutQuality: null,
+  cutoutIssues: null,
+  stylised: null,
+  tidied: null,
+} as const;
 
 /**
  * How far the subject travels against the backdrop, as a fraction of the full

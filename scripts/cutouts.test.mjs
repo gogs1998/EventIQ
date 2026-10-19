@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { alphaVerdict, cutoutKey, lit, needsCutout, photoSource } from "./cutouts.mjs";
+import { alphaVerdict, cutoutKey, lit, needsCutout, photoSource, recordCutoutSql } from "./cutouts.mjs";
 
 /**
  * The bookkeeping around cutout generation, without the model.
@@ -148,5 +148,23 @@ describe("alphaVerdict", () => {
 describe("lit", () => {
   it("escapes quotes, because a fighter id reaches SQL as a literal", () => {
     expect(lit("o'brien")).toBe("'o''brien'");
+  });
+});
+
+describe("recordCutoutSql", () => {
+  it("puts the cutout and its verdict on the row in one statement and moves updated_at", () => {
+    const sql = recordCutoutSql("f1", "/media/cutouts/f1-ab.webp", { verdict: "repaired", reasons: ["head-only", "dark"] }, 42);
+    expect(sql).toContain("cutout = '/media/cutouts/f1-ab.webp'");
+    expect(sql).toContain("cutout_quality = 'repaired'");
+    expect(sql).toContain(`cutout_issues = '["head-only","dark"]'`);
+    expect(sql).toContain("updated_at = 42");
+    expect(sql).toContain("WHERE id = 'f1'");
+  });
+
+  it("writes nothing it does not recognise", () => {
+    const sql = recordCutoutSql("f1", "/media/cutouts/f1-ab.webp", { verdict: "great", reasons: ["x'); DROP"] }, 1);
+    expect(sql).toContain("cutout_quality = NULL");
+    expect(sql).toContain("cutout_issues = NULL");
+    expect(sql).not.toContain("DROP");
   });
 });

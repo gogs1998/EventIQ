@@ -211,12 +211,32 @@ export const fighters = sqliteTable(
     photo: text("photo"),
     cutout: text("cutout"),
     /**
+     * What the renderer thought of the cutout it made: "ok", "repaired" or
+     * "poor", with the reasons as a JSON array beside it. Null is a cutout
+     * nobody judged — the curated demo ones, and any made before this column —
+     * and is read as usable, because it always was. A "poor" cutout is kept but
+     * never shown; lib/portrait.ts shows the photograph instead. Written in the
+     * same statement as the cutout and cleared with it.
+     */
+    cutoutQuality: text("cutout_quality"),
+    cutoutIssues: text("cutout_issues"),
+    /**
      * A poster-art portrait made from the photograph, opted into and then
      * approved by the fighter. Null is the ordinary state and the default: a
      * real photograph is what the programme shows unless somebody asked for this
      * and then looked at the result. See lib/portrait.ts for the precedence.
      */
     stylised: text("stylised"),
+    /**
+     * A tidied copy of the photograph — relit and cleaned by a model, the
+     * fighter's face, build and skin tone unchanged — that the fighter asked
+     * for, looked at and approved. Only offered when the cutout came out poor,
+     * and only behind AI_PHOTO_REPAIR. `photo` is never overwritten: the original
+     * stays on the row, and discarding this goes straight back to it. While it
+     * is set it is what the renderer cuts out and what the card shows, and every
+     * surface that shows it says it was tidied.
+     */
+    tidied: text("tidied"),
     instagram: text("instagram"),
     /**
      * Null across all three means the fighter has not given us a record, which is
@@ -243,6 +263,7 @@ export const fighters = sqliteTable(
     index("fighters_photo").on(table.photo),
     index("fighters_cutout").on(table.cutout),
     index("fighters_stylised").on(table.stylised),
+    index("fighters_tidied").on(table.tidied),
     // Matching a name a promoter has just typed against the people already
     // here. Over `lower(name)` rather than over the column, because two
     // people with one name in one sport is common and the match has to be

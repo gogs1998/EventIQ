@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { FighterPortrait } from "@/components/FighterPortrait";
 import {
+  CLEARED_WITH_PHOTO,
   cutoutSurvives,
+  cutoutUsable,
   mediaKeyOf,
   ownMediaKeyOf,
   parallaxTravel,
@@ -295,5 +297,39 @@ describe("plateInitials", () => {
   it("copes with one name and with stray spacing", () => {
     expect(plateInitials("Ronaldo")).toBe("R");
     expect(plateInitials("  otis   grant ")).toBe("OG");
+  });
+});
+
+/**
+ * The renderer judges every cutout it makes (scripts/photo-quality.mjs). A poor
+ * one — two people it could not separate, a head through the top of the frame —
+ * is kept on the row and never shown, and the fighter's own photograph goes in
+ * its place: a face in a rectangle is never worse than a cutout that is wrong.
+ */
+describe("a cutout the renderer judged poor", () => {
+  const photo = "/media/fighters/f1-cd34.jpg";
+  const cutout = "/media/cutouts/f1-ab12.webp";
+
+  it("is passed over for the photograph it was cut from", () => {
+    expect(portraitOf({ cutout, photo, cutoutQuality: "poor" })).toEqual({ kind: "photo", src: photo });
+    expect(cutoutUsable({ cutout, cutoutQuality: "poor" })).toBe(false);
+  });
+
+  it("is used when it was repaired, or fine, or never judged at all", () => {
+    expect(portraitOf({ cutout, photo, cutoutQuality: "repaired" }).kind).toBe("cutout");
+    expect(portraitOf({ cutout, photo, cutoutQuality: "ok" }).kind).toBe("cutout");
+    // The curated cutouts have no verdict, and silence is not a poor one.
+    expect(portraitOf({ cutout, photo }).kind).toBe("cutout");
+  });
+
+  it("never outranks a portrait the fighter approved", () => {
+    const art = "/media/portraits/f1-ef56.png";
+    expect(portraitOf({ stylised: art, cutout, photo, cutoutQuality: "poor" }).kind).toBe("stylised");
+  });
+
+  it("is cleared, verdict and all, whenever the photograph is replaced", () => {
+    for (const column of ["cutout", "cutoutQuality", "cutoutIssues", "stylised", "tidied"]) {
+      expect(CLEARED_WITH_PHOTO).toHaveProperty(column, null);
+    }
   });
 });

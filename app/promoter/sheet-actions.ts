@@ -20,7 +20,7 @@ import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { bothCornersAreOnePerson, resolveCorner, type CornerResolution } from "@/lib/fighter-match";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { ownMediaKeyOf } from "@/lib/portrait";
+import { CLEARED_WITH_PHOTO, ownMediaKeyOf } from "@/lib/portrait";
 import {
   MAX_SHEET_BOUTS,
   MAX_SHEET_LENGTH,
@@ -406,7 +406,7 @@ export async function setFighterPhoto(
       // After the object, so a row can never point at bytes that are not there.
       await db
         .update(schema.fighters)
-        .set({ photo: path, cutout: null, stylised: null, updatedAt: Date.now() })
+        .set({ photo: path, ...CLEARED_WITH_PHOTO, updatedAt: Date.now() })
         .where(eq(schema.fighters.id, fighterId));
 
       for (const old of superseded) {

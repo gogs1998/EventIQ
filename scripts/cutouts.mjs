@@ -42,7 +42,14 @@ import { pathToFileURL } from "node:url";
 import { mediaKeyOf } from "../lib/portrait.ts";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
-import { eqFilter, exposurePlan, lumaStats, pngSize, repairMask } from "./photo-quality.mjs";
+import {
+  eqFilter,
+  exposurePlan,
+  lumaStats,
+  pngSize,
+  QUALITY_REASONS,
+  repairMask,
+} from "./photo-quality.mjs";
 
 // See scripts/environments.mjs. `--env staging` reads and writes staging's own
 // rows and objects; without it this is production, as it always was.
@@ -136,6 +143,23 @@ export function alphaVerdict(coverage) {
   if (coverage < MIN_ALPHA) return "empty";
   if (coverage > MAX_ALPHA) return "untouched";
   return "ok";
+}
+
+/**
+ * The statement that puts a cutout and its verdict on a fighter.
+ *
+ * The verdict and the reasons are checked against the names the app reads
+ * (lib/photo-quality.ts) rather than written as given, so a typo here cannot
+ * leave a value the app silently reads as "no verdict".
+ */
+export function recordCutoutSql(fighterId, media, { verdict, reasons }, now) {
+  const quality = ["ok", "repaired", "poor"].includes(verdict) ? lit(verdict) : "NULL";
+  const known = (reasons ?? []).filter((reason) => QUALITY_REASONS.includes(reason));
+  const issues = known.length ? lit(JSON.stringify(known)) : "NULL";
+  return (
+    `UPDATE fighters SET cutout = ${lit(media)}, cutout_quality = ${quality}, ` +
+    `cutout_issues = ${issues}, updated_at = ${now} WHERE id = ${lit(fighterId)}`
+  );
 }
 
 /** Single-quoted SQL literal. Operator input, but there is no reason to trust it. */
@@ -323,7 +347,7 @@ export async function ensureCutouts({
     for (const fighter of wanted) {
       try {
         const { key, verdict, reasons } = await makeCutout(fighter, { scope, work, timeoutMs });
-        await recordCutout(fighter, key, scope);
+        await recordCutout(fighter, key, { verdict, reasons }, scope);
         summary.made += 1;
         log(`  ${fighter.id}  ${key}  ${verdict}${reasons.length ? ` (${reasons.join(", ")})` : ""}`);
       } catch (error) {
@@ -467,16 +491,18 @@ async function makeCutout(fighter, { scope, work, timeoutMs }) {
 /**
  * Records the cutout, and bumps `updated_at` so the render fingerprint moves.
  *
+ * The verdict goes in the same statement, so a cutout is never on the row
+ * without the judgement of it — and because `updated_at` moves with both, the
+ * fingerprint needs no field of its own for the verdict: a video made before it
+ * was written is already stale by the time it is.
+ *
  * A previous cutout of ours at a different key is deleted, best effort. It is
  * only reachable through this column, so leaving it would be litter in a bucket
  * nobody audits; failing to delete it is not worth losing the cutout over.
  */
-async function recordCutout(fighter, key, scope) {
+async function recordCutout(fighter, key, quality, scope) {
   const media = `/media/${key}`;
-  await d1(
-    `UPDATE fighters SET cutout = ${lit(media)}, updated_at = ${Date.now()} WHERE id = ${lit(fighter.id)}`,
-    scope,
-  );
+  await d1(recordCutoutSql(fighter.id, media, quality, Date.now()), scope);
 
   if (fighter.cutout?.startsWith("/media/cutouts/") && fighter.cutout !== media) {
     await run("npx", [

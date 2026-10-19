@@ -15,7 +15,7 @@ import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
+import { CLEARED_WITH_PHOTO, cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
 import {
   allowedSponsorIds,
   num,
@@ -143,7 +143,7 @@ export async function saveDraft(
       // that one.
       const columns = cutoutSurvives(fighter.photo, draft.photo)
         ? columnsFrom(draft)
-        : { ...columnsFrom(draft), cutout: null, stylised: null };
+        : { ...columnsFrom(draft), ...CLEARED_WITH_PHOTO };
 
       const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
         db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
@@ -365,7 +365,7 @@ export async function uploadPhoto(
       // After the object, so a row can never point at bytes that are not there.
       await db
         .update(schema.fighters)
-        .set({ photo: path, cutout: null, stylised: null, updatedAt: Date.now() })
+        .set({ photo: path, ...CLEARED_WITH_PHOTO, updatedAt: Date.now() })
         .where(eq(schema.fighters.id, fighter.id));
 
       // And after the row, best effort, exactly as the removal control does it:

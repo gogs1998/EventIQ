@@ -31,6 +31,7 @@ import {
   sponsorMark,
   type Renders,
 } from "@/lib/renders";
+import { cutoutIssuesFrom, cutoutQualityFrom } from "@/lib/photo-quality";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type { ShowListing } from "@/lib/shows";
 import type {
@@ -104,6 +105,8 @@ export function toFighter(row: FighterRow, sponsorIds: string[]): Fighter {
     stance: optional(row.stance) as Stance | undefined,
     photo: optional(row.photo),
     cutout: optional(row.cutout),
+    cutoutQuality: cutoutQualityFrom(row.cutoutQuality),
+    cutoutIssues: cutoutIssuesFrom(row.cutoutIssues),
     stylised: optional(row.stylised),
     instagram: optional(row.instagram),
     // All three or none. A partly stored record would be a bug upstream, and
