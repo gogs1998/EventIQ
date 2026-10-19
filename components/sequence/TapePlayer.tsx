@@ -39,10 +39,20 @@ export function TapePlayer({
   // number a sponsor is shown is people who chose to watch.
   const played = () => track({ slug: card.event.slug, kind: "tape_play", boutNumber: bout.number });
   const mp4 = renders?.tape;
+  // A file that will not load is drawn live instead. The composition is the
+  // same one the file was made from, so the spectator sees the bout either way
+  // rather than a dead box where the video was.
+  const [unplayable, setUnplayable] = useState(false);
   return (
     <div className="grid gap-5">
-      {mp4 ? (
-        <VideoTape card={card} bout={bout} mp4={mp4} onPlay={played} />
+      {mp4 && !unplayable ? (
+        <VideoTape
+          card={card}
+          bout={bout}
+          mp4={mp4}
+          onPlay={played}
+          onUnplayable={() => setUnplayable(true)}
+        />
       ) : (
         <LiveTape card={card} bout={bout} onPlay={played} />
       )}
@@ -51,6 +61,7 @@ export function TapePlayer({
           slug={card.event.slug}
           boutNumber={bout.number}
           mp4={renders.faceoff}
+          pageUrl={`/e/${card.event.slug}`}
           title={promoTitle(card, bout)}
         />
       ) : null}
@@ -74,18 +85,28 @@ export function PromoPlayer({
   slug,
   boutNumber,
   mp4,
+  pageUrl,
   title,
   fighterId,
 }: {
   slug: string;
   boutNumber: number;
   mp4: string;
+  /** Where a share sends somebody: the page this player is on. */
+  pageUrl: string;
   title: string;
   /** Set on a fighter's own page, so a share says whose page it left from. */
   fighterId?: string;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
+  const [unplayable, setUnplayable] = useState(false);
+  useUnplayable(video, () => setUnplayable(true));
+
+  // The promo is an offer beside the tape rather than the thing the page is
+  // for, so a file that will not load takes the offer away rather than leaving
+  // a box with a play button that does nothing.
+  if (unplayable) return null;
 
   return (
     <div className="grid gap-3">
@@ -100,6 +121,7 @@ export function PromoPlayer({
           className="block w-full"
           style={{ aspectRatio: `${SEQ.width} / ${SEQ.height}` }}
           onEnded={() => setStarted(false)}
+          onError={() => setUnplayable(true)}
           aria-label={`${VIDEO_SHARE.promo}, ${title}`}
         />
         {started ? null : (
@@ -118,12 +140,31 @@ export function PromoPlayer({
       <VideoShare
         slug={slug}
         mp4={mp4}
+        pageUrl={pageUrl}
         boutNumber={boutNumber}
         fighterId={fighterId}
         title={title}
       />
     </div>
   );
+}
+
+/**
+ * Reports a video whose source failed before React was listening.
+ *
+ * `onError` covers a file that fails after hydration. One that 404s while the
+ * page is still hydrating has already fired its error event at nobody, and the
+ * element just sits there with `error` set, so the effect asks once on mount.
+ */
+function useUnplayable(video: React.RefObject<HTMLVideoElement | null>, report: () => void) {
+  useEffect(() => {
+    const element = video.current;
+    if (element && (element.error || element.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) {
+      report();
+    }
+    // Once, on mount: after that the element's own onError is listening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -161,14 +202,18 @@ function VideoTape({
   bout,
   mp4,
   onPlay,
+  onUnplayable,
 }: {
   card: Card;
   bout: Bout;
   mp4: string;
   onPlay: () => void;
+  /** The file did not load: a superseded render, or a key that is gone. */
+  onUnplayable: () => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
+  useUnplayable(video, onUnplayable);
 
   return (
     <div className="grid gap-3">
@@ -184,6 +229,7 @@ function VideoTape({
           className="block w-full"
           style={{ aspectRatio: `${SEQ.width} / ${SEQ.height}` }}
           onEnded={() => setStarted(false)}
+          onError={onUnplayable}
           aria-label={`Tale of the tape, bout ${bout.number}`}
         />
         {started ? null : (
@@ -200,6 +246,7 @@ function VideoTape({
       <VideoShare
         slug={card.event.slug}
         mp4={mp4}
+        pageUrl={`/e/${card.event.slug}`}
         boutNumber={bout.number}
         title={promoTitle(card, bout)}
       />

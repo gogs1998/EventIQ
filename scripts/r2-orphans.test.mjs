@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   MIN_AGE_HOURS,
+  RENDER_GRACE_DAYS,
   orphansOf,
   parseListing,
+  renderSeries,
+  supersededAt,
   referencedKeys,
   underManagedPrefix,
 } from "./r2-orphans.mjs";
@@ -126,6 +129,56 @@ describe("orphansOf", () => {
       "portraits/nadia-9999.png",
     );
     expect(MIN_AGE_HOURS).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * The renderer used to delete the previous video the moment a new one was
+   * published, and every open tab and shared link to it became a 404. Nothing
+   * deletes on publish now; this does, a month after the replacement landed.
+   */
+  describe("a superseded render", () => {
+    const series = (hash, uploaded) => ({
+      key: `renders/cage-county-12/bout-15-faceoff-${hash}.mp4`,
+      uploaded,
+    });
+    const current = series("bbbbbbbb", old(2));
+    const current0 = new Set([current.key]);
+
+    it("is kept for the grace period, counted from the render that replaced it", () => {
+      // Made two months ago, replaced two days ago: out of date for two days.
+      const superseded = series("aaaaaaaa", old(60));
+      expect(orphansOf([superseded, current], current0, NOW)).toEqual([]);
+    });
+
+    it("is taken once its replacement is older than the grace period", () => {
+      const superseded = series("aaaaaaaa", old(60));
+      const replaced = series("bbbbbbbb", old(RENDER_GRACE_DAYS + 1));
+      const keys = orphansOf([superseded, replaced], new Set([replaced.key]), NOW).map((o) => o.key);
+      expect(keys).toEqual([superseded.key]);
+    });
+
+    it("with nothing after it, counts from its own upload", () => {
+      const alone = series("aaaaaaaa", old(10));
+      expect(orphansOf([alone], new Set(), NOW)).toEqual([]);
+      const older = series("aaaaaaaa", old(RENDER_GRACE_DAYS + 5));
+      expect(orphansOf([older], new Set(), NOW)).toEqual([older]);
+    });
+  });
+});
+
+describe("renderSeries", () => {
+  it("files both key shapes under the bout and the composition they are a video of", () => {
+    expect(renderSeries("renders/cc12/bout-15-faceoff-abcdef01.mp4")).toBe("cc12/15/faceoff");
+    expect(renderSeries("renders/cc12/bout-15-tape-abcdef01.mp4")).toBe("cc12/15/tape");
+    // Before templates, every render was the tape.
+    expect(renderSeries("renders/cc12/bout-15-abcdef01.mp4")).toBe("cc12/15/tape");
+    expect(renderSeries("fighters/nadia.jpg")).toBeNull();
+  });
+
+  it("does not file the promo with the tape of the same bout", () => {
+    const tape = { key: "renders/cc12/bout-15-tape-aaaaaaaa.mp4", uploaded: old(40) };
+    const promo = { key: "renders/cc12/bout-15-faceoff-bbbbbbbb.mp4", uploaded: old(35) };
+    expect(supersededAt(tape, [tape, promo])).toBe(tape.uploaded);
   });
 });
 

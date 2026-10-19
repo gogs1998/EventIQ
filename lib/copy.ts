@@ -647,11 +647,12 @@ export const VIDEO_SHARE = {
     "A shorter cut of the same bout, made for posting. The fighters are welcome to it.",
   /** The dashboard control that hands a fighter their own bout's promo. */
   send: "Send their video",
-  sendHint: "Opens WhatsApp with the video and the programme link in the message",
+  sendHint: "Opens WhatsApp with a link to their page, where the video plays and downloads",
   /** Under the videos panel, once there is something to send. */
   note:
     "Where a promo is made, both fighters on the bout can be sent it. The message carries " +
-    "the file and the link to the programme, and the row records that it went out.",
+    "a link to the fighter's own page, where the video plays and downloads, and the row " +
+    "records that it went out.",
 } as const;
 
 /** What the dashboard says about how often a bout's video has been taken away. */
@@ -693,10 +694,12 @@ export function videoSentNote(
 /**
  * The message a promoter sends a fighter when their bout's promo is ready.
  *
- * Both links, because they answer different questions: the file is the thing to
- * post and the programme is where it came from, and a fighter handed only the
- * file has nothing to point anybody at. The order is deliberate — the file
- * first, because that is what the message is about.
+ * Two pages rather than the file and a page. A link to the mp4 names one render,
+ * and the next render of the bout supersedes it, so a message sent on Tuesday
+ * pointed at a file that might not be there by Saturday. The fighter's own page
+ * always plays the current video and has the download on it; the programme is
+ * where it came from. The fighter's page first, because the video is what the
+ * message is about.
  *
  * It says what the video is and stops. It does not say how long it is, how many
  * people will see it, or what posting it will do for anybody, because none of
@@ -706,13 +709,14 @@ export function videoReadyMessage(input: {
   firstName: string;
   eventName: string;
   boutLabel: string;
-  videoUrl: string;
+  /** The fighter's own page in the programme, where the promo plays and downloads. */
+  pageUrl: string;
   programmeUrl: string;
 }): string {
   return [
     `Hi ${input.firstName} — the video for ${input.boutLabel.toLowerCase()} at ${input.eventName} is ready.`,
-    `Here it is, yours to post wherever you like: ${input.videoUrl}`,
-    `The full programme, with your profile on it: ${input.programmeUrl}`,
+    `It is on your page, ready to download and post wherever you like: ${input.pageUrl}`,
+    `The full programme: ${input.programmeUrl}`,
   ].join("\n\n");
 }
 

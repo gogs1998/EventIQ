@@ -24,6 +24,9 @@
  *   playing.** Never deleted, whatever else is true of it: a render is the one
  *   object here that a spectator is reading at the moment somebody runs a
  *   tidy-up, and a bout that loses its video loses it in public.
+ *   A render it *superseded* is kept too, for RENDER_GRACE_DAYS after the one
+ *   that replaced it: the renderer no longer deletes on publish, so this is the
+ *   only thing that ever takes one, and links to it are still out there.
  *
  * **Nothing recent is taken.** An object is written a moment before the row that
  * points at it — `uploadPhoto` puts it and then writes the path — and a stylised
@@ -88,6 +91,19 @@ export const MANAGED_PREFIXES = ["fighters/", "cutouts/", "portraits/", "sponsor
  */
 export const MIN_AGE_HOURS = 24;
 
+/**
+ * How long a superseded render is kept after the render that replaced it.
+ *
+ * A render nothing points at is not unreachable the way a stale photograph is.
+ * It is a tab somebody opened at the venue, a link a fighter sent round a group
+ * chat, a file a phone cached for a year. The renderer used to delete it the
+ * moment its successor landed and every one of those became a 404 at once. So
+ * it waits a month, counted from when it was superseded rather than from when
+ * it was made: a video uploaded six weeks ago and replaced this morning has been
+ * out of date for hours, not weeks.
+ */
+export const RENDER_GRACE_DAYS = 30;
+
 // --------------------------------------------------------------- pure parts
 
 /** Every object key the database is pointing at, from the five columns that can. */
@@ -116,15 +132,59 @@ export function underManagedPrefix(key) {
 }
 
 /**
- * The objects that may be deleted: under one of our prefixes, pointed at by
- * nothing, and old enough that nothing is in the middle of pointing at it.
+ * Which bout and composition a render key is a video of, or null.
+ *
+ * `renders/<slug>/bout-<n>-<template>-<hash8>.mp4`, and the older shape with no
+ * template, which was always the tape. Two keys in the same series are two
+ * renders of the same video, and the later one superseded the earlier.
  */
-export function orphansOf(objects, referenced, now, minAgeHours = MIN_AGE_HOURS) {
+export function renderSeries(key) {
+  const match = /^renders\/([^/]+)\/bout-(\d+)-(?:([a-z]+)-)?[0-9a-f]{8}\.mp4$/.exec(key);
+  if (!match) return null;
+  return `${match[1]}/${match[2]}/${match[3] ?? "tape"}`;
+}
+
+/**
+ * When a render stopped being the current one: the upload of the next render
+ * in its series. A render with no successor in the bucket — a bout taken off, a
+ * key in a shape this does not recognise — has nothing better to count from
+ * than its own upload, which is the earlier and therefore the cautious answer
+ * only in the sense that the grace is a month either way.
+ */
+export function supersededAt(object, objects) {
+  const series = renderSeries(object.key);
+  if (!series) return object.uploaded;
+  let at = null;
+  for (const other of objects) {
+    if (other.key === object.key || other.uploaded <= object.uploaded) continue;
+    if (renderSeries(other.key) !== series) continue;
+    at = at === null ? other.uploaded : Math.min(at, other.uploaded);
+  }
+  return at ?? object.uploaded;
+}
+
+/**
+ * The objects that may be deleted: under one of our prefixes, pointed at by
+ * nothing, and old enough that nothing is in the middle of pointing at it — or,
+ * for a render, superseded for long enough that nobody is still watching it.
+ */
+export function orphansOf(
+  objects,
+  referenced,
+  now,
+  minAgeHours = MIN_AGE_HOURS,
+  renderGraceDays = RENDER_GRACE_DAYS,
+) {
   const floor = now - minAgeHours * 3_600_000;
+  const renderFloor = now - renderGraceDays * 86_400_000;
   return objects
     .filter((object) => underManagedPrefix(object.key))
     .filter((object) => !referenced.has(object.key))
     .filter((object) => object.uploaded < floor)
+    .filter(
+      (object) =>
+        !object.key.startsWith("renders/") || supersededAt(object, objects) < renderFloor,
+    )
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 

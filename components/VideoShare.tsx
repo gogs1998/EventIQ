@@ -18,6 +18,11 @@ import { VIDEO_SHARE } from "@/lib/copy";
  * that implied a view count would be the invented engagement figure the product
  * already decided was the most dangerous thing in it.
  *
+ * **The share hands over a page, the download hands over the file.** A shared
+ * link to the mp4 itself was a link to one particular render: the next render of
+ * the bout supersedes it, and a link passed round a group chat outlives any
+ * video. The page plays whichever video is current, and says where it came from.
+ *
  * The share control is only drawn where the browser has `navigator.share`, which
  * is phones — where a fighter actually is. Rendering it and having it fail on a
  * desktop would be a control that does nothing, and the download beside it is
@@ -29,12 +34,16 @@ const NOTHING_CHANGES = () => () => {};
 export function VideoShare({
   slug,
   mp4,
+  pageUrl,
   boutNumber,
   fighterId,
   title,
 }: {
   slug: string;
+  /** The file, for the download. */
   mp4: string;
+  /** The page the video plays on, for the share: a fighter's own, or the programme. */
+  pageUrl: string;
   boutNumber: number;
   /** Set on a fighter's own page, so a promoter can see whose video went where. */
   fighterId?: string;
@@ -68,11 +77,11 @@ export function VideoShare({
           className={control}
           onClick={() => {
             counted();
-            // The address rather than the file: a video attached to a share
-            // sheet is a copy that says nothing about where it came from, and
-            // the page it came from is the thing worth passing on.
+            // The page rather than the file: a video attached to a share sheet
+            // is a copy that says nothing about where it came from, and a link
+            // to the mp4 names one render, which the next one supersedes.
             void navigator
-              .share({ title, url: new URL(mp4, window.location.origin).toString() })
+              .share({ title, url: new URL(pageUrl, window.location.origin).toString() })
               .catch(() => {
                 // Dismissing the sheet rejects. That is a person changing their
                 // mind, not a failure to tell them about.

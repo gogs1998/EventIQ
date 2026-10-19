@@ -814,10 +814,15 @@ async function renderBout(bout, templateId = template) {
  * had already played the bout holding last week's video with no way of finding
  * out — which is the state the whole staleness apparatus exists to avoid.
  *
- * The superseded object is deleted afterwards rather than before, so that a put
- * or a D1 write that fails leaves the programme playing what it was playing.
+ * **The superseded object is left where it is.** It used to be deleted the
+ * moment the new one was recorded, and a published video is not only the row:
+ * it is a tab somebody has open at the venue, a link a fighter shared last
+ * Tuesday and a page a phone has cached for a year. All of those were 404s from
+ * the minute the next render landed. scripts/r2-orphans.mjs takes superseded
+ * renders once they have been superseded for RENDER_GRACE_DAYS, which is the
+ * one place this bucket is tidied.
  */
-async function publishBout(eventId, bout, templateId, file, hash, previousKey) {
+async function publishBout(eventId, bout, templateId, file, hash) {
   const key = renderKeyFor(slug, bout, templateId, hash);
   await run("npx", [
     "wrangler", "r2", "object", "put", `${BUCKET}/${key}`,
@@ -834,15 +839,6 @@ async function publishBout(eventId, bout, templateId, file, hash, previousKey) {
     error: "NULL",
   });
   console.log(`  published ${key}`);
-
-  // A key beginning with a slash is one of the five renders committed under
-  // public/ before there was a bucket. Those are files in the repository, and
-  // deleting them is not this script's business.
-  if (previousKey && previousKey !== key && !previousKey.startsWith("/")) {
-    await run("npx", [
-      "wrangler", "r2", "object", "delete", `${BUCKET}/${previousKey}`, scope,
-    ]).catch((error) => console.log(`  left ${previousKey} in the bucket: ${error.message}`));
-  }
 }
 
 /**
@@ -1047,7 +1043,7 @@ async function main() {
     claim: (target) => claim(eventId, target.number, target.template, target.hash, { force }),
     render: (target) => renderBout(target.number, target.template),
     publishOne: (target, file) =>
-      publishBout(eventId, target.number, target.template, file, target.hash, target.job?.currentR2Key),
+      publishBout(eventId, target.number, target.template, file, target.hash),
     fail: (target, error) =>
       finishJob(eventId, target.number, target.template, {
         status: lit("failed"),

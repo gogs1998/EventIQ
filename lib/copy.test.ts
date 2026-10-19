@@ -1397,8 +1397,8 @@ describe("the video share copy", () => {
     firstName: "Chloe",
     eventName: "Cage County 12",
     boutLabel: "Bout 4",
-    videoUrl: "https://eventiq.win/media/renders/cage-county-12/bout-4-faceoff-abcdef01.mp4",
-    programmeUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+    pageUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+    programmeUrl: "https://eventiq.win/e/cage-county-12",
   });
 
   const LINES = [...Object.values(VIDEO_SHARE), MESSAGE];
@@ -1406,8 +1406,17 @@ describe("the video share copy", () => {
   it("names the fighter and hands over both links", () => {
     expect(MESSAGE).toContain("Chloe");
     expect(MESSAGE).toContain("Cage County 12");
-    expect(MESSAGE).toContain("bout-4-faceoff-abcdef01.mp4");
     expect(MESSAGE).toContain("/e/cage-county-12/f/chloe-baines");
+    expect(MESSAGE.endsWith("programme: https://eventiq.win/e/cage-county-12")).toBe(true);
+  });
+
+  /**
+   * A link to the mp4 named one render, and the next render of the bout
+   * supersedes it. The page always plays the current one.
+   */
+  it("hands over pages rather than a file the next render replaces", () => {
+    expect(MESSAGE).not.toContain(".mp4");
+    expect(MESSAGE).not.toContain("/media/");
   });
 
   /** No duration, and nothing about what posting it will do for anybody. */

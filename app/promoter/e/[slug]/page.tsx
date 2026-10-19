@@ -650,11 +650,11 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                     firstName: firstName(fighter),
                     eventName: event.name,
                     boutLabel: boutBillingLabel(bout),
-                    videoUrl: `${SITE_URL}${promo}`,
-                    // Their own page rather than the running order: it is the one
-                    // that is about them, and it is where the promo is offered a
-                    // second time to whoever they send it on to.
-                    programmeUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
+                    // Their own page rather than the file: it is the one that is
+                    // about them, it plays whichever render is current when the
+                    // message is opened, and it carries the download.
+                    pageUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
+                    programmeUrl: `${SITE_URL}/e/${event.slug}`,
                   }),
                 }))
               : [];
