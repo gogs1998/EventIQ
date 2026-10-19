@@ -1658,3 +1658,42 @@ export const GALLERY = {
   /** No show on display, so there is nothing behind them to open. */
   unlinked: "Screenshots of the working demo, not mockups.",
 } as const;
+
+/* -------------------------------------------------------------------------
+ * The photograph a fighter sends
+ *
+ * Most of what goes wrong with a cutout is decided before the photograph is
+ * taken: a selfie with a mate in it, a dark bar, a black T-shirt against a black
+ * wall. So the questionnaire says what works, once, beside the control — and it
+ * says it as what works rather than as a list of mistakes, because the fighter
+ * reading it has not made any yet. Nothing here suggests a photograph already
+ * sent was wrong.
+ * ---------------------------------------------------------------------- */
+
+export const PHOTO_GUIDE = {
+  /** Beside the control, where nothing has carried over from a previous card. */
+  hint: "We cut the background out for you, so the photo only has to show you.",
+  /** The one line to remember. */
+  headline: "Just you, waist up, good light, plain wall.",
+  /** Under the frame that works. */
+  good: "Works well",
+  goodPoints: ["Just you in the frame", "Head to waist, facing the camera", "Light on your face"],
+  /** Under the frame that is harder. Harder for the software, not wrong of anybody. */
+  avoid: "Harder to cut out",
+  avoidPoints: ["Somebody else beside you", "A dark room", "Cropped at the chin"],
+  /** What the illustration shows, for a screen reader. */
+  alt:
+    "Two sketches. One shows a single person from the waist up in good light against a " +
+    "plain wall. The other shows two people close together in a dark room.",
+} as const;
+
+/** Every line of the photo guidance, for the tone tests. */
+export const PHOTO_GUIDE_STRINGS: readonly string[] = [
+  PHOTO_GUIDE.hint,
+  PHOTO_GUIDE.headline,
+  PHOTO_GUIDE.good,
+  ...PHOTO_GUIDE.goodPoints,
+  PHOTO_GUIDE.avoid,
+  ...PHOTO_GUIDE.avoidPoints,
+  PHOTO_GUIDE.alt,
+];

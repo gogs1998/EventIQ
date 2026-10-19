@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
+import { PhotoGuide } from "@/components/PhotoGuide";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
 import type { ActionResult } from "@/lib/action-result";
@@ -14,6 +15,7 @@ import {
   ACTION_ERRORS,
   CONSENT_GIVEN,
   FIGHTER_IMPORT,
+  PHOTO_GUIDE,
   PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
@@ -885,7 +887,7 @@ export function Questionnaire({
               hint={
                 returning && draft.photo
                   ? RETURNING_FIGHTER.photo
-                  : "We cut the background out for you. A plain wall and decent light is all it takes."
+                  : PHOTO_GUIDE.hint
               }
             >
               <div className="flex flex-wrap items-center gap-3">
@@ -919,6 +921,7 @@ export function Questionnaire({
               {photoError ? (
                 <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
               ) : null}
+              <PhotoGuide />
             </Field>
 
             {/* After the photograph and never instead of it. Drawn only on

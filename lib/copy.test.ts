@@ -57,6 +57,8 @@ import {
   slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
+  PHOTO_GUIDE,
+  PHOTO_GUIDE_STRINGS,
   STYLISED,
   tableCardNote,
   tapeForEveryBout,
@@ -1707,5 +1709,31 @@ describe("the sheet import copy", () => {
       expect(line.trim()).toBe(line);
       expect(line).not.toMatch(/undefined|NaN|TODO/);
     }
+  });
+});
+
+describe("the photo guidance", () => {
+  /**
+   * Read before anything is sent, by a fighter who has done nothing wrong. It
+   * says what works and never what a fighter got wrong.
+   */
+  it("keeps the established tone", () => {
+    for (const line of PHOTO_GUIDE_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+      expect(line).not.toMatch(/fault|blame|sorry|bad|wrong|poor|mistake/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have|don'?t|never/i);
+      expect(line).not.toMatch(/organiz|customiz|color|optimiz|!/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line.trim()).toBe(line);
+    }
+  });
+
+  it("says the four things that make a cutout work, in one line", () => {
+    const line = PHOTO_GUIDE.headline.toLowerCase();
+    for (const word of ["just you", "waist", "light", "wall"]) expect(line).toContain(word);
+  });
+
+  it("frames the harder photos as harder for the software rather than wrong", () => {
+    expect(PHOTO_GUIDE.avoid.toLowerCase()).toContain("harder");
   });
 });
