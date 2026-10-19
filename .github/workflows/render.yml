@@ -79,14 +79,58 @@ jobs:
 
       - run: npm ci
 
+      - name: Check the credentials before spending a runner on them
+        run: |
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RENDER_KEY BASE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set for the $ENVIRONMENT environment. See DEPLOY.md." >&2
+              exit 1
+            fi
+          done
+          echo "Rendering $ENVIRONMENT against $BASE"
+
+      # Which shows, before anything slow is installed. Most hours there is
+      # nothing in the window, and installing ffmpeg first is how an idle run
+      # once spent twenty minutes finding that out.
+      #
+      # A failure here has to fail the run. The query used to be piped through
+      # a filter that read anything it did not recognise as "no rows", without
+      # pipefail, so D1 being unreachable came out as a green "No published
+      # show is close enough" — on the day of a show as much as on any other.
+      # scripts/render-slugs.mjs refuses an answer that is not a list of rows,
+      # and pipefail carries wrangler's own exit code through the pipe.
+      - name: Decide which shows to render
+        id: shows
+        env:
+          SLUG: ${{ github.event.inputs.slug || github.event.client_payload.slug }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            if [ -z "$SLUG" ]; then
+              echo "::error::Pass a slug." >&2
+              exit 1
+            fi
+            echo "slugs=$SLUG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          raw="$(npx wrangler d1 execute eventiq --remote --json --command \
+            "SELECT slug FROM events WHERE published = 1 AND date >= date('now', '-2 days') ORDER BY date")"
+          slugs="$(printf '%s' "$raw" | node scripts/render-slugs.mjs | tr '\n' ' ')"
+          if [ -z "${slugs// /}" ]; then
+            echo "No published show is close enough to want rendering."
+          fi
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+
       # The runner image carries Chrome, and has carried ffmpeg, but neither is
       # promised by anything we control and a render that gets 480 frames in
       # before finding out is an expensive way to be told.
       - name: Find Chrome and ffmpeg
+        if: steps.shows.outputs.slugs != '' && steps.shows.outputs.slugs != ' '
         run: |
+          set -euo pipefail
           chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
           if [ -z "$chrome" ]; then
-            echo "No Chrome on this runner image." >&2
+            echo "::error::No Chrome on this runner image." >&2
             exit 1
           fi
           echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"
@@ -97,27 +141,13 @@ jobs:
           "$chrome" --version
           ffmpeg -version | head -n 1
 
-      - name: Check the credentials before spending a runner on them
-        run: |
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RENDER_KEY BASE; do
-            if [ -z "${!name}" ]; then
-              echo "$name is not set for the $ENVIRONMENT environment. See DEPLOY.md." >&2
-              exit 1
-            fi
-          done
-          echo "Rendering $ENVIRONMENT against $BASE"
-
       # One show, named by hand or by a dispatch from the app.
       - name: Render one show
         if: github.event_name != 'schedule'
         env:
-          SLUG: ${{ github.event.inputs.slug || github.event.client_payload.slug }}
+          SLUG: ${{ steps.shows.outputs.slugs }}
           BOUTS: ${{ github.event.inputs.bouts || github.event.client_payload.bouts }}
         run: |
-          if [ -z "$SLUG" ]; then
-            echo "Pass a slug." >&2
-            exit 1
-          fi
           if [ -n "$BOUTS" ]; then
             # --bout takes one at a time, so that a bout that fails does not
             # take the rest of the list with it.
@@ -134,22 +164,23 @@ jobs:
       # need doing is the renderer's question, not this file's: --stale takes
       # the ones that are queued, out of date, or worth another attempt, and a
       # show with none of those costs three D1 queries.
+      #
+      # The run goes red when any show fails, including a show with a bout
+      # parked after two failed attempts: the renderer exits non-zero for those
+      # and puts a warning on the run's summary, because a bout in the window
+      # that will never be made is the thing somebody needs to hear about.
       - name: Render every show that wants it
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' && steps.shows.outputs.slugs != '' && steps.shows.outputs.slugs != ' '
+        env:
+          SLUGS: ${{ steps.shows.outputs.slugs }}
         run: |
-          slugs="$(npx wrangler d1 execute eventiq --remote --json --command \
-            "SELECT slug FROM events WHERE published = 1 AND date >= date('now', '-2 days') ORDER BY date" \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
-                for (const row of JSON.parse(s)[0]?.results ?? []) console.log(row.slug);
-              })')"
-          if [ -z "$slugs" ]; then
-            echo "No published show is close enough to want rendering."
-            exit 0
-          fi
           failed=0
-          for slug in $slugs; do
+          for slug in $SLUGS; do
             echo "::group::$slug"
-            npm run render -- --slug "$slug" --stale --publish --remote --base "$BASE" || failed=1
+            if ! npm run render -- --slug "$slug" --stale --publish --remote --base "$BASE"; then
+              failed=1
+              echo "::error title=Render failed::$slug has a bout that did not render or is parked. See the log above."
+            fi
             echo "::endgroup::"
           done
           exit $failed
