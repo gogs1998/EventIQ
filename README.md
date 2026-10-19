@@ -186,7 +186,9 @@ npm run db:backup                                   # export the live D1 into R2
 npm run db:restore-rehearsal -- --date 2026-09-07   # load it into a scratch database and count the rows
 ```
 
-D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the cron line and the R2 lifecycle rule.
+D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in.
+
+`.github/workflows/backup.yml` does all of it every night — export, upload, restore what was uploaded into a throwaway database, then prune to thirty days with `npm run db:prune-backups` — and `.github/workflows/uptime.yml` asks the live site whether it is up every fifteen minutes. A failure of either is a GitHub email to the owner; that is the alerting. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the retention and the R2 lifecycle rule.
 
 ### The nightly chores
 

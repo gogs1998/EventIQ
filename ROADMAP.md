@@ -8,7 +8,7 @@ EventIQ is **free for promoters**. The competition (myfightcard.com and the like
 
 ## Done
 
-**v1, September 2026** — from demo to product. Security gates (media gate, rate limits, lockout, CSP), CI, backups and a rehearsed restore, error boundaries and structured logs, the render pipeline on GitHub Actions with a leased queue and fingerprinted keys, operator-created promoter accounts, render keys in the database, invite tokens sealed at rest, consent and a privacy page, the promoter-side record importer, cancelled bouts, sponsor emblems, a staging environment, trustworthy counting with rollups, database-backed tests, one ownership chokepoint, an accessibility pass. HANDOVER section 14 carries the 47-entry bug ledger from this work.
+**v1, September 2026** — from demo to product. Security gates (media gate, rate limits, lockout, CSP), CI, nightly backups with a rehearsed restore and thirty-day retention (`backup.yml`), an uptime check every fifteen minutes (`uptime.yml`), error boundaries and structured logs, the render pipeline on GitHub Actions with a leased queue and fingerprinted keys, operator-created promoter accounts, render keys in the database, invite tokens sealed at rest, consent and a privacy page, the promoter-side record importer, cancelled bouts, sponsor emblems, a staging environment, trustworthy counting with rollups, database-backed tests, one ownership chokepoint, an accessibility pass. HANDOVER section 14 carries the 47-entry bug ledger from this work.
 
 **v2 tier one, 28 September 2026** — turning every show into the next customer:
 

@@ -986,6 +986,9 @@ from and the database and bucket it writes to are chosen together from that one
 input: a renderer reading one environment's capture page and writing the other's
 rows would publish a key that site cannot serve.
 
+A failed run is an email to whoever last edited its cron line, like every other
+scheduled job here — see [Alerts](#alerts).
+
 The workflow finds Chrome on the runner and exports `CHROME_PATH`, and installs
 ffmpeg if the image does not already carry it. Neither is promised by anything
 we control, and a render that gets 480 frames in before finding out is an
@@ -1142,24 +1145,55 @@ script's reordering rather than piping the raw export at a database.
 
 ### Scheduling it
 
-There is deliberately no workflow for this. The job needs a token with D1 and R2
-edit rights, and this repository holds no credentials otherwise; a nightly cron
-on any machine that already has the token is the smaller thing to secure.
+**[`.github/workflows/backup.yml`](.github/workflows/backup.yml) runs it every
+night at 03:15 UTC**, and on `workflow_dispatch`. In order: `npm run db:backup`
+exports production and uploads `eventiq-media/backups/<date>.sql`; the restore
+rehearsal fetches *that object back out of the bucket* and loads it into a
+throwaway local D1 on the runner, failing if the show tables come back empty;
+and only then `npm run db:prune-backups -- --keep 30 --apply` deletes the
+exports that have aged out. A night whose backup is bad therefore deletes
+nothing.
 
-```cron
-# 03:15 UTC nightly. Runs as whoever owns the token.
-15 3 * * *  cd /path/to/EventIQ && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run db:backup >> /var/log/eventiq-backup.log 2>&1
+It uses the two repository secrets the render workflow already has,
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. This section used to say
+there was deliberately no workflow because the repository held no credentials;
+it has held that token since the render pipeline moved to Actions, so the
+reason had gone and no machine had ever been given the cron line instead.
+
+The export never reaches the log or an artifact — it is the most sensitive file
+this project produces and the repository is public. The rehearsal prints row
+counts and nothing else.
+
+**A failure is the alert.** See [Alerts](#alerts). The same command still runs
+from a laptop or a cron line on any machine with the token, which is the way to
+take a copy *off* the account (`--out <dir>`), and that half is still nobody's
+job until somebody makes it theirs.
+
+#### Retention
+
+Thirty daily exports: today's and the twenty-nine before it.
+[scripts/prune-backups.mjs](scripts/prune-backups.mjs) cannot list the bucket —
+wrangler has no command for it — so it does not look and decide. It names the
+exact keys `backups/<date>.sql` for the fourteen days after the window closes and
+deletes those, so a fortnight of missed nights still catches up and nothing a
+pattern could widen to is ever in reach. Anything older is the
+[lifecycle rule](#the-r2-lifecycle-rule)'s. Without `--apply` it only names
+what it would delete.
+
+**Its first run deletes the hand-taken backups from early September**, the
+8 September pre-rollout export included. A copy of that one was kept off the
+account; if that copy is not where you think it is, fetch it before the first
+night:
+
+```bash
+npx wrangler r2 object get eventiq-media/backups/2026-09-08.sql --file 2026-09-08.sql --remote
 ```
-
-On Windows the equivalent is a Task Scheduler entry running the same command.
-Either way, **check the log the first week and then check the bucket monthly** —
-a backup job nobody looks at is the classic way to find out on the one day it
-matters that it stopped working in March.
 
 ### Folding the counting, and the sweeps
 
-The same machine, the same token, and the same argument for a cron line rather
-than a workflow.
+These are still cron lines on a machine with the token rather than workflows,
+and nothing has installed them. Unlike the backup they destroy data on purpose,
+so they want somebody reading the first few dry runs before they are scheduled.
 
 ```cron
 # 03:40 UTC nightly, after the backup. The order matters: the fold is what keeps
@@ -1183,13 +1217,13 @@ been folded, whatever its age, because until the fold has run those rows are the
 only copy of those numbers.
 
 Both are **dry run by default** and both destroy data with `--apply`. Neither is
-installed anywhere yet: as with the backup, the capability is not the schedule.
+installed anywhere yet: the capability is not the schedule.
 
 ### The R2 lifecycle rule
 
-Nothing in the backup script deletes anything, on purpose: a script that prunes
-is a script that can prune the wrong thing. R2 does it instead, and it only
-needs saying once:
+The backup script deletes nothing, and the pruner deletes only the exact keys
+it names (see [retention](#retention)). This rule is the backstop for anything
+older than the pruner reaches, and it only needs saying once:
 
 ```bash
 npx wrangler r2 bucket lifecycle add eventiq-media eventiq-backups backups/ --expire-days 90
@@ -1202,6 +1236,25 @@ Ninety days is a starting point rather than a considered retention period —
 that is a question for the privacy notice and the retention policy, which are
 [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) item 2, and it wants
 answering before real fighters' details are in these files.
+
+## Alerts
+
+Nothing in the Worker phones home. What there is instead is GitHub's own
+behaviour: **a failed scheduled workflow run emails the person who last edited
+that workflow's cron line**, and a failed dispatched run emails whoever
+dispatched it. So every alert this project has arrives as a GitHub email:
+
+| Workflow | Runs | A failure means |
+| --- | --- | --- |
+| `uptime.yml` | every 15 minutes | `/api/health` or the showcase programme did not answer 200, or health reported D1 or R2 down |
+| `backup.yml` | 03:15 UTC nightly | no export, an upload that did not land, or a restore that came back without a show in it |
+| `render.yml` | hourly | a render or publish failed; the programme keeps playing the previous video or the live sequence |
+
+Two things to know. The emails go to a person, not a team — check *Settings →
+Notifications → Actions* on that account says "failed workflows only" and is not
+off. And GitHub disables every scheduled workflow on a public repository after
+sixty days without a commit, with one email saying so; a quiet spell is when to
+look for it.
 
 ### Objects nothing points at
 
@@ -1395,22 +1448,20 @@ once, before a promoter's card and a room full of spectators depend on it.
         secret and is printed exactly once. Anyone who can push a workflow can
         read a repository secret; that is the trade for the videos being made
         without a person.
-- [ ] **Point an external uptime check at `/api/health`.** Anything that will
-      send a message to a phone — a free tier is fine. Nothing here phones home,
-      so a 500 on show night stays a 500 until somebody happens to log in, and
-      that has already happened once: the PBKDF2 failure was live and invisible
-      until a person tried to sign in. It has to be *external*; a check running
-      on the same thing it is checking answers no useful question. The route
-      itself answers 200 in production as of 8 September 2026, so there is
-      something to point at now.
+- [ ] **Decide whether an email is fast enough.** `uptime.yml` asks
+      `/api/health` and the showcase programme every fifteen minutes and a
+      failure emails the owner ([Alerts](#alerts)). That is external to
+      Cloudflare, which is the property that matters — the PBKDF2 failure was
+      live and invisible until a person tried to sign in. It is not a phone
+      alert, and GitHub's scheduler runs late under load. On a show night, a
+      free external checker that sends a push notification is still worth
+      pointing at `/api/health`.
 - [ ] **Confirm the nightly backup actually ran**, rather than that it is
-      scheduled. A backup was taken by hand before the 8 September rollout —
-      `eventiq-media/backups/2026-09-08.sql`, with a copy kept off the account —
-      but **nothing schedules one**, so that is a habit rather than a mechanism.
-      `npm run db:restore-rehearsal -- --date <yesterday>` is the version of the
-      question worth asking, because it also proves the file restores.
-      [Backups](#backups). Set the [lifecycle rule](#the-r2-lifecycle-rule) at
-      the same time, or the bucket keeps every export forever.
+      scheduled: a green `Nightly backup` run in the Actions tab means the
+      export was uploaded *and* restored. The first one runs the night after
+      this is merged to `main`; dispatch it by hand once to see it go green
+      before relying on the schedule. Set the
+      [lifecycle rule](#the-r2-lifecycle-rule) too, as the backstop.
 - [ ] **Reprint the table card from the live URL.** The QR encodes the origin it
       was served from, so one printed off a laptop is useless at a venue.
 - [ ] **Get the consent wording legally reviewed**, and settle the lawful basis

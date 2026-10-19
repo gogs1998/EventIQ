@@ -26,6 +26,7 @@
     "db:studio": "wrangler d1 execute eventiq --local --command",
     "db:backup": "node scripts/backup.mjs",
     "db:restore-rehearsal": "node scripts/restore-rehearsal.mjs",
+    "db:prune-backups": "node scripts/prune-backups.mjs",
     "assets": "node scripts/prepare-assets.mjs",
     "icons": "node scripts/make-icons.mjs",
     "cutouts": "node scripts/cutouts.mjs",
