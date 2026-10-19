@@ -376,7 +376,9 @@ async function makeCutout(fighter, { scope, work, timeoutMs }) {
   // not load an ONNX runtime it may never use.
   const { removeBackground } = await import("@imgly/background-removal-node");
   const blob = await withTimeout(
-    removeBackground(normalised, { output: { format: "image/png", quality: 0.95 } }),
+    // A URL rather than the path: the library reads a string as a URL, and a
+    // Windows path parses as one whose protocol is the drive letter.
+    removeBackground(pathToFileURL(normalised).href, { output: { format: "image/png", quality: 0.95 } }),
     timeoutMs,
     "background removal",
   );
