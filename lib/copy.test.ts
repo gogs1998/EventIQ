@@ -59,6 +59,9 @@ import {
   sponsorTapNote,
   PHOTO_GUIDE,
   PHOTO_GUIDE_STRINGS,
+  PHOTO_QUALITY,
+  PHOTO_QUALITY_STRINGS,
+  photoIssueLine,
   STYLISED,
   tableCardNote,
   tapeForEveryBout,
@@ -1735,5 +1738,33 @@ describe("the photo guidance", () => {
 
   it("frames the harder photos as harder for the software rather than wrong", () => {
     expect(PHOTO_GUIDE.avoid.toLowerCase()).toContain("harder");
+  });
+});
+
+describe("the photo-quality copy", () => {
+  /**
+   * Read by a fighter about a photograph they sent, and by a promoter about a
+   * fighter. Both say what the software could not do, never what anybody did.
+   */
+  it("keeps the established tone and never puts it on the fighter", () => {
+    for (const line of PHOTO_QUALITY_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+      expect(line).not.toMatch(/fault|blame|sorry|bad|wrong|poor|mistake|blurry/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have|your photo (is|was) (too|not)/i);
+      expect(line).not.toMatch(/organiz|customiz|color|optimiz|!/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("tells the promoter the card is fine meanwhile", () => {
+    expect(PHOTO_QUALITY.meanwhile.toLowerCase()).toContain("uses the photograph");
+  });
+
+  it("says each reason once, and nothing where there is none", () => {
+    expect(photoIssueLine(["head-only", "faint-body"])).toBe("Hard to separate from the background.");
+    expect(photoIssueLine(["multiple-people", "dark"])).toBe("More than one person in the frame. Low light.");
+    expect(photoIssueLine(undefined)).toBe("");
   });
 });

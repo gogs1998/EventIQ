@@ -17,11 +17,13 @@ import {
   EMPTY_DASHBOARD,
   INVITE_SHARE,
   NOTHING_SENT,
+  PHOTO_QUALITY,
   RENDER_SECTION,
   renderStateCopy,
   VIDEO_SHARE,
   boutCountLabel,
   countdown,
+  photoIssueLine,
   renderCountLabel,
   shareCountLabel,
   slotsAvailableNote,
@@ -39,7 +41,7 @@ import {
   firstSteps,
   linkState,
   linksSent,
-  nudgeMessage,
+  chaseMessage,
   sentNote,
   sponsorFor,
   sponsorInventory,
@@ -501,6 +503,18 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                     ) : null}
                     <Meter score={row.score} />
                   </div>
+                  {/* A finished profile can still be here, for its photograph.
+                      Said as what the software could not do, never as what the
+                      fighter did, and with the reassurance that the card is
+                      fine meanwhile. */}
+                  {row.photoCouldBeBetter ? (
+                    <div className="mt-2">
+                      <Badge className="border-gold/40 text-gold">{PHOTO_QUALITY.badge}</Badge>
+                      <p className="text-ash-dim mt-1 text-[0.65rem] leading-relaxed">
+                        {photoIssueLine(row.fighter.cutoutIssues)} {PHOTO_QUALITY.meanwhile}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 {row.invite ? (
@@ -510,7 +524,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                       fighterId={row.fighter.id}
                       name={row.fighter.name}
                       token={row.invite.token}
-                      message={nudgeMessage(row, event, SITE_URL)}
+                      message={chaseMessage(row, event, SITE_URL)}
                       state={linkState(row.invite)}
                     />
                   </div>
@@ -520,7 +534,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                   // one control that needs no link stays.
                   <NudgeButton
                     name={row.fighter.name}
-                    message={nudgeMessage(row, event, SITE_URL)}
+                    message={chaseMessage(row, event, SITE_URL)}
                     compact
                   />
                 )}

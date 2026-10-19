@@ -1697,3 +1697,88 @@ export const PHOTO_GUIDE_STRINGS: readonly string[] = [
   ...PHOTO_GUIDE.avoidPoints,
   PHOTO_GUIDE.alt,
 ];
+
+/* -------------------------------------------------------------------------
+ * A photograph that did not cut out cleanly
+ *
+ * The renderer judges every cutout, and a poor one is never shown: the video
+ * uses the fighter's photograph instead (lib/portrait.ts). So nothing on the
+ * card is broken and nothing here says it is. The fighter is told what the
+ * software could not do rather than what they did, and offered the easiest way
+ * to a better result; the promoter is told the same, with a message ready to
+ * send. A photograph a fighter sent is a thing they did, not a mistake.
+ * ---------------------------------------------------------------------- */
+
+export const PHOTO_QUALITY = {
+  /** The dashboard's state beside the name. */
+  badge: "Photo could be better",
+  /** Under it, so a promoter knows the card is fine meanwhile. */
+  meanwhile: "Their video uses the photograph as sent until a clearer one comes in.",
+  /** What made the cutout hard, in the promoter's words. Never what the fighter did. */
+  issue: {
+    "multiple-people": "More than one person in the frame",
+    "head-only": "Hard to separate from the background",
+    "tiny-subject": "Small in the frame",
+    "very-dark": "Very little light to work with",
+    dark: "Low light",
+    "cut-off": "Close to the edge of the frame",
+    "faint-body": "Hard to separate from the background",
+  },
+  /** The fighter's side, beside their own photograph. */
+  yours: "How you appear in your video",
+  /** A cutout that worked, shown back to them. */
+  ready: "Cut out and ready for your video.",
+  /** A cutout the renderer would not use. The software's limit, said as such. */
+  notClean:
+    "This one would not cut out cleanly, so your video uses the photo as it is. A photo of " +
+    "just you, waist up, in good light against a plain wall usually cuts out well.",
+  /** Before the renderer has been round. */
+  pending: "Your photo is in. It gets cut out for your video before the next one is made.",
+  replace: "Use a different photo",
+} as const;
+
+/**
+ * The one-tap message for a fighter whose photograph did not cut out cleanly.
+ *
+ * Thanks them first, because they did send one, and asks for another as an
+ * offer rather than a correction. Names no pronoun, says nothing about what the
+ * photograph looked like, and carries their own link so the message is the
+ * whole job.
+ */
+export function photoRequestMessage(input: {
+  firstName: string;
+  eventName: string;
+  link: string;
+}): string {
+  return [
+    `Hi ${input.firstName} — thanks for sending your photo in for ${input.eventName}.`,
+    "Your tale of the tape video cuts you out of it, and this one is hard for the software to " +
+      "cut cleanly, so for now the video uses it as it is. If you have one that is just you, " +
+      "waist up, in good light against a plain wall, you can swap it here and the video " +
+      `picks it up: ${input.link}`,
+  ].join("\n\n");
+}
+
+/**
+ * What made a cutout hard, as one sentence for the dashboard, or nothing.
+ *
+ * Two reasons can read the same to a promoter — a lost body and a faint one are
+ * both "hard to separate" — so each sentence is said once.
+ */
+export function photoIssueLine(issues: readonly (keyof typeof PHOTO_QUALITY.issue)[] | undefined): string {
+  const lines = [...new Set((issues ?? []).map((issue) => PHOTO_QUALITY.issue[issue]))];
+  return lines.length ? `${lines.join(". ")}.` : "";
+}
+
+/** Every fixed line of the photo-quality copy, for the tone tests. */
+export const PHOTO_QUALITY_STRINGS: readonly string[] = [
+  PHOTO_QUALITY.badge,
+  PHOTO_QUALITY.meanwhile,
+  ...Object.values(PHOTO_QUALITY.issue),
+  PHOTO_QUALITY.yours,
+  PHOTO_QUALITY.ready,
+  PHOTO_QUALITY.notClean,
+  PHOTO_QUALITY.pending,
+  PHOTO_QUALITY.replace,
+  photoRequestMessage({ firstName: "Sam", eventName: "Cage County 12", link: "https://eventiq.win/f/x" }),
+];

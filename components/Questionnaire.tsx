@@ -16,6 +16,7 @@ import {
   CONSENT_GIVEN,
   FIGHTER_IMPORT,
   PHOTO_GUIDE,
+  PHOTO_QUALITY,
   PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
@@ -24,6 +25,7 @@ import {
   UNDER_AGE,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
+import { cutoutUsable } from "@/lib/portrait";
 import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
   STANCES,
@@ -99,6 +101,50 @@ export type QuestionnaireProps = {
     discard: (path: string) => Promise<ActionResult>;
   };
 };
+
+/**
+ * The fighter's cutout, shown back to them, with the way to change it.
+ *
+ * A poor one is not shown at all — the video does not use it, so showing it
+ * would be showing them something that is not on their card — and the line
+ * beside it says what the software could not do rather than what they did.
+ */
+function YourCutout({ fighter, onPhoto }: { fighter: Fighter; onPhoto: (file: File) => void }) {
+  const usable = cutoutUsable(fighter);
+  const line = !fighter.cutout
+    ? PHOTO_QUALITY.pending
+    : usable
+      ? PHOTO_QUALITY.ready
+      : PHOTO_QUALITY.notClean;
+  return (
+    <div className="border-hairline mt-3 flex gap-3 border p-3">
+      {usable ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={fighter.cutout}
+          alt={PHOTO_QUALITY.yours}
+          className="bg-panel-2 h-28 w-20 shrink-0 object-contain object-bottom"
+        />
+      ) : null}
+      <div className="min-w-0">
+        <p className="label">{PHOTO_QUALITY.yours}</p>
+        <p className="text-ash mt-1 text-[0.7rem] leading-relaxed">{line}</p>
+        <label className="border-hairline hover:border-chalk/40 focus-within:outline-gold mt-2 inline-block cursor-pointer border px-3 py-1.5 text-xs transition-colors focus-within:outline-2 focus-within:outline-offset-2">
+          {PHOTO_QUALITY.replace}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onPhoto(file);
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
 
 /** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
 const AUTOSAVE_DELAY_MS = 1200;
@@ -920,6 +966,13 @@ export function Questionnaire({
               </div>
               {photoError ? (
                 <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
+              ) : null}
+              {/* What the renderer made of the photograph on the row, once it
+                  has been round. Only for the stored photograph: one chosen a
+                  moment ago has not been cut out yet, and showing the previous
+                  cutout beside it would be showing somebody's old picture. */}
+              {upload && draft.photo && draft.photo === base.photo ? (
+                <YourCutout fighter={base} onPhoto={(file) => void onPhoto(file)} />
               ) : null}
               <PhotoGuide />
             </Field>
