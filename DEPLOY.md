@@ -968,13 +968,10 @@ secrets:
 | `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
 | `RENDER_KEY` | an unscoped key from `npm run render-key -- mint --remote` |
 
-All three are set, as of 8 September 2026. **The workflow still does not run**,
-and that is not a secret that is missing: GitHub only runs a scheduled or
-dispatched workflow from the **default branch**, this one lives on
-`cursor/eventiq-digital-fight-programme`, and so `gh workflow run render.yml`
-answers 404 and the hourly cron has never fired. Merging
-[PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main` is the whole of
-the fix, and the first green run is what licenses
+All three are set. GitHub only runs a scheduled or dispatched workflow from the
+**default branch**, so nothing fired until
+[PR #1](https://github.com/gogs1998/EventIQ/pull/1) was merged into `main`; it
+has run hourly and green since, which is what licenses
 `npx wrangler secret delete RENDER_KEY` on the Worker.
 
 It also takes an `environment` input — `production` or `staging`. The hourly run
@@ -1485,11 +1482,14 @@ found at the last minute. The rest of that half is
 
 ## What is left to do
 
-Nothing is blocking the site. As of **8 September 2026** the production Worker
-runs on a fresh account-scoped token, every migration through `0013` is applied,
-`INVITE_KEY` is set, staging exists, and `https://eventiq.win` serves the card
-out of D1 with the cache, CSP and HSTS headers it is meant to have. The
-[rollout log](#rollout-log--8-september-2026) is the sequence.
+Nothing is blocking the site. The production Worker runs on a fresh
+account-scoped token, `INVITE_KEY` is set, staging exists, and
+`https://eventiq.win` serves the card out of D1 with the cache, CSP and HSTS
+headers it is meant to have. **Which migrations are applied is not written down
+here**, because it was always out of date: every deploy applies whatever is in
+[db/migrations](db/migrations) before the Worker goes up, and
+`npx wrangler d1 migrations list eventiq --remote` is the answer. The
+[rollout log](#rollout-log--8-september-2026) is the sequence of the first one.
 
 This list is operational. The product roadmap — starting with getting a real
 show onto the platform, with consent as the gate — lives in
@@ -1507,16 +1507,13 @@ What is still open, and who does it:
    30 invites still in the clear. Every one of those links works and will go on
    working — the table is in the supported half-migrated state — but the sealing
    is the point of the key. [The invite backfill](#the-invite-backfill).
-3. **Merge [PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main`, and
-   confirm the hourly render runs.** *Owner.* GitHub runs scheduled and
-   dispatched workflows from the default branch only, so `render.yml`'s cron has
-   never fired and `gh workflow run render.yml` answers 404. The three secrets it
-   needs are all set; the branch is the only thing missing.
-4. **Delete the legacy `RENDER_KEY` Worker secret, after 3.** *Owner.*
-   `npx wrangler secret delete RENDER_KEY`. The runner holds a minted unscoped
-   key already, so this retires the last credential that reads every promoter's
-   cards without a row behind it. Not before a green render, because deleting
-   first stops every render until the new key is proven.
+3. **Protect `main`: require the CI workflow to pass before a merge.** *Owner,
+   in Settings → Branches.* The deploy now refuses a commit CI has not passed,
+   but only a branch rule stops one landing on `main` in the first place.
+4. **Delete the legacy `RENDER_KEY` Worker secret.** *Owner.*
+   `npx wrangler secret delete RENDER_KEY`. The hourly render has run green on
+   the runner's own minted key, which was the condition, so this retires the
+   last credential that reads every promoter's cards without a row behind it.
 5. **Turn on "Always Use HTTPS", and add the `/e/*` cache rule.** *Owner, in the
    zone dashboard.* Static files are still served over plain http and no
    application code can fix that; the cache rule is what makes the edge honour a
@@ -1536,12 +1533,17 @@ What is still open, and who does it:
    promoter asks rather than during the conversation.
 9. **Reprint the table card from the live URL.** The QR encodes the origin it
    was served from, so one printed from a laptop is useless at a venue.
-10. **Render the tapes into R2.** The programme falls back to playing the
-    sequence live in the browser where no mp4 exists, so this is a quality step
-    rather than a fix, and item 3 is what makes it happen on its own. See
-    [video rendering](#video-rendering).
+10. **Dispatch the first `Nightly backup` and `Uptime` runs by hand** once this
+    is on `main`, and watch both go green, so the first email is not also the
+    first time either has run. `gh workflow run backup.yml --ref main`. See
+    [Alerts](#alerts).
 
-Done on 8 September 2026, and no longer on this list: the API token rotated and
+Done since, and no longer on this list: PR #1 merged, so `render.yml`'s hourly
+cron runs from `main` and has been rendering green; the nightly backup, restore
+rehearsal and thirty-day pruning are a workflow rather than a cron line nobody
+installed; and an uptime check runs every fifteen minutes.
+
+Done on 8 September 2026: the API token rotated and
 narrowed to four account permissions with no zone row and no Pages; a backup
 taken before anything else; migrations `0002` to `0013` applied to production;
 `INVITE_KEY` set on the Worker; two production deploys carrying the showcase

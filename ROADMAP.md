@@ -61,6 +61,8 @@ Judged too risky for a review commit; each is one small job.
 ## Only the owner can do these
 
 - In the Cloudflare dashboard: Always Use HTTPS, a cache rule for `/e/*`, and delete the old API token. The deploy token has no zone permissions.
+- Protect `main` in GitHub's branch settings with the CI workflow as a required check. `scripts/deploy.mjs` refuses a commit CI has not passed, but only the branch rule stops one reaching `main`.
+- After this lands, run `git add --renormalize .` once on `main` and commit whatever it changes, so files added on other branches before `.gitattributes` existed are stored LF too.
 - Password manager entries for the secrets: `INVITE_KEY`, the staging secrets, the runner's render key, the promoter passwords.
 - A lawyer's eye on the consent wording in `lib/consent.ts` and `/privacy`.
 - The commercial model beyond "free", and whether the demo card stays as the production showcase (`SHOWCASE_SLUG`).
@@ -73,7 +75,7 @@ A native app, AI-written fighter bios, AI likenesses of real fighters (a stylise
 ## How the work gets done
 
 - One agent per item, in its own git worktree off `main`, with a dev server on its own port. On an 8 GB machine, no more than two or three at once: six dev servers crashed workerd (bug 39).
-- Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 28-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
-- Merge to `main`, then `npm run deploy` (migrations first, then the Worker) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
-- Migrations are numbered in merge order; the next free number is `0016`. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
+- Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 31-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
+- Merge to `main`, then `npm run deploy` (migrations first, then the Worker; it refuses unless the checkout is a clean `main` level with origin and green on CI, and needs `gh` logged in to ask) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
+- Migrations are numbered in merge order; the next free number is one past the highest in `db/migrations`, as of the moment of merging rather than of branching. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
 - Commit messages name the wrong old behaviour in a sentence. New bugs go in HANDOVER section 14 with the rule they left behind. Copy goes in `lib/copy.ts` with the tone tests.

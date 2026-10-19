@@ -4,7 +4,7 @@
 # The unit suite cannot do this. TaleOfTheTape is a pure function of a frame
 # number and every test of it is a test of the numbers going in; a stray
 # transition, a font that stopped loading or a layer that now paints behind
-# another one leaves all 243 of them green and the video wrong. The only person
+# another one leaves every one of them green and the video wrong. The only person
 # who found out was whoever watched it.
 #
 # It needs no secrets. Everything runs against a dev server on a freshly seeded
