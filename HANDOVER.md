@@ -1095,7 +1095,7 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 
 ## 15. Environment notes
 
-- Node 22, npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
+- Node 24 (`.nvmrc`, which every workflow but `render.yml` reads; that one writes 24 itself), npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
 - Wrangler 4.126.0 and `@opennextjs/cloudflare` 1.20.3, both pinned to exact versions in package.json because they decide what a deploy does. The scripts run the copy in `node_modules` through [scripts/local-bin.mjs](scripts/local-bin.mjs) rather than through `npx`, which on Windows cannot be spawned at all and elsewhere is free to offer a different version.
 - Rendering one bout takes about **60 seconds**. All 15 would be ~15 minutes.
 - `X` display is `:1`, 1920x1200, XFCE, `xdotool` available. Only needed for the sales recording.
