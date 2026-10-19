@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6a072546-81ad-4900-915c-92da5c2c9b5c",
+  "id": "52cd16c0-469b-46eb-9ce9-ba545fc42a6f",
   "prevId": "f6cca2a2-fb3e-4d1c-a5a2-e40d23b68377",
   "tables": {
     "analytics_daily": {
@@ -324,6 +324,13 @@
           ],
           "isUnique": true
         },
+        "bouts_sponsor": {
+          "name": "bouts_sponsor",
+          "columns": [
+            "sponsor_id"
+          ],
+          "isUnique": false
+        },
         "bouts_red": {
           "name": "bouts_red",
           "columns": [
@@ -422,7 +429,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "event_sponsors_sponsor": {
+          "name": "event_sponsors_sponsor",
+          "columns": [
+            "sponsor_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "event_sponsors_event_id_events_id_fk": {
           "name": "event_sponsors_event_id_events_id_fk",
@@ -641,7 +656,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "fighter_sponsors_sponsor": {
+          "name": "fighter_sponsors_sponsor",
+          "columns": [
+            "sponsor_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "fighter_sponsors_fighter_id_fighters_id_fk": {
           "name": "fighter_sponsors_fighter_id_fighters_id_fk",
@@ -1088,6 +1111,13 @@
             "token_digest"
           ],
           "isUnique": true
+        },
+        "invites_fighter": {
+          "name": "invites_fighter",
+          "columns": [
+            "fighter_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {

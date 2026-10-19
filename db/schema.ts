@@ -299,6 +299,9 @@ export const bouts = sqliteTable(
   },
   (table) => [
     uniqueIndex("bouts_event_number").on(table.eventId, table.number),
+    // Deleting a sponsor checks every bout for a reference to it, and without
+    // this that check is a scan of every bout on the instance.
+    index("bouts_sponsor").on(table.sponsorId),
     // A fighter's own page asks the opposite question from every other read
     // here — not "who is on this show" but "which shows has this person been
     // on" — and it is asked on a public page a fighter puts in an Instagram
@@ -322,7 +325,12 @@ export const eventSponsors = sqliteTable(
     /** The strip is ordered and the order was sold, so it is stored rather than derived. */
     position: integer("position").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.eventId, table.sponsorId] })],
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.sponsorId] }),
+    // The key leads on the show, so asking which shows carry a sponsor — which
+    // a sponsor's delete does to honour the foreign key — needs its own.
+    index("event_sponsors_sponsor").on(table.sponsorId),
+  ],
 );
 
 export const fighterSponsors = sqliteTable(
@@ -336,7 +344,10 @@ export const fighterSponsors = sqliteTable(
       .references(() => sponsors.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.fighterId, table.sponsorId] })],
+  (table) => [
+    primaryKey({ columns: [table.fighterId, table.sponsorId] }),
+    index("fighter_sponsors_sponsor").on(table.sponsorId),
+  ],
 );
 
 /**
@@ -433,6 +444,10 @@ export const invites = sqliteTable(
   (table) => [
     uniqueIndex("invites_event_fighter").on(table.eventId, table.fighterId),
     uniqueIndex("invites_token_digest").on(table.tokenDigest),
+    // The unique index above leads on the show, and a fighter's own invites
+    // across shows — the retention sweep, a returning fighter, a fighter's
+    // delete — are asked by fighter.
+    index("invites_fighter").on(table.fighterId),
   ],
 );
 
