@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as schema from "@/db/schema";
 import { RENDER_KEY_HEADER } from "@/lib/auth";
 import { loadInviteByToken } from "@/lib/db/queries";
 import {
@@ -54,6 +55,19 @@ describe("loadVisibleCard", () => {
   it("hands a published programme to anybody", async () => {
     const { db } = await twoShows();
     expect(await loadVisibleCard(db, "cage-county-12")).not.toBeNull();
+  });
+
+  it("carries the sponsors the card places and not the rest of the promoter's book", async () => {
+    const { db, published } = await twoShows();
+    await plantSponsor(db, { id: "sp_placed", promoterId: "pr_cage" });
+    await plantSponsor(db, { id: "sp_pitched", promoterId: "pr_cage" });
+    await db.insert(schema.eventSponsors).values({
+      eventId: published.eventId,
+      sponsorId: "sp_placed",
+      position: 0,
+    });
+    const card = await loadVisibleCard(db, "cage-county-12");
+    expect(Object.keys(card?.sponsors ?? {})).toEqual(["sp_placed"]);
   });
 
   it("refuses a draft to a caller with no session", async () => {

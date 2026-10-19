@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { headers } from "next/headers";
 import { digestsMatch, RENDER_KEY_HEADER, secretDigest, secretMatches } from "@/lib/auth";
+import { publicCard } from "@/lib/card";
 import { getDb, readSecret, type Db } from "@/lib/db";
 import {
   eventOwner,
@@ -95,10 +96,11 @@ export function ownedBy(
 export async function loadVisibleCard(db: Db, slug: string): Promise<VisibleCard | null> {
   const card = await loadCard(db, slug);
   if (!card) return null;
-  if (card.published) return card as VisibleCard;
+  if (!card.published && !visibleTo(card, (await currentPromoter())?.id)) return null;
 
-  const promoter = await currentPromoter();
-  return visibleTo(card, promoter?.id) ? (card as VisibleCard) : null;
+  // A public page has no business with the sponsors the card does not place:
+  // the rest of the promoter's book is their client list. See `publicCard`.
+  return { ...card, sponsors: publicCard(card).sponsors } as VisibleCard;
 }
 
 /**

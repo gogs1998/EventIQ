@@ -7,6 +7,7 @@ import {
   cardCompleteness,
   emptiestEntry,
   featuredBout,
+  publicCard,
   showSponsors,
   type Card,
 } from "@/lib/card";
@@ -198,5 +199,25 @@ describe("a published show with no bouts", () => {
 
   it("still carries the promoter's own sponsors", () => {
     expect(showSponsors(boutless).length).toBe(showSponsors(card).length);
+  });
+});
+
+describe("publicCard", () => {
+  it("keeps every sponsor the card places and none the promoter has only on the books", () => {
+    const pitched = { id: "pitched-not-placed", name: "A client still being pitched" };
+    const loaded = {
+      ...card,
+      eventId: "ev_1",
+      promoterId: "pr_1",
+      fighterUpdatedAt: {},
+      sponsors: { ...sponsors, [pitched.id]: pitched },
+    };
+    const trimmed = publicCard(loaded);
+    expect(trimmed.sponsors[pitched.id]).toBeUndefined();
+    expect(showSponsors(trimmed)).toEqual(showSponsors(card));
+    for (const bout of card.event.bouts) {
+      if (bout.sponsorId) expect(trimmed.sponsors[bout.sponsorId]).toBeDefined();
+    }
+    expect(Object.keys(trimmed).sort()).toEqual(["event", "fighters", "sponsors"]);
   });
 });

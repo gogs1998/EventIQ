@@ -153,6 +153,30 @@ export function showSponsors(card: Card): Sponsor[] {
     .filter((sponsor): sponsor is Sponsor => !!sponsor);
 }
 
+/**
+ * The card as a spectator's browser may hold it.
+ *
+ * `loadCard` resolves sponsors from the promoter's whole book, which is the
+ * right shape for the card editor and the wrong one for a public page: the
+ * programme hands the card to client components, so every sponsor the promoter
+ * has ever entered â€” including ones being pitched and not yet placed, and the
+ * names of their clients â€” went out in the page's payload. This keeps the
+ * sponsors the card actually places (on the show, on a bout, beside a fighter)
+ * and nothing else, and it is a plain `Card`, so the row ids and timestamps a
+ * `LoadedCard` carries for the server's own use stay on the server.
+ */
+export function publicCard(card: Card): Card {
+  const placed = new Set<string>(card.event.showSponsorIds);
+  for (const bout of card.event.bouts) if (bout.sponsorId) placed.add(bout.sponsorId);
+  for (const fighter of Object.values(card.fighters)) {
+    for (const id of fighter.sponsorIds ?? []) placed.add(id);
+  }
+
+  const sponsors: Record<string, Sponsor> = {};
+  for (const id of placed) if (card.sponsors[id]) sponsors[id] = card.sponsors[id];
+  return { event: card.event, fighters: card.fighters, sponsors };
+}
+
 export function fighterSponsors(card: Card, fighter: Fighter): Sponsor[] {
   return (fighter.sponsorIds ?? [])
     .map((id) => card.sponsors[id])
