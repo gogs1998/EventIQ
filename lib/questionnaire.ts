@@ -91,6 +91,27 @@ export function num(value: string): number | undefined {
 }
 
 /**
+ * The record a draft states, or none.
+ *
+ * Wins and losses both have to be there. A fighter who has typed "4" in the
+ * wins box and not yet reached the next one has not said they are 4-0, and
+ * filling the blank with a nought put that on the card â€” and a half-typed form
+ * with nothing in either box but the draws read as 0-0-something, which is a
+ * debutant to `isDebut`. Draws are the one box an amateur commonly leaves empty
+ * because the answer is none, so a blank there is a nought once the other two
+ * are given. The preview and the stored row both come through here, so a fighter
+ * sees exactly the record that is saved.
+ */
+export function recordFromDraft(
+  draft: Pick<Draft, "w" | "l" | "d">,
+): { w: number; l: number; d: number } | undefined {
+  const w = num(draft.w);
+  const l = num(draft.l);
+  if (w === undefined || l === undefined) return undefined;
+  return { w, l, d: num(draft.d) ?? 0 };
+}
+
+/**
  * A returning fighter gets their details back rather than a blank form. That is
  * the retention hook in the whole idea, and it is the reason fighters are their
  * own table rather than rows hanging off a bout.
@@ -123,9 +144,9 @@ export function draftFromFighter(fighter: Fighter, consented = false): Draft {
 /**
  * The preview above the form, and the row that eventually gets written.
  *
- * A record appears only when at least one of the three boxes has something in
- * it. Defaulting an untouched form to 0-0-0 would announce every fighter who
- * never answered as making their debut, which is the bug isDebut exists to stop.
+ * A record appears only when wins and losses are both given (`recordFromDraft`).
+ * Defaulting an untouched form to 0-0-0 would announce every fighter who never
+ * answered as making their debut, which is the bug isDebut exists to stop.
  *
  * The cutout comes off the stored fighter and survives only while the photograph
  * it was cut from is still the one on the form. A fighter who uploads a new
@@ -134,9 +155,6 @@ export function draftFromFighter(fighter: Fighter, consented = false): Draft {
  * what a cutout carried through the form would have shown them.
  */
 export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
-  const w = num(draft.w);
-  const l = num(draft.l);
-  const d = num(draft.d);
   const ko = num(draft.ko);
   const sub = num(draft.sub);
 
@@ -155,10 +173,7 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
     heightCm: num(draft.heightCm),
     reachCm: num(draft.reachCm),
     stance: (draft.stance || undefined) as Stance | undefined,
-    record:
-      w !== undefined || l !== undefined || d !== undefined
-        ? { w: w ?? 0, l: l ?? 0, d: d ?? 0 }
-        : undefined,
+    record: recordFromDraft(draft),
     finishes: ko !== undefined || sub !== undefined ? { ko: ko ?? 0, sub: sub ?? 0 } : undefined,
     walkoutSong: draft.walkoutTitle
       ? { title: draft.walkoutTitle, artist: draft.walkoutArtist || "Unknown" }

@@ -211,3 +211,24 @@ describe("a fighter who took their details down, and New link", () => {
     expect((await inviteOf(me)).consentedAt).not.toBeNull();
   });
 });
+
+describe("a record typed half way", () => {
+  async function savedRecord(over: Partial<Draft>) {
+    const { show, me } = await consentingShow();
+    expect((await saveDraft(show.tokens[me], draft(over))).ok).toBe(true);
+    const row = await fighter(me);
+    return [row.recordW, row.recordL, row.recordD];
+  }
+
+  it("is not stored with noughts in the boxes the fighter has not reached", async () => {
+    expect(await savedRecord({ w: "4" })).toEqual([null, null, null]);
+  });
+
+  it("is not stored from the draws alone", async () => {
+    expect(await savedRecord({ d: "1" })).toEqual([null, null, null]);
+  });
+
+  it("is stored once wins and losses are both there, with no draws as none", async () => {
+    expect(await savedRecord({ w: "4", l: "1" })).toEqual([4, 1, 0]);
+  });
+});

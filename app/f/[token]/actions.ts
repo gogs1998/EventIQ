@@ -16,7 +16,13 @@ import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
 import { cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
-import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
+import {
+  allowedSponsorIds,
+  num,
+  recordFromDraft,
+  sanitiseDraft,
+  type Draft,
+} from "@/lib/questionnaire";
 
 /**
  * Everything a fighter can do with their invite.
@@ -51,12 +57,9 @@ import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questio
  * in the one case where it has to.
  */
 function columnsFrom(draft: Draft) {
-  const w = num(draft.w);
-  const l = num(draft.l);
-  const d = num(draft.d);
+  const record = recordFromDraft(draft);
   const ko = num(draft.ko);
   const sub = num(draft.sub);
-  const hasRecord = w !== undefined || l !== undefined || d !== undefined;
 
   return {
     nickname: draft.nickname || null,
@@ -68,11 +71,12 @@ function columnsFrom(draft: Draft) {
     heightCm: num(draft.heightCm) ?? null,
     reachCm: num(draft.reachCm) ?? null,
     stance: draft.stance || null,
-    // All three or none, so a fighter who has answered nothing is never stored
-    // as 0-0-0 and later read back as a debutant.
-    recordW: hasRecord ? (w ?? 0) : null,
-    recordL: hasRecord ? (l ?? 0) : null,
-    recordD: hasRecord ? (d ?? 0) : null,
+    // All three or none, and only once wins and losses are both given, so a
+    // half-typed record is never stored with noughts in its blanks and later
+    // read back as something the fighter did not say.
+    recordW: record?.w ?? null,
+    recordL: record?.l ?? null,
+    recordD: record?.d ?? null,
     finishKo: ko !== undefined || sub !== undefined ? (ko ?? 0) : null,
     finishSub: ko !== undefined || sub !== undefined ? (sub ?? 0) : null,
     walkoutTitle: draft.walkoutTitle || null,

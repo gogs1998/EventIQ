@@ -26,8 +26,20 @@ describe("fighterFromDraft", () => {
     expect(isDebut(fighter)).toBe(true);
   });
 
-  it("fills the other two boxes when only one is answered", () => {
-    expect(fighterFromDraft(base, { ...EMPTY_DRAFT, w: "3" }).record).toEqual({ w: 3, l: 0, d: 0 });
+  it("states no record while wins or losses are still blank", () => {
+    expect(fighterFromDraft(base, { ...EMPTY_DRAFT, w: "3" }).record).toBeUndefined();
+    expect(fighterFromDraft(base, { ...EMPTY_DRAFT, l: "2" }).record).toBeUndefined();
+    const drawsOnly = fighterFromDraft(base, { ...EMPTY_DRAFT, d: "0" });
+    expect(drawsOnly.record).toBeUndefined();
+    expect(isDebut(drawsOnly)).toBe(false);
+  });
+
+  it("reads a blank draws box as none once wins and losses are given", () => {
+    expect(fighterFromDraft(base, { ...EMPTY_DRAFT, w: "3", l: "1" }).record).toEqual({
+      w: 3,
+      l: 1,
+      d: 0,
+    });
   });
 
   it("strips the at sign off an Instagram handle", () => {
