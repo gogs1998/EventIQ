@@ -799,6 +799,10 @@ export const ACTION_ERRORS = {
   noSuchSponsor: "That sponsor is not on this account.",
 
   notSaved: "That did not save. Try again in a moment.",
+  /** The bout form's three numbers, each refused in words that say what would be read. */
+  boutWeightUnreadable: "The weight needs to be in kilograms, between 30 and 200 â€” 70 or 70.5, for example.",
+  boutRoundsUnreadable: "Rounds needs to be a whole number from 1 to 12.",
+  boutMinutesUnreadable: "The length of each round needs to be a whole number from 1 to 15.",
   showNotCreated: "The show could not be created. Try again in a moment.",
   /**
    * Asking for a video again. It says the video the programme is playing is

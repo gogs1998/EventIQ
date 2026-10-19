@@ -35,7 +35,7 @@ import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
 import { hasSlug } from "@/lib/slug";
-import { parseWeightKg } from "@/lib/tape";
+import { readBoutNumbers, type BoutFormProblem } from "@/lib/sheet";
 
 /**
  * Everything the promoter can change.
@@ -69,11 +69,19 @@ function text(form: FormData, key: string, max = 200): string {
   return String(form.get(key) ?? "").slice(0, max).trim();
 }
 
-function number(form: FormData, key: string): number | null {
-  const value = text(form, key);
-  if (!value) return null;
-  const n = Math.round(Number(value));
-  return Number.isFinite(n) ? n : null;
+const BOUT_FORM_PROBLEM: Record<BoutFormProblem, string> = {
+  weight: ACTION_ERRORS.boutWeightUnreadable,
+  rounds: ACTION_ERRORS.boutRoundsUnreadable,
+  minutes: ACTION_ERRORS.boutMinutesUnreadable,
+};
+
+/** The bout form's weight and format, or the sentence saying which box to fix. */
+function boutNumbers(form: FormData) {
+  return readBoutNumbers({
+    weightKg: text(form, "weightKg", 20),
+    rounds: text(form, "rounds", 10),
+    roundMinutes: text(form, "roundMinutes", 10),
+  });
 }
 
 // ------------------------------------------------------------------- events
@@ -282,6 +290,8 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
       const redName = text(form, "redName", 60);
       const blueName = text(form, "blueName", 60);
       if (!redName || !blueName) return refuse(ACTION_ERRORS.boutNeedsBothCorners);
+      const numbers = boutNumbers(form);
+      if (!numbers.ok) return refuse(BOUT_FORM_PROBLEM[numbers.problem]);
 
       // Off the card the ownership check has already loaded, rather than a
       // second query for a number that is sitting in it.
@@ -367,11 +377,11 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
           // Weights are the one number here that is not whole: catchweights on
           // these cards are agreed at the half kilo, so this is not rounded like
           // the rounds.
-          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          weightKg: numbers.weightKg,
           classLabel: text(form, "classLabel", 30) || null,
           womens: form.get("womens") === "on",
-          rounds: number(form, "rounds") ?? 3,
-          roundMinutes: number(form, "roundMinutes") ?? 3,
+          rounds: numbers.rounds,
+          roundMinutes: numbers.roundMinutes,
           redId: fighterIds[0],
           blueId: fighterIds[1],
         }),
@@ -459,6 +469,8 @@ export async function updateBout(
 
       const sponsorId = text(form, "sponsorId", 60);
       const billing = text(form, "billing", 10);
+      const numbers = boutNumbers(form);
+      if (!numbers.ok) return refuse(BOUT_FORM_PROBLEM[numbers.problem]);
 
       // The show is checked to be this promoter's and the sponsor was not: an id
       // typed into the form put another promoter's sponsor on the bout, and the
@@ -484,12 +496,12 @@ export async function updateBout(
         .update(schema.bouts)
         .set({
           discipline: text(form, "discipline", 20) || "MMA",
-          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          weightKg: numbers.weightKg,
           classLabel: text(form, "classLabel", 30) || null,
           titleLabel: text(form, "titleLabel", 60) || null,
           womens: form.get("womens") === "on",
-          rounds: number(form, "rounds") ?? 3,
-          roundMinutes: number(form, "roundMinutes") ?? 3,
+          rounds: numbers.rounds,
+          roundMinutes: numbers.roundMinutes,
           billing: billing === "MAIN" || billing === "CO_MAIN" ? billing : null,
           sponsorId: sponsorId || null,
         })

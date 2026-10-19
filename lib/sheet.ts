@@ -429,6 +429,52 @@ export const MAX_SHEET_LENGTH = 20_000;
 const ROUNDS_MAX = 12;
 const ROUND_MINUTES_MAX = 15;
 
+/** Which box on the bout form could not be read. */
+export type BoutFormProblem = "weight" | "rounds" | "minutes";
+
+/**
+ * The three numbers on the card editor's bout form, read the way the pasted
+ * sheet reads them and held to the same bounds.
+ *
+ * A box left empty takes the same default a sheet line that says nothing gets.
+ * A box with something in it that is not a weight or a round count is refused
+ * rather than quietly replaced: it used to become 70kg and as many rounds as
+ * were typed, so "70,5" (a decimal comma, which is how half the continent
+ * writes it) went on a published card as 70kg, and "30" rounds went on as
+ * thirty. A promoter who typed a number meant that number, and the honest
+ * answer to one we cannot read is to say so.
+ */
+export function readBoutNumbers(fields: {
+  weightKg: string;
+  rounds: string;
+  roundMinutes: string;
+}):
+  | { ok: true; weightKg: number; rounds: number; roundMinutes: number }
+  | { ok: false; problem: BoutFormProblem } {
+  const weightText = fields.weightKg.trim().replace(/\s*kgs?$/i, "").replace(",", ".");
+  let weightKg: number = SHEET_DEFAULTS.weightKg;
+  if (weightText) {
+    const kg = /^\d+(?:\.\d+)?$/.test(weightText) ? Math.round(Number(weightText) * 10) / 10 : NaN;
+    if (!(kg >= WEIGHT_MIN_KG && kg <= WEIGHT_MAX_KG)) return { ok: false, problem: "weight" };
+    weightKg = kg;
+  }
+
+  const count = (text: string, fallback: number, max: number): number | null => {
+    const value = text.trim();
+    if (!value) return fallback;
+    if (!/^\d+$/.test(value)) return null;
+    const n = Number(value);
+    return n >= 1 && n <= max ? n : null;
+  };
+
+  const rounds = count(fields.rounds, SHEET_DEFAULTS.rounds, ROUNDS_MAX);
+  if (rounds === null) return { ok: false, problem: "rounds" };
+  const roundMinutes = count(fields.roundMinutes, SHEET_DEFAULTS.roundMinutes, ROUND_MINUTES_MAX);
+  if (roundMinutes === null) return { ok: false, problem: "minutes" };
+
+  return { ok: true, weightKg, rounds, roundMinutes };
+}
+
 /** One corner as the preview sends it back: what was typed, and what was answered. */
 export type SheetRowCorner = {
   name: string;

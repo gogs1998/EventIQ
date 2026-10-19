@@ -580,3 +580,48 @@ describe("signing out", () => {
     expect(cookiesCleared().map((cookie) => cookie.name)).toContain("eventiq_session");
   });
 });
+
+describe("the numbers on a bout", () => {
+  async function ownShow() {
+    const db = platform().db;
+    await plantPromoters(db, [{ id: "pr_cage", name: "Cage County" }]);
+    const show = await plantShow(db, { promoterId: "pr_cage", slug: "cage-county-12", published: false });
+    await signInAs("pr_cage");
+    return { db, show };
+  }
+
+  async function bout(eventId: string, number: number) {
+    const [row] = await platform()
+      .db.select()
+      .from(schema.bouts)
+      .where(eq(schema.bouts.eventId, eventId));
+    return number === row.number ? row : undefined;
+  }
+
+  it("takes a decimal comma rather than treating it as nothing", async () => {
+    const { show } = await ownShow();
+    expect(await updateBout(show.slug, 1, form({ weightKg: "70,5", rounds: "5" }))).toEqual({ ok: true });
+    expect((await bout(show.eventId, 1))?.weightKg).toBe(70.5);
+  });
+
+  it("refuses a weight it cannot read and leaves the bout as it was", async () => {
+    const { show } = await ownShow();
+    expect(await updateBout(show.slug, 1, form({ weightKg: "seventy" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.boutWeightUnreadable,
+    });
+    expect((await bout(show.eventId, 1))?.weightKg).toBe(70);
+  });
+
+  it("refuses thirty rounds on an edit or a new bout", async () => {
+    const { show } = await ownShow();
+    expect(await updateBout(show.slug, 1, form({ rounds: "30" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.boutRoundsUnreadable,
+    });
+    expect(
+      await addBout(show.slug, form({ redName: "Owen Pryce", blueName: "Dre Osei", roundMinutes: "60" })),
+    ).toEqual({ ok: false, error: ACTION_ERRORS.boutMinutesUnreadable });
+    expect((await bout(show.eventId, 1))?.rounds).toBe(3);
+  });
+});

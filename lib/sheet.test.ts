@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSheet, type SheetBout } from "@/lib/sheet";
+import { parseSheet, readBoutNumbers, type SheetBout } from "@/lib/sheet";
 
 /**
  * The shapes a matchmaking sheet actually arrives in.
@@ -298,5 +298,40 @@ describe("what a name is allowed to be", () => {
   it("refuses a corner that is a number rather than a person", () => {
     const { problems } = parseSheet("12 v 14");
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe("readBoutNumbers", () => {
+  const read = (weightKg: string, rounds = "3", roundMinutes = "3") =>
+    readBoutNumbers({ weightKg, rounds, roundMinutes });
+
+  it("reads a weight with a decimal point, a decimal comma or a unit", () => {
+    expect(read("70.5")).toEqual({ ok: true, weightKg: 70.5, rounds: 3, roundMinutes: 3 });
+    expect(read("70,5")).toMatchObject({ ok: true, weightKg: 70.5 });
+    expect(read("84 kg")).toMatchObject({ ok: true, weightKg: 84 });
+  });
+
+  it("takes the sheet's defaults for a box left empty", () => {
+    expect(readBoutNumbers({ weightKg: "", rounds: "", roundMinutes: "" })).toEqual({
+      ok: true,
+      weightKg: 70,
+      rounds: 3,
+      roundMinutes: 3,
+    });
+  });
+
+  it("refuses a weight it cannot read instead of putting 70kg on the card", () => {
+    for (const weight of ["seventy", "7O", "0", "-70", "250", "70.5.1", "1e2"]) {
+      expect(read(weight)).toEqual({ ok: false, problem: "weight" });
+    }
+  });
+
+  it("holds rounds and minutes to the bounds the pasted sheet uses", () => {
+    expect(read("70", "12", "15")).toMatchObject({ ok: true, rounds: 12, roundMinutes: 15 });
+    expect(read("70", "13")).toEqual({ ok: false, problem: "rounds" });
+    expect(read("70", "0")).toEqual({ ok: false, problem: "rounds" });
+    expect(read("70", "2.5")).toEqual({ ok: false, problem: "rounds" });
+    expect(read("70", "3", "16")).toEqual({ ok: false, problem: "minutes" });
+    expect(read("70", "3", "three")).toEqual({ ok: false, problem: "minutes" });
   });
 });
