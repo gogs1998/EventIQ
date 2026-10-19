@@ -625,3 +625,26 @@ describe("the numbers on a bout", () => {
     expect((await bout(show.eventId, 1))?.rounds).toBe(3);
   });
 });
+
+describe("a fighter taken off the card", () => {
+  it("can no longer be edited from it, though their invite row is still there", async () => {
+    const db = platform().db;
+    await plantPromoters(db, [{ id: "pr_cage", name: "Cage County" }]);
+    const show = await plantShow(db, {
+      promoterId: "pr_cage",
+      slug: "cage-county-12",
+      published: false,
+      bouts: 2,
+    });
+    await signInAs("pr_cage");
+    const gone = show.fighterIds[0];
+    expect((await removeBout(show.slug, 1)).ok).toBe(true);
+
+    expect(await updateFighter(show.slug, gone, form({ name: "Someone Else" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.notOnThisCard,
+    });
+    const [row] = await db.select().from(schema.fighters).where(eq(schema.fighters.id, gone));
+    expect(row.name).toBe(gone);
+  });
+});
