@@ -1008,7 +1008,31 @@ export const RENDER_STATE_COPY = {
     label: WITHDRAWN.label,
     note: "Nothing new is made for a bout that is off. Put the bout back on and it goes into the queue with the rest.",
   },
+  /**
+   * Queued on a show that is not published yet. The hourly run renders
+   * published shows only, so "Waiting its turn" on a draft was a turn that
+   * never came: the row sat queued until the show went out, with nothing on
+   * the dashboard to say why.
+   */
+  queuedDraft: {
+    label: "Queued for publishing",
+    note: "Videos are made for published shows. This one is in the queue and is made once the show is published.",
+  },
 } as const;
+
+/**
+ * What the videos panel says about one composition of one bout. A queued video
+ * on a draft is told apart from one that is simply waiting, because nothing
+ * will make it until the show is published.
+ */
+export function renderStateCopy(
+  state: Exclude<keyof typeof RENDER_STATE_COPY, "queuedDraft">,
+  published: boolean,
+): (typeof RENDER_STATE_COPY)[keyof typeof RENDER_STATE_COPY] {
+  return state === "queued" && !published
+    ? RENDER_STATE_COPY.queuedDraft
+    : RENDER_STATE_COPY[state];
+}
 
 /** The button that asks for one. It queues a bout; nothing renders in the browser. */
 export const RENDER_AGAIN = "Render again";

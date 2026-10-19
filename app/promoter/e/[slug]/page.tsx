@@ -18,7 +18,7 @@ import {
   INVITE_SHARE,
   NOTHING_SENT,
   RENDER_SECTION,
-  RENDER_STATE_COPY,
+  renderStateCopy,
   VIDEO_SHARE,
   boutCountLabel,
   countdown,
@@ -675,10 +675,10 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                           {RENDER_TEMPLATE_LABEL[template]}
                         </span>
                         <Badge className={RENDER_STYLE[state]}>
-                          {RENDER_STATE_COPY[state].label}
+                          {renderStateCopy(state, card.published).label}
                         </Badge>
                         <span className="text-ash min-w-0 text-xs leading-relaxed">
-                          {RENDER_STATE_COPY[state].note}
+                          {renderStateCopy(state, card.published).note}
                         </span>
                         {mp4 ? (
                           <Link

@@ -43,6 +43,7 @@ import {
   RENDER_AGAIN,
   RENDER_SECTION,
   RENDER_STATE_COPY,
+  renderStateCopy,
   renderCountLabel,
   RESET_COPY,
   RETURNING_FIGHTER,
@@ -965,6 +966,22 @@ describe("the video panel", () => {
       expect(state.note.toLowerCase()).not.toContain(RENDER_AGAIN.toLowerCase());
       expect(state.note).not.toMatch(/\bagain\b|\bask\b|\brequest\b/i);
     }
+  });
+
+  /**
+   * "Render again" on a draft queued a row the hourly run never takes, because
+   * it renders published shows only, and the panel said "Waiting its turn"
+   * about a turn that was not coming.
+   */
+  it("says a queued video on a draft waits for the show to be published", () => {
+    expect(renderStateCopy("queued", true)).toBe(RENDER_STATE_COPY.queued);
+    const draft = renderStateCopy("queued", false);
+    expect(draft.note).toMatch(/published/i);
+    expect(draft.note).not.toMatch(/turn|minutes?|hours?|soon/i);
+    expect(draft.note).not.toMatch(/\bagain\b|\bask\b|\brequest\b/i);
+    // Every other state reads the same on a draft as on a published show.
+    expect(renderStateCopy("current", false)).toBe(RENDER_STATE_COPY.current);
+    expect(renderStateCopy("failed", false)).toBe(RENDER_STATE_COPY.failed);
   });
 });
 
