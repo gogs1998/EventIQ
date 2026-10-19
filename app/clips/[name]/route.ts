@@ -1,67 +1,54 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { CLIPS } from "@/lib/clips";
 import { parseRange, rangeHeaders, type ByteRange } from "@/lib/range";
 
 /**
- * The pitch page's own videos, with byte ranges.
+ * The site's own videos, with byte ranges.
  *
  * They live in public/ like any other file, but the Workers assets binding
  * answers `Range` with the whole file and a 200, and an iPhone will not play a
- * video from a server that does that (bug 47). So the page points here, and this
+ * video from a server that does that (bug 47). So the pages point here, and this
  * reads the same file out of the assets binding and cuts the slice itself.
  *
- * Only the names below are served. This is not a way to read public/ with
- * ranges; it is two files, and a third one is added here on purpose.
+ * **It never holds a file in memory.** The binding streams without a length,
+ * and this used to read the whole file to find one — twenty megabytes for the
+ * sales demo, on every request, in a Worker with 128 MB of memory. The lengths
+ * are in lib/clips.ts, held to the files by a test, so the slice is cut from the
+ * stream as it passes and the response states a Content-Length either way.
+ *
+ * Only the names in lib/clips.ts are served.
  */
-const CLIPS: Record<string, string> = {
-  "hero-faceoff.mp4": "/hero/hero-faceoff.mp4",
-  "eventiq-demo.mp4": "/demo/eventiq-demo.mp4",
-};
 
 type Fetcher = { fetch: (input: Request | URL | string) => Promise<Response> };
 
 export async function GET(request: Request, context: { params: Promise<{ name: string }> }) {
   const { name } = await context.params;
-  const path = CLIPS[name];
-  if (!path) return new Response("Not found", { status: 404 });
+  const clip = Object.hasOwn(CLIPS, name) ? CLIPS[name] : undefined;
+  if (!clip) return new Response("Not found", { status: 404 });
 
-  const source = await fetchAsset(new URL(path, request.url));
-  if (!source.ok || !source.body) return new Response("Not found", { status: 404 });
-
-  // The binding streams without a length, so there is nothing to cut against
-  // until the file has been read. Both files are small enough to hold.
-  let body: ReadableStream<Uint8Array> | ArrayBuffer = source.body;
-  let size = Number(source.headers.get("content-length") ?? NaN);
-  if (!Number.isFinite(size) || size <= 0) {
-    body = await source.arrayBuffer();
-    size = body.byteLength;
-  }
-  const whole = body;
-
-  const range = parseRange(request.headers.get("range"), size);
+  const range = parseRange(request.headers.get("range"), clip.size);
   if (range === "unsatisfiable") {
-    if (whole instanceof ReadableStream) whole.cancel().catch(() => {});
-    return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${clip.size}` } });
+  }
+
+  const source = await fetchAsset(new URL(clip.path, request.url));
+  if (!source.ok || !source.body) {
+    source.body?.cancel().catch(() => {});
+    return new Response("Not found", { status: 404 });
   }
 
   const headers = new Headers({
     "content-type": "video/mp4",
     "cache-control": "public, max-age=3600",
     "x-content-type-options": "nosniff",
-    ...rangeHeaders(range, size),
+    ...rangeHeaders(range, clip.size),
   });
   const etag = source.headers.get("etag");
   if (etag) headers.set("etag", etag);
 
-  const sliced =
-    whole instanceof ArrayBuffer
-      ? range
-        ? whole.slice(range.offset, range.offset + range.length)
-        : whole
-      : range
-        ? slice(whole, range)
-        : whole;
-
-  return new Response(sliced, {
+  const body = range ? slice(source.body, range) : source.body;
+  // The length is in the headers; worker.mjs holds the body to it on Workers.
+  return new Response(body, {
     status: range ? 206 : 200,
     headers,
   });

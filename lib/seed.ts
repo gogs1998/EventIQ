@@ -1,6 +1,7 @@
 import { INVITE_OVERRIDES } from "@/data/promoter";
 import { newId } from "@/lib/auth";
 import type { LoadedCard } from "@/lib/db/queries";
+import { demoRenderPath } from "@/lib/clips";
 import { boutFingerprints, renderJobId } from "@/lib/db/render-jobs";
 import { newInviteToken } from "@/lib/invite-token";
 import { completeness } from "@/lib/tape";
@@ -396,6 +397,11 @@ export async function buildSeed({
   // under public/, so the job records where they are rather than claiming the
   // renderer produced them: the app only ever asks this table what is playable.
   //
+  // Through /clips rather than at the file's own path under public/, because
+  // the assets binding answers a Range request with the whole file and an
+  // iPhone will not play that (bug 47). Seeding the static path put the bug
+  // back on the demo card every time the database was rebuilt.
+  //
   // Only the tale of the tape. The promo is the second composition of every bout
   // and none of them has ever been rendered, so the seed says nothing about it
   // and the dashboard reads it as not made yet — which is true, and is the state
@@ -410,7 +416,7 @@ export async function buildSeed({
         bout_number: boutNumber,
         template: "tape",
         status: "done",
-        current_r2_key: `/renders/bout-${boutNumber}.mp4`,
+        current_r2_key: demoRenderPath(boutNumber),
         // The pair a successful publish writes: the video, and the fingerprint
         // it was made from. These were left null, so the demo dashboard opened
         // on five videos reading as worth remaking — about the five renders the

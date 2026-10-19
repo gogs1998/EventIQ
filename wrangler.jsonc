@@ -1,7 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "eventiq",
-  "main": ".open-next/worker.js",
+  // OpenNext's worker, wrapped so the video routes keep their Content-Length on
+  // the way out. worker.mjs and lib/fixed-length.ts say why.
+  "main": "worker.mjs",
   "compatibility_date": "2026-08-01",
   // nodejs_compat is required by the Next.js adapter. global_fetch_strictly_public
   // makes outbound fetch behave like a browser's, which matters because the record

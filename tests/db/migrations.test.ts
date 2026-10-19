@@ -26,6 +26,14 @@ import { applyMigrations, migrationFiles, startPlatform, type Platform } from ".
 const isSqliteTable = (value: unknown): value is SQLiteTable => is(value, SQLiteTable);
 
 const AUGUST = Date.UTC(2026, 7, 3);
+// Bout 4's is one of the demo renders committed under public/, seeded at the
+// static path that the assets binding serves without byte ranges.
+const R2_KEYS = [
+  "renders/cage-county-12/1-abc.mp4",
+  "renders/cage-county-12/2-abc.mp4",
+  "renders/cage-county-12/3-abc.mp4",
+  "/renders/bout-4.mp4",
+];
 const RJ_IDS = ["rj_ev_cc12_2", "rj_ev_cc12_1", "rj_3", "rj_4", "rj_ev_cc12_5"];
 const files = migrationFiles();
 const [initial, ...later] = files;
@@ -70,7 +78,7 @@ async function plantAugust(): Promise<void> {
     // the rule; 5 is already right.
     ...RJ_IDS.slice(0, 4).map(
       (id, at) =>
-        `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at, finished_at) VALUES ('${id}', 'ev_cc12', ${at + 1}, 'done', 'renders/cage-county-12/${at + 1}-abc.mp4', 'hash-${at + 1}', ${AUGUST}, ${AUGUST});`,
+        `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at, finished_at) VALUES ('${id}', 'ev_cc12', ${at + 1}, 'done', '${R2_KEYS[at]}', 'hash-${at + 1}', ${AUGUST}, ${AUGUST});`,
     ),
     `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at) VALUES ('${RJ_IDS[4]}', 'ev_cc12', 5, 'queued', NULL, 'hash-5', ${AUGUST});`,
   ];
@@ -128,7 +136,8 @@ describe("the migration chain, over a card that was already there", () => {
       "renders/cage-county-12/1-abc.mp4",
       "renders/cage-county-12/2-abc.mp4",
       "renders/cage-county-12/3-abc.mp4",
-      "renders/cage-county-12/4-abc.mp4",
+      // Moved onto the ranged route, so it plays on an iPhone (bug 47).
+      "/clips/demo-bout-4.mp4",
     ]);
     expect(rows.results.slice(0, 4).map((row) => row.current_hash)).toEqual([
       "hash-1",

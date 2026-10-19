@@ -16,3 +16,11 @@ UPDATE `render_jobs` SET `id` = 'renumbering:' || `id`
  WHERE `id` IS NOT 'rj_' || `event_id` || '_' || `bout_number` || '_' || `template`;--> statement-breakpoint
 UPDATE `render_jobs` SET `id` = 'rj_' || `event_id` || '_' || `bout_number` || '_' || `template`
  WHERE `id` LIKE 'renumbering:%';
+--> statement-breakpoint
+-- The five demo renders committed under public/ were seeded as rows pointing at
+-- /renders/bout-N.mp4, which the assets binding serves without byte ranges, so
+-- they would not play on an iPhone (bug 47). They are served through /clips now,
+-- under the names lib/clips.ts allows; '/renders/' is nine characters, so what
+-- follows it is 'bout-N.mp4'.
+UPDATE `render_jobs` SET `current_r2_key` = '/clips/demo-' || substr(`current_r2_key`, 10)
+ WHERE `current_r2_key` LIKE '/renders/bout-%.mp4';

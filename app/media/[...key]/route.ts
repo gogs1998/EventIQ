@@ -77,6 +77,8 @@ export async function GET(request: Request, context: { params: Promise<{ key: st
 
   for (const [name, value] of Object.entries(rangeHeaders(range, head.size))) headers.set(name, value);
 
+  // The Content-Length above is kept on Workers by worker.mjs, which holds the
+  // body to it; without that a ranged answer goes out chunked.
   return new Response(object.body as unknown as ReadableStream, {
     status: range ? 206 : 200,
     headers,
