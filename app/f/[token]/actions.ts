@@ -275,9 +275,7 @@ export async function markOpened(token: string): Promise<ActionResult> {
       .set({ lastOpenedAt: now, expiresAt: now + INVITE_TTL_MS })
       .where(
         and(
-          // The plaintext column is still matched for rows the backfill has not
-          // reached. See loadInviteByToken.
-          or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+          eq(schema.invites.tokenDigest, digest),
           isNull(schema.invites.revokedAt),
           or(isNull(schema.invites.expiresAt), gt(schema.invites.expiresAt, now)),
         ),

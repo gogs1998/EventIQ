@@ -24,7 +24,6 @@ import {
   newInviteToken,
   openToken,
 } from "@/lib/invite-token";
-import { logWarning } from "@/lib/log";
 import {
   TAPE_TEMPLATE,
   isPublishedTemplate,
@@ -461,12 +460,15 @@ export async function loadInvites(db: Db, eventId: string): Promise<Record<strin
  * shows as a Copy button that copies nothing.
  */
 export async function invitesWithLinks(rows: InviteRow[]): Promise<Record<string, Invite>> {
-  const secret = rows.some((row) => !row.token && row.tokenCipher) ? await inviteSecret() : null;
+  const secret = rows.some((row) => row.tokenCipher) ? await inviteSecret() : null;
 
   const invites: Record<string, Invite> = {};
   for (const row of rows) {
-    const token =
-      row.token ?? (secret && row.tokenCipher ? await openToken(secret, row.tokenCipher) : null);
+    // Only the sealed link. A plaintext column a row still holds is a link no
+    // lookup opens any more (loadInviteByToken), so showing it would hand the
+    // promoter one that goes nowhere; the row reads as unreadable instead, and
+    // "New link" is the control beside it.
+    const token = secret && row.tokenCipher ? await openToken(secret, row.tokenCipher) : null;
     invites[row.fighterId] = toInvite(row, token ?? undefined);
   }
   return invites;
@@ -501,12 +503,13 @@ export async function newInviteValues(
  * whole of the authorisation, so a token that cannot be looked up is a link that
  * opens nothing, and the caller gets the same answer as for a made-up one.
  *
- * The match is on the digest, so nothing compares a presented token against a
- * stored copy of itself. The plaintext column is still in the `or` because a row
- * that has not been through `scripts/migrate-invites.mjs` yet has nothing else to
- * match on, and a fighter must not lose their form to our own migration window.
- * It is logged when it happens, because that state is meant to be temporary and
- * nothing else would ever say so.
+ * The match is on the digest and only the digest, so nothing compares a
+ * presented token against a stored copy of itself â€” and the match is the unique
+ * index on `token_digest` rather than a scan. The plaintext column used to be in
+ * an `or` beside it for rows `scripts/migrate-invites.mjs` had not reached yet,
+ * which made every lookup on every autosave a full scan of the table; the
+ * backfill has sealed every row, so a link still held in the clear opens nothing
+ * now and "New link" on the dashboard issues a sealed one.
  *
  * A revoked or expired invite comes back as null, which is the same answer as a
  * token nobody ever issued. The three are indistinguishable to the holder on
@@ -524,16 +527,10 @@ export async function loadInviteByToken(db: Db, token: string, now = Date.now())
     .from(schema.invites)
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
-    .where(or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)))
+    .where(eq(schema.invites.tokenDigest, digest))
     .limit(1);
 
   if (!row) return null;
-  if (!row.invite.tokenDigest) {
-    logWarning(
-      { event: "plaintextInvite", eventId: row.invite.eventId, fighterId: row.invite.fighterId },
-      "This invite is still stored in the clear. Run scripts/migrate-invites.mjs.",
-    );
-  }
   return inviteLive(row.invite, now) ? row : null;
 }
 
@@ -549,17 +546,16 @@ export async function loadInviteByToken(db: Db, token: string, now = Date.now())
  * alternative is a fighter left wondering whether their request went through.
  */
 export async function inviteWasRevoked(db: Db, token: string): Promise<boolean> {
-  // By digest as well as by the plaintext column, the same as the lookup that
-  // opens the form: a row sealed by scripts/migrate-invites.mjs has no plaintext
-  // to match, and matching only that column made this page unreachable for
-  // every fighter whose link had been through the migration (bug 42).
+  // By digest, the same as the lookup that opens the form: matching a different
+  // column from that one made this page unreachable for every fighter whose
+  // link had been sealed (bug 42).
   const digest = await digestToken(await inviteSecret(), token);
   const [row] = await db
     .select({ id: schema.invites.id })
     .from(schema.invites)
     .where(
       and(
-        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+        eq(schema.invites.tokenDigest, digest),
         isNotNull(schema.invites.revokedAt),
       ),
     )
@@ -822,7 +818,7 @@ export async function inviteHoldsPortrait(
     .innerJoin(schema.fighters, eq(schema.fighters.id, schema.invites.fighterId))
     .where(
       and(
-        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+        eq(schema.invites.tokenDigest, digest),
         or(
           eq(schema.fighters.photo, path),
           eq(schema.fighters.cutout, path),
@@ -864,7 +860,7 @@ export async function inviteHoldsSponsorMark(
     .innerJoin(schema.events, eq(schema.events.id, schema.invites.eventId))
     .where(
       and(
-        or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+        eq(schema.invites.tokenDigest, digest),
         eq(schema.events.promoterId, promoterId),
       ),
     )
