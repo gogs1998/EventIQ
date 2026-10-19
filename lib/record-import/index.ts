@@ -76,6 +76,23 @@ export function eventScope(eventId: string): string {
 export const UNATTRIBUTED_SCOPE = "unattributed";
 
 /**
+ * The allowance an open lookup is counted against, from the show it named.
+ *
+ * Only a published show gets one of its own. The open endpoint takes a slug
+ * from anybody, and a slug is a promoter's own show name: counting against a
+ * draft by name let a stranger spend that draft's hour and, by watching when
+ * "too many" came back, learn that a show of that name existed before anyone
+ * had published it. A published show is on a public page already, so naming it
+ * tells nobody anything; everything else shares the unattributed allowance,
+ * exactly as an unknown slug does.
+ */
+export function openLookupScope(
+  event: { id: string; published: boolean } | null | undefined,
+): string {
+  return event?.published ? eventScope(event.id) : UNATTRIBUTED_SCOPE;
+}
+
+/**
  * How many pages the importer will fetch in an hour, per promoter and per show.
  *
  * The per-address limiter in lib/rate-limit.ts is the first answer to somebody

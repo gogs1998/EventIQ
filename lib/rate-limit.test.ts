@@ -7,7 +7,13 @@ import {
   addressBucket,
   callerKey,
 } from "@/lib/rate-limit";
-import { FETCHES_PER_HOUR, withinFetchBudget } from "@/lib/record-import";
+import {
+  FETCHES_PER_HOUR,
+  UNATTRIBUTED_SCOPE,
+  eventScope,
+  openLookupScope,
+  withinFetchBudget,
+} from "@/lib/record-import";
 
 const requestWith = (headers: Record<string, string>) =>
   new Request("https://eventiq.win/api/import-record", { method: "POST", headers });
@@ -122,5 +128,16 @@ describe("the hourly fetch budget", () => {
     expect(withinFetchBudget(FETCHES_PER_HOUR - 1)).toBe(true);
     expect(withinFetchBudget(FETCHES_PER_HOUR)).toBe(false);
     expect(withinFetchBudget(FETCHES_PER_HOUR + 5000)).toBe(false);
+  });
+});
+
+describe("openLookupScope", () => {
+  it("gives a published show an allowance of its own", () => {
+    expect(openLookupScope({ id: "ev_1", published: true })).toBe(eventScope("ev_1"));
+  });
+
+  it("treats a draft exactly as a slug nobody recognises", () => {
+    expect(openLookupScope({ id: "ev_1", published: false })).toBe(UNATTRIBUTED_SCOPE);
+    expect(openLookupScope(null)).toBe(UNATTRIBUTED_SCOPE);
   });
 });
