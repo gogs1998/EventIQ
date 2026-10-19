@@ -1,7 +1,7 @@
 import { INVITE_OVERRIDES } from "@/data/promoter";
 import { newId } from "@/lib/auth";
 import type { LoadedCard } from "@/lib/db/queries";
-import { boutFingerprints } from "@/lib/db/render-jobs";
+import { boutFingerprints, renderJobId } from "@/lib/db/render-jobs";
 import { newInviteToken } from "@/lib/invite-token";
 import { completeness } from "@/lib/tape";
 import type { FightEvent, Fighter, InviteStatus, Sponsor } from "@/lib/types";
@@ -403,7 +403,9 @@ export async function buildSeed({
   for (const boutNumber of renderedBouts) {
     statements.push(
       row("render_jobs", {
-        id: `rj_${event.slug}_${boutNumber}_tape`,
+        // The id every other writer of this table builds, so a later renumber or
+        // upsert addresses the same row rather than a second one beside it.
+        id: renderJobId(eventId, boutNumber, "tape"),
         event_id: eventId,
         bout_number: boutNumber,
         template: "tape",

@@ -18,7 +18,7 @@ import {
   uniqueSlug,
   type FighterMatch,
 } from "@/lib/db/queries";
-import { requestRenderQuietly } from "@/lib/db/render-jobs";
+import { moveBoutJobs, requestRenderQuietly } from "@/lib/db/render-jobs";
 import {
   bothCornersAreOnePerson,
   resolveCorner,
@@ -665,11 +665,9 @@ export async function removeBout(slug: string, boutNumber: number): Promise<Acti
               .where(eq(schema.bouts.id, bout.id));
             // Jobs and videos are keyed by bout number, so they move with it;
             // otherwise the video made for bout seven would be filed under
-            // whichever bout is seventh now.
-            await db
-              .update(schema.renderJobs)
-              .set({ boutNumber: index + 1 })
-              .where(and(eq(schema.renderJobs.eventId, card.eventId), eq(schema.renderJobs.boutNumber, bout.number)));
+            // whichever bout is seventh now. The id moves too, or the next bout
+            // added at the old number collides with it.
+            await moveBoutJobs(db, card.eventId, bout.number, index + 1);
           }
         }
         // Renumbering moves every bout below the gap, and the number is in the

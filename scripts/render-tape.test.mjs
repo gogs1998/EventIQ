@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
-import { brokenImageMessage, claimSql, renderInputsFrom, sameOrigin } from "./render-tape.mjs";
+import {
+  brokenImageMessage,
+  claimSql,
+  renderInputsFrom,
+  runTargets,
+  sameOrigin,
+} from "./render-tape.mjs";
 
 /**
  * The renderer's pure parts. The capture loop needs a browser and a dev server
@@ -218,5 +224,74 @@ describe("claimSql", () => {
    */
   it("says whether it won by returning the row", () => {
     expect(sql().trimEnd().endsWith("RETURNING id")).toBe(true);
+  });
+});
+
+describe("runTargets", () => {
+  const target = (number, template = "tape") => ({ number, template, hash: `h${number}`, job: null });
+  const quiet = { log: () => {}, warn: () => {} };
+
+  /**
+   * A claim is a D1 write and it can throw. It used to be outside the per-bout
+   * try, so one bout whose row the database refused rejected the whole run and
+   * every bout after it went unrendered, every hour.
+   */
+  it("fails the one bout whose claim throws and carries on with the rest", async () => {
+    const rendered = [];
+    const failed = [];
+    const failures = await runTargets([target(15), target(14), target(13)], {
+      ...quiet,
+      publish: true,
+      claim: async (t) => {
+        if (t.number === 14) throw new Error("UNIQUE constraint failed: render_jobs.id");
+        return true;
+      },
+      render: async (t) => {
+        rendered.push(t.number);
+        return `${t.number}.mp4`;
+      },
+      publishOne: async () => {},
+      fail: async (t) => failed.push(t.number),
+    });
+
+    expect(failures).toBe(1);
+    expect(rendered).toEqual([15, 13]);
+    // The row was never ours, so nothing is written over it.
+    expect(failed).toEqual([]);
+  });
+
+  it("records a failure against a row it holds", async () => {
+    const failed = [];
+    const failures = await runTargets([target(15)], {
+      ...quiet,
+      publish: true,
+      claim: async () => true,
+      render: async () => {
+        throw new Error("ffmpeg exited 1");
+      },
+      publishOne: async () => {},
+      fail: async (t, error) => failed.push([t.number, error.message]),
+    });
+
+    expect(failures).toBe(1);
+    expect(failed).toEqual([[15, "ffmpeg exited 1"]]);
+  });
+
+  it("skips a bout another runner holds without counting it as a failure", async () => {
+    const lines = [];
+    const failures = await runTargets([target(15)], {
+      publish: true,
+      claim: async () => false,
+      render: async () => {
+        throw new Error("should not render");
+      },
+      publishOne: async () => {},
+      fail: async () => {},
+      log: (line) => lines.push(line),
+      warn: () => {},
+    });
+
+    expect(failures).toBe(0);
+    expect(lines).toEqual(["bout 15 tape: left to another runner (missing)"]);
   });
 });

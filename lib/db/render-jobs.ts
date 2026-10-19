@@ -1,4 +1,4 @@
-import { isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/lib/db";
 import { loadCardById, type LoadedCard } from "@/lib/db/queries";
@@ -215,6 +215,35 @@ function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: nu
         lt(schema.renderJobs.leaseUntil, now),
       ),
     });
+}
+
+/**
+ * Moves one bout's queue rows to the number the bout has been moved to.
+ *
+ * The id moves with the number. It is built from the event, the bout and the
+ * template, and the claim and the queue both conflict on those three columns
+ * rather than on the id — so a row renumbered under its old id sat on a primary
+ * key that the next bout added at that number was always going to want, and the
+ * collision rolled back every render request in that batch. Rebuilt in SQL from
+ * the row's own template, so a composition this file does not publish is moved
+ * by the same rule rather than left behind. Migration 0016 repaired the rows
+ * that had already drifted; `renderJobId` in lib/renders.ts is the rule this
+ * mirrors, and tests/db/promoter-actions.test.ts holds the two together.
+ *
+ * Called in ascending order of the new number, so the ids a move writes have
+ * always just been vacated: by the bout that was removed, or by the one below
+ * that moved first.
+ */
+export function moveBoutJobs(db: Db, eventId: string, from: number, to: number) {
+  return db
+    .update(schema.renderJobs)
+    .set({
+      boutNumber: to,
+      // The number bound as text: D1 binds a JavaScript number as a REAL, and
+      // concatenated that is `2.0`, an id nothing else would ever build.
+      id: sql`'rj_' || ${eventId} || '_' || ${String(to)} || '_' || ${schema.renderJobs.template}`,
+    })
+    .where(and(eq(schema.renderJobs.eventId, eventId), eq(schema.renderJobs.boutNumber, from)));
 }
 
 /**

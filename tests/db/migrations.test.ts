@@ -3,6 +3,7 @@ import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as schema from "@/db/schema";
 import { INVITE_TTL_MS } from "@/lib/invite-token";
+import { renderJobId } from "@/lib/renders";
 import { applyMigrations, migrationFiles, startPlatform, type Platform } from "./platform";
 
 /**
@@ -25,6 +26,7 @@ import { applyMigrations, migrationFiles, startPlatform, type Platform } from ".
 const isSqliteTable = (value: unknown): value is SQLiteTable => is(value, SQLiteTable);
 
 const AUGUST = Date.UTC(2026, 7, 3);
+const RJ_IDS = ["rj_ev_cc12_2", "rj_ev_cc12_1", "rj_3", "rj_4", "rj_ev_cc12_5"];
 const files = migrationFiles();
 const [initial, ...later] = files;
 
@@ -61,11 +63,16 @@ async function plantAugust(): Promise<void> {
     ),
     // Four bouts rendered and published, one that never got that far. Only the
     // four have a video the programme is playing.
-    ...[...Array(4)].map(
-      (_, at) =>
-        `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at, finished_at) VALUES ('rj_${at + 1}', 'ev_cc12', ${at + 1}, 'done', 'renders/cage-county-12/${at + 1}-abc.mp4', 'hash-${at + 1}', ${AUGUST}, ${AUGUST});`,
+    //
+    // The ids are the shapes a live table can hold: bouts 1 and 2 each carry the
+    // other's, which is what a draft renumber left behind and what migration 0016
+    // has to swap without colliding half-way; 3 and 4 carry an id from before
+    // the rule; 5 is already right.
+    ...RJ_IDS.slice(0, 4).map(
+      (id, at) =>
+        `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at, finished_at) VALUES ('${id}', 'ev_cc12', ${at + 1}, 'done', 'renders/cage-county-12/${at + 1}-abc.mp4', 'hash-${at + 1}', ${AUGUST}, ${AUGUST});`,
     ),
-    `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at) VALUES ('rj_5', 'ev_cc12', 5, 'queued', NULL, 'hash-5', ${AUGUST});`,
+    `INSERT INTO render_jobs (id, event_id, bout_number, status, r2_key, input_hash, requested_at) VALUES ('${RJ_IDS[4]}', 'ev_cc12', 5, 'queued', NULL, 'hash-5', ${AUGUST});`,
   ];
   await platform.d1.exec(rows.join("\n"));
 }
@@ -134,6 +141,18 @@ describe("the migration chain, over a card that was already there", () => {
     expect(rows.results[4]).toMatchObject({ status: "queued", current_r2_key: null });
 
     expect(await columnsOf("render_jobs")).not.toContain("r2_key");
+  });
+
+  it("names every render row by the bout it is about, including two that held each other's", async () => {
+    const rows = await d1()
+      .prepare("SELECT id, event_id, bout_number, template, current_r2_key FROM render_jobs ORDER BY bout_number")
+      .all<{ id: string; event_id: string; bout_number: number; template: string; current_r2_key: string | null }>();
+
+    expect(rows.results.map((row) => row.id)).toEqual(
+      rows.results.map((row) => renderJobId(row.event_id, row.bout_number, row.template as "tape")),
+    );
+    // The swap moved the names and nothing else: bout 1 still plays bout 1.
+    expect(rows.results[0].current_r2_key).toBe("renders/cage-county-12/1-abc.mp4");
   });
 
   it("gives every invite an expiry dated from the migration, not from the row", async () => {

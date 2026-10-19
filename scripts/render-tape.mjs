@@ -845,6 +845,58 @@ async function publishBout(eventId, bout, templateId, file, hash, previousKey) {
   }
 }
 
+/**
+ * Claims, renders and publishes each target in turn, and counts what failed.
+ *
+ * **One bad bout fails one bout.** The claim is inside the same try as the
+ * render, because it is a D1 write and it can throw: it used to sit outside it,
+ * so a claim refused by the database — a primary key collision a renumbered
+ * draft left behind — rejected the whole run, every later bout on the card went
+ * unrendered, and the next hourly run met the same row first and did the same.
+ * A failure is recorded against the row only when this run holds it: a claim
+ * that threw has taken nothing, and writing `failed` over a row another runner
+ * holds would be worse than the failure.
+ *
+ * Without --publish nothing is recorded, so there is nothing to claim: it is a
+ * dry run to a file, and two of those colliding costs nobody anything.
+ *
+ * Exported with its effects passed in, so the test can make one of them throw.
+ */
+export async function runTargets(
+  targets,
+  { publish, claim, render, publishOne, fail, log = console.log, warn = console.error },
+) {
+  let failures = 0;
+  for (const target of targets) {
+    const { number, template: id } = target;
+    let held = false;
+    try {
+      if (publish) {
+        held = await claim(target);
+        if (!held) {
+          log(`bout ${number} ${id}: left to another runner (${stateOf(target)})`);
+          continue;
+        }
+      }
+      const file = await render(target);
+      if (publish) await publishOne(target, file);
+    } catch (error) {
+      // One bad video does not stop the other twenty-nine, and whatever that
+      // bout already had stays on the programme — a promo that will not render
+      // must not take the tale of the tape with it. The exit code carries the
+      // failure, which is what a cron and a workflow actually read.
+      failures += 1;
+      warn(`bout ${number} ${id}: ${error.message}`);
+      if (publish && held) {
+        await fail(target, error).catch((recording) =>
+          warn(`bout ${number} ${id}: could not record the failure: ${recording.message}`),
+        );
+      }
+    }
+  }
+  return failures;
+}
+
 // ------------------------------------------------------------------- main
 
 /** What --list prints, for one bout in one composition. The dashboard's six words. */
@@ -989,38 +1041,20 @@ async function main() {
   }
 
   const eventId = publish ? await eventIdOf(slug) : null;
-  let failures = 0;
 
-  for (const target of wanted) {
-    const { number, template: id } = target;
-    // Without --publish nothing is recorded, so there is nothing to claim: it is
-    // a dry run to a file, and two of those colliding costs nobody anything.
-    if (publish && !(await claim(eventId, number, id, target.hash, { force }))) {
-      console.log(`bout ${number} ${id}: left to another runner (${stateOf(target)})`);
-      continue;
-    }
-
-    try {
-      const file = await renderBout(number, id);
-      if (publish) {
-        await publishBout(eventId, number, id, file, target.hash, target.job?.currentR2Key);
-      }
-    } catch (error) {
-      // One bad video does not stop the other twenty-nine, and whatever that
-      // bout already had stays on the programme — a promo that will not render
-      // must not take the tale of the tape with it. The exit code carries the
-      // failure, which is what a cron and a workflow actually read.
-      failures += 1;
-      console.error(`bout ${number} ${id}: ${error.message}`);
-      if (publish) {
-        await finishJob(eventId, number, id, {
-          status: lit("failed"),
-          // Long enough to say what happened, short enough for a table cell.
-          error: lit(error.message.slice(0, 500)),
-        });
-      }
-    }
-  }
+  const failures = await runTargets(wanted, {
+    publish,
+    claim: (target) => claim(eventId, target.number, target.template, target.hash, { force }),
+    render: (target) => renderBout(target.number, target.template),
+    publishOne: (target, file) =>
+      publishBout(eventId, target.number, target.template, file, target.hash, target.job?.currentR2Key),
+    fail: (target, error) =>
+      finishJob(eventId, target.number, target.template, {
+        status: lit("failed"),
+        // Long enough to say what happened, short enough for a table cell.
+        error: lit(error.message.slice(0, 500)),
+      }),
+  });
 
   return failures ? 1 : 0;
 }

@@ -22,6 +22,7 @@ import { login, logout } from "@/app/promoter/login/actions";
 import type { ActionResult } from "@/lib/action-result";
 import { hashPassword } from "@/lib/auth";
 import { ACTION_ERRORS } from "@/lib/copy";
+import { renderJobId } from "@/lib/renders";
 import { currentPromoter } from "@/lib/session";
 import { plantPromoters, plantShow, type PlantedShow } from "./fixtures";
 import { cookiesCleared } from "./request";
@@ -280,6 +281,35 @@ describe("what the owning promoter's actions actually do", () => {
       .where(eq(schema.renderJobs.eventId, show.eventId));
     // Two rows a bout, because a bout is the tale of the tape and the promo.
     expect([...new Set(jobs.map((job) => job.boutNumber))].sort()).toEqual([1, 2]);
+  });
+
+  /**
+   * The renumber used to move a bout's render rows to their new number and leave
+   * their ids naming the old one. The next bout added at that number wanted the
+   * same id, the insert failed on the primary key — not on the (event, bout,
+   * template) key its ON CONFLICT names — and every render request in the batch
+   * rolled back with it.
+   */
+  it("can add a bout after one was taken out of a draft, and queue its videos", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    await requestRender(show.slug, "all");
+
+    await removeBout(show.slug, 2);
+    await addBout(show.slug, form({ redName: "Owen Pryce", blueName: "Dre Osei" }));
+
+    const jobs = await db
+      .select()
+      .from(schema.renderJobs)
+      .where(eq(schema.renderJobs.eventId, show.eventId));
+    expect(jobs).toHaveLength(6);
+    for (const job of jobs) {
+      expect(job.id).toBe(renderJobId(show.eventId, job.boutNumber, job.template as "tape"));
+    }
+    expect(jobs.filter((job) => job.boutNumber === 3).map((job) => job.status)).toEqual([
+      "queued",
+      "queued",
+    ]);
   });
 
   it("skips the number instead once spectators are reading the card", async () => {
