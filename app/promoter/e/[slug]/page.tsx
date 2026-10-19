@@ -128,6 +128,7 @@ const INVITE_STYLE: Record<InviteStatus, string> = {
   sent: "border-hairline text-ash",
   "not-sent": "border-red-corner/50 text-red-corner-hot",
   submitted: "border-hairline text-ash-dim",
+  withdrawn: "border-hairline text-ash-dim",
 };
 
 /**

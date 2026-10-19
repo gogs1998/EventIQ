@@ -420,6 +420,14 @@ export const invites = sqliteTable(
      * working the moment this is set, and a revoked or expired link 404s.
      */
     revokedAt: integer("revoked_at"),
+    /**
+     * When the fighter asked for their details to be taken down, as opposed to
+     * the promoter pulling the link. Removal also clears the consent, so this is
+     * what is left to say that it happened — and what stops "New link" quietly
+     * handing back a link with the old answers and the old consent behind it.
+     * Kept after a new link is issued, as the record that they asked.
+     */
+    withdrawnAt: integer("withdrawn_at"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

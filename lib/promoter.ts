@@ -1,4 +1,5 @@
 import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
+import { withdrawnByFighter } from "@/lib/consent";
 import { INVITE_CHANNEL, howLongAgo } from "@/lib/copy";
 import { inviteLive } from "@/lib/invite-token";
 import {
@@ -43,6 +44,9 @@ export function daysUntilShow(date: string, now = new Date()): number {
  * this only reports it. Same principle as isDebut: absence is not evidence.
  */
 export function inviteStatus(invite: Invite | undefined): InviteStatus {
+  // First, because it is the one state that is the fighter's own decision and
+  // the one where chasing them is the wrong thing to do.
+  if (invite && withdrawnByFighter(invite)) return "withdrawn";
   if (!invite?.sentAt) return "not-sent";
   if (invite.submittedAt) return "submitted";
   if (invite.lastOpenedAt) return "opened";
@@ -54,6 +58,7 @@ export const INVITE_LABEL: Record<InviteStatus, string> = {
   sent: "Not opened",
   opened: "Opened, unfinished",
   submitted: "Done",
+  withdrawn: "Details removed",
 };
 
 
@@ -71,7 +76,7 @@ export function sentNote(invite: Invite | undefined, now = Date.now()): string |
   return `Sent ${howLongAgo(invite.sentAt, now)}${how ? ` ${how}` : ""}`;
 }
 
-export type LinkState = "live" | "revoked" | "expired";
+export type LinkState = "live" | "revoked" | "expired" | "withdrawn";
 
 /**
  * Whether the link on this row still opens anything, and if not, which of the
@@ -80,6 +85,7 @@ export type LinkState = "live" | "revoked" | "expired";
  * only one who can do something about it.
  */
 export function linkState(invite: Invite, now = Date.now()): LinkState {
+  if (withdrawnByFighter(invite)) return "withdrawn";
   if (invite.revokedAt) return "revoked";
   return inviteLive(invite, now) ? "live" : "expired";
 }

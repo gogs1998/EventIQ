@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
 import { saveDraft, uploadPhoto } from "@/app/f/[token]/actions";
 import { removeMyDetails } from "@/app/f/[token]/consent-actions";
+import { regenerateInvite } from "@/app/promoter/invite-actions";
 import { CONSENT_VERSION } from "@/lib/consent";
+import { ACTION_ERRORS } from "@/lib/copy";
+import { openToken } from "@/lib/invite-token";
+import { inviteSecret } from "@/lib/db";
+import { loadInviteByToken } from "@/lib/db/queries";
 import { EMPTY_DRAFT, type Draft } from "@/lib/questionnaire";
 import { plantPromoters, plantShow, type PlantedShow } from "./fixtures";
-import { testDatabase } from "./harness";
+import { signInAs, testDatabase } from "./harness";
 
 /**
  * The fighter's side of the form, from the outside.
@@ -142,5 +147,67 @@ describe("deleting a superseded picture", () => {
     expect((await removeMyDetails(show.tokens[me])).ok).toBe(true);
     expect(await exists(own)).toBe(false);
     expect(await exists(foreign)).toBe(true);
+  });
+});
+
+async function inviteOf(fighterId: string) {
+  const [row] = await platform()
+    .db.select()
+    .from(schema.invites)
+    .where(eq(schema.invites.fighterId, fighterId));
+  return row;
+}
+
+describe("a fighter who took their details down, and New link", () => {
+  it("records that the fighter asked, and takes the consent with the answers", async () => {
+    const { show, me } = await consentingShow();
+    await platform()
+      .db.update(schema.invites)
+      .set({ submittedAt: Date.now() })
+      .where(eq(schema.invites.fighterId, me));
+
+    expect((await removeMyDetails(show.tokens[me])).ok).toBe(true);
+
+    const invite = await inviteOf(me);
+    expect(invite.revokedAt).not.toBeNull();
+    expect(invite.withdrawnAt).toBe(invite.revokedAt);
+    expect(invite.consentedAt).toBeNull();
+    expect(invite.consentVersion).toBeNull();
+  });
+
+  it("issues a link that starts again and asks for consent afresh", async () => {
+    const { show, me } = await consentingShow();
+    await platform()
+      .db.update(schema.invites)
+      .set({ submittedAt: Date.now() })
+      .where(eq(schema.invites.fighterId, me));
+    expect((await removeMyDetails(show.tokens[me])).ok).toBe(true);
+
+    await signInAs("pr_cage");
+    expect((await regenerateInvite(show.slug, me)).ok).toBe(true);
+
+    const invite = await inviteOf(me);
+    expect(invite.revokedAt).toBeNull();
+    expect(invite.consentedAt).toBeNull();
+    expect(invite.submittedAt).toBeNull();
+    // Kept, as the record that they once asked.
+    expect(invite.withdrawnAt).not.toBeNull();
+
+    const token = await openToken(await inviteSecret(), invite.tokenCipher!);
+    expect(token).toBeTruthy();
+    expect(await loadInviteByToken(platform().db, token!)).not.toBeNull();
+    // Nothing goes on the profile until they tick the box again.
+    expect(await saveDraft(token!, draft({ nickname: "Back again", consented: false }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.consentNeeded,
+    });
+    expect((await fighter(me)).nickname).toBeNull();
+  });
+
+  it("leaves the consent alone on a link the promoter replaced for the wrong number", async () => {
+    const { show, me } = await consentingShow();
+    await signInAs("pr_cage");
+    expect((await regenerateInvite(show.slug, me)).ok).toBe(true);
+    expect((await inviteOf(me)).consentedAt).not.toBeNull();
   });
 });

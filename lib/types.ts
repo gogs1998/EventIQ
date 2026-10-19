@@ -126,6 +126,8 @@ export type Invite = {
   /** When the link stops opening anything. Absent on a row from before expiry. */
   expiresAt?: number;
   revokedAt?: number;
+  /** When the fighter took their own details down. See `withdrawnByFighter`. */
+  withdrawnAt?: number;
 };
 
 /**
@@ -143,7 +145,9 @@ export type InviteStatus =
   /** Opened it and walked away. */
   | "opened"
   /** Finished. */
-  | "submitted";
+  | "submitted"
+  /** Took their own details down, from their own link. */
+  | "withdrawn";
 
 /**
  * Everything `/api/track` will write a row for.

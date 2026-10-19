@@ -1405,6 +1405,16 @@ export const INVITE_CHANNEL = {
 /** What the dashboard says about a link that will not open anything. */
 export const INVITE_STATE = {
   revoked: "This link has been withdrawn. New link issues a working one.",
+  /**
+   * The fighter took their own details down. Nothing here says they did
+   * anything wrong, and nothing invites the promoter to chase: a new link starts
+   * from nothing and asks for their consent again, so it is one to send only
+   * where they have said they want back on the programme.
+   */
+  withdrawn:
+    "They asked for their details to be taken off the programme. Their name and gym stay " +
+    "on the running order. New link starts again from a blank form and asks for their " +
+    "consent afresh, so send one only if they have said they would like to be back on.",
   expired: "This link has lapsed. New link issues a working one.",
   /** A rotated key is the only thing that leaves a stored link unreadable. */
   unreadable: "The link for this fighter cannot be shown. New link issues a fresh one.",

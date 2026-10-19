@@ -63,6 +63,13 @@ describe("inviteStatus", () => {
     ).toBe("submitted");
   });
 
+  it("says a fighter took their details down, rather than that they are done", () => {
+    const removed = { fighterId: "f", sentAt: 1, lastOpenedAt: 2, submittedAt: 3 };
+    expect(inviteStatus({ ...removed, revokedAt: 4, withdrawnAt: 4 })).toBe("withdrawn");
+    // A fresh link sent since reads as a link again.
+    expect(inviteStatus({ fighterId: "f", sentAt: 5, withdrawnAt: 4 })).toBe("sent");
+  });
+
   it("does not call a fighter finished just because they looked", () => {
     expect(inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2 })).not.toBe(
       "submitted",
@@ -355,6 +362,14 @@ describe("linkState", () => {
 
   it("treats a row from before expiry existed as live", () => {
     expect(linkState(base, now)).toBe("live");
+  });
+
+  it("tells the fighter taking their details down from the promoter pulling the link", () => {
+    expect(linkState({ ...base, revokedAt: now - 1, withdrawnAt: now - 1 }, now)).toBe("withdrawn");
+    // A new link issued since, and that one revoked by the promoter.
+    expect(linkState({ ...base, revokedAt: now - 1, withdrawnAt: now - 9 }, now)).toBe("revoked");
+    // A new link issued since and still working.
+    expect(linkState({ ...base, expiresAt: now + 1, withdrawnAt: now - 9 }, now)).toBe("live");
   });
 });
 

@@ -202,6 +202,7 @@ export function toInvite(row: InviteRow, token?: string): Invite {
     submittedAt: optional(row.submittedAt),
     expiresAt: optional(row.expiresAt),
     revokedAt: optional(row.revokedAt),
+    withdrawnAt: optional(row.withdrawnAt),
   };
 }
 

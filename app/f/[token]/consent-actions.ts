@@ -69,8 +69,14 @@ export async function removeMyDetails(token: string): Promise<ActionResult> {
         // Sponsors a fighter chose are a choice they made about themselves.
         db.delete(schema.fighterSponsors).where(eq(schema.fighterSponsors.fighterId, fighter.id)),
         // The row stays so there is a record that they asked; the token stops
-        // resolving the moment this is set. See loadInviteByToken.
-        db.update(schema.invites).set({ revokedAt: now }).where(eq(schema.invites.id, invite.id)),
+        // resolving the moment this is set. See loadInviteByToken. The consent
+        // goes with it â€” withdrawing one is the point of this control â€” and
+        // `withdrawnAt` is what says it was the fighter, so "New link" on the
+        // dashboard cannot hand back a link with the old consent behind it.
+        db
+          .update(schema.invites)
+          .set({ revokedAt: now, withdrawnAt: now, consentedAt: null, consentVersion: null })
+          .where(eq(schema.invites.id, invite.id)),
       ];
       await db.batch(writes);
 

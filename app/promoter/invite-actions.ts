@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { DONE, attempt, type ActionResult } from "@/lib/action-result";
+import { withdrawnByFighter } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
 import { newToken } from "@/lib/auth";
 import { getDb, inviteSecret } from "@/lib/db";
@@ -115,6 +116,13 @@ export async function markVideoSent(slug: string, fighterId: string): Promise<Ac
  * The chase timestamps are cleared with it. A link that went to the wrong number
  * was never sent to this fighter, and carrying "sent, not opened" across to a
  * different link would be the dashboard reporting something that did not happen.
+ *
+ * **A link the fighter switched off themselves starts again from nothing.** The
+ * removal control clears their answers and their consent; reviving the row as
+ * it was would have handed back a working link with a submission still marked
+ * on it, as though the fighter had never asked. So the new link asks for consent
+ * afresh and the row reads as a link that has not been answered. `withdrawnAt`
+ * stays, as the record that they once asked.
  */
 export async function regenerateInvite(slug: string, fighterId: string): Promise<ActionResult> {
   return attempt(
@@ -125,10 +133,28 @@ export async function regenerateInvite(slug: string, fighterId: string): Promise
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
 
+      const where = and(
+        eq(schema.invites.eventId, owned.card.eventId),
+        eq(schema.invites.fighterId, fighterId),
+      );
+      const [current] = await db
+        .select({
+          revokedAt: schema.invites.revokedAt,
+          withdrawnAt: schema.invites.withdrawnAt,
+        })
+        .from(schema.invites)
+        .where(where)
+        .limit(1);
+      const fresh =
+        current && withdrawnByFighter(current)
+          ? { consentedAt: null, consentVersion: null, submittedAt: null }
+          : {};
+
       const now = Date.now();
       await db
         .update(schema.invites)
         .set({
+          ...fresh,
           // Null rather than absent: a row still holding a plaintext token from
           // before the migration has to lose it here as well, or the link the
           // promoter has just replaced would go on working.
@@ -142,9 +168,7 @@ export async function regenerateInvite(slug: string, fighterId: string): Promise
           // and stays true whatever becomes of the link that asked for it.
           lastOpenedAt: null,
         })
-        .where(
-          and(eq(schema.invites.eventId, owned.card.eventId), eq(schema.invites.fighterId, fighterId)),
-        );
+        .where(where);
 
       revalidatePath(`/promoter/e/${slug}`);
       return DONE;

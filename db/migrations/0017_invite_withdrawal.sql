@@ -1,0 +1,1 @@
+ALTER TABLE `invites` ADD `withdrawn_at` integer;
