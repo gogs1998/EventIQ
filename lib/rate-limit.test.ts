@@ -4,6 +4,7 @@ import {
   IMPORT_LOOKUPS_PER_MINUTE,
   LOGIN_ATTEMPTS_PER_MINUTE,
   TRACK_WRITES_PER_MINUTE,
+  addressBucket,
   callerKey,
 } from "@/lib/rate-limit";
 import { FETCHES_PER_HOUR, withinFetchBudget } from "@/lib/record-import";
@@ -35,6 +36,35 @@ describe("callerKey", () => {
   it("puts everything it cannot attribute in one bucket rather than letting it past", () => {
     expect(callerKey(requestWith({}).headers)).toBe("unattributed");
     expect(callerKey(requestWith({ "cf-connecting-ip": "  " }).headers)).toBe("unattributed");
+  });
+});
+
+describe("addressBucket", () => {
+  it("counts an IPv4 address as itself", () => {
+    expect(addressBucket("203.0.113.7")).toBe("203.0.113.7");
+  });
+
+  it("counts every address in one IPv6 /64 as one caller", () => {
+    const a = addressBucket("2001:db8:85a3:12::8a2e:370:7334");
+    expect(a).toBe("2001:db8:85a3:12::/64");
+    expect(addressBucket("2001:0DB8:85a3:0012:ffff:ffff:ffff:1")).toBe(a);
+    expect(addressBucket("2001:db8:85a3:13::1")).not.toBe(a);
+    expect(addressBucket("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(addressBucket("::1")).toBe("0:0:0:0::/64");
+  });
+
+  it("counts an IPv4 address written as IPv6 as the IPv4 address", () => {
+    expect(addressBucket("::ffff:203.0.113.7")).toBe("203.0.113.7");
+  });
+
+  it("leaves something it cannot parse as it was, rather than merging it with others", () => {
+    expect(addressBucket("not:an:address")).toBe("not:an:address");
+  });
+
+  it("is what callerKey answers with", () => {
+    expect(callerKey(requestWith({ "cf-connecting-ip": "2001:db8:1:2:3:4:5:6" }).headers)).toBe(
+      "2001:db8:1:2::/64",
+    );
   });
 });
 
