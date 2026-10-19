@@ -136,16 +136,27 @@ export async function loadBoutFingerprints(db: Db, eventId: string): Promise<Bou
  * `requestRenderQuietly` below; the promoter's "Render again" button is the one
  * caller that wants the failure, so it calls this directly.
  *
- * Queuing is cheap and idempotent, so it is better to ask twice than to leave a
- * fighter's photograph out of their own video until somebody notices. The
- * fingerprint means a request for a bout that has not changed costs one row
- * update and no render: the runner sees the hash it already published.
+ * **Two strengths of asking.** Nearly every caller asks for the whole card
+ * after an edit that touched one fighter, and that is only cheap if the bouts
+ * that edit did not change are left exactly as they are. So by default a row is
+ * put back in the queue only when the bout's fingerprint has moved away from
+ * both the video it is playing and the request already on the row: a bout
+ * whose video is current stays `done`, and one that has failed twice stays
+ * parked rather than being retried every hour because somebody on another bout
+ * changed their nickname. It used to reset every row on the card to `queued`
+ * whatever its hash said, and the runner takes any queued row, so one fighter's
+ * edit re-rendered all thirty videos.
+ *
+ * `force` is the promoter's own "Render again", which means it even for a bout
+ * that is already current, and is the one way to put a parked bout back in the
+ * queue without changing it.
  */
 export async function enqueueRender(
   db: Db,
   eventId: string,
   bouts: number[] | "all",
   now: number = Date.now(),
+  { force = false }: { force?: boolean } = {},
 ): Promise<number> {
   const hashes = await loadBoutFingerprints(db, eventId);
   const wanted = bouts === "all" ? Object.keys(hashes).map(Number) : bouts;
@@ -178,7 +189,7 @@ export async function enqueueRender(
   // fifteen, which is three statements rather than two and nothing else.
   const statements = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
-    statements.push(upsert(db, rows.slice(i, i + ROWS_PER_INSERT), now));
+    statements.push(upsert(db, rows.slice(i, i + ROWS_PER_INSERT), now, force));
   }
   await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
 
@@ -187,7 +198,22 @@ export async function enqueueRender(
 
 const ROWS_PER_INSERT = 10;
 
-function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: number) {
+function upsert(
+  db: Db,
+  rows: (typeof schema.renderJobs.$inferInsert)[],
+  now: number,
+  force: boolean,
+) {
+  // Never disturb a runner that is part way through this bout. It will finish
+  // and record what it made; if the inputs have moved on since it started, the
+  // hourly --stale run picks the bout up again, which is what that run is for.
+  const free = or(isNull(schema.renderJobs.leaseUntil), lt(schema.renderJobs.leaseUntil, now));
+  // `IS NOT` rather than `<>`, because a row that has never published has a
+  // NULL hash, and `<>` against NULL is NULL rather than true.
+  const moved = and(
+    sql`${schema.renderJobs.currentHash} IS NOT excluded.input_hash`,
+    sql`${schema.renderJobs.inputHash} IS NOT excluded.input_hash`,
+  );
   return db
     .insert(schema.renderJobs)
     .values(rows)
@@ -206,14 +232,7 @@ function upsert(db: Db, rows: (typeof schema.renderJobs.$inferInsert)[], now: nu
         error: null,
         requestedAt: now,
       },
-      // Never disturb a runner that is part way through this bout. It will
-      // finish and record what it made; if the inputs have moved on since it
-      // started, the hourly --stale run picks the bout up again, which is what
-      // that run is for.
-      setWhere: or(
-        isNull(schema.renderJobs.leaseUntil),
-        lt(schema.renderJobs.leaseUntil, now),
-      ),
+      setWhere: force ? free : and(free, moved),
     });
 }
 

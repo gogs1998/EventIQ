@@ -182,9 +182,92 @@ describe("enqueueRender", () => {
       .set({ status: "running", leaseUntil: now + 1000 })
       .where(eq(schema.renderJobs.eventId, show.eventId));
 
-    await enqueueRender(db, show.eventId, [1], now + 60_000);
+    await enqueueRender(db, show.eventId, [1], now + 60_000, { force: true });
 
     expect((await jobsOf(db, show.eventId))[0].status).toBe("queued");
+  });
+
+  /**
+   * Nearly every write asks for the whole card. That is only cheap if the bouts
+   * the write did not change are left alone — and they were not: every row went
+   * back to `queued`, the runner takes any queued row, and one fighter's edit
+   * re-rendered the card.
+   */
+  it("leaves a bout whose video is current alone when the whole card is asked for", async () => {
+    const { db, show } = await fullCard(2);
+    const hashes = await loadBoutFingerprints(db, show.eventId);
+    await enqueueRender(db, show.eventId, "all");
+    for (const bout of [1, 2]) {
+      for (const template of ["tape", "faceoff"] as const) {
+        await db
+          .update(schema.renderJobs)
+          .set({
+            status: "done",
+            currentR2Key: `renders/x/${bout}-${template}.mp4`,
+            currentHash: hashes[bout][template],
+            finishedAt: Date.now(),
+          })
+          .where(eq(schema.renderJobs.id, renderJobId(show.eventId, bout, template)));
+      }
+    }
+    // Bout 1's red corner changes; bout 2 is untouched.
+    await db
+      .update(schema.fighters)
+      .set({ nickname: "The Hammer", updatedAt: Date.now() + 1 })
+      .where(eq(schema.fighters.id, show.fighterIds[0]));
+
+    await enqueueRender(db, show.eventId, "all", Date.now() + 5000);
+
+    const rows = await jobsOf(db, show.eventId);
+    expect(rows.map((row) => [row.boutNumber, row.template, row.status])).toEqual([
+      [1, "faceoff", "queued"],
+      [1, "tape", "queued"],
+      [2, "faceoff", "done"],
+      [2, "tape", "done"],
+    ]);
+  });
+
+  it("leaves a bout that has failed twice parked until something on it changes", async () => {
+    const { db, show } = await fullCard(1);
+    await enqueueRender(db, show.eventId, [1]);
+    await db
+      .update(schema.renderJobs)
+      .set({ status: "failed", attempts: 2, error: "ffmpeg fell over" })
+      .where(eq(schema.renderJobs.eventId, show.eventId));
+
+    await enqueueRender(db, show.eventId, "all", Date.now() + 5000);
+    expect((await jobsOf(db, show.eventId)).map((row) => row.status)).toEqual(["failed", "failed"]);
+
+    await db
+      .update(schema.fighters)
+      .set({ photo: "/media/fighters/new-one.jpg", updatedAt: Date.now() + 1 })
+      .where(eq(schema.fighters.id, show.fighterIds[1]));
+    await enqueueRender(db, show.eventId, "all", Date.now() + 10_000);
+    const after = await jobsOf(db, show.eventId);
+    expect(after.map((row) => [row.status, row.attempts])).toEqual([
+      ["queued", 0],
+      ["queued", 0],
+    ]);
+  });
+
+  it("puts a current bout back in the queue when the promoter asks for it by force", async () => {
+    const { db, show } = await fullCard(1);
+    const hashes = await loadBoutFingerprints(db, show.eventId);
+    await enqueueRender(db, show.eventId, [1]);
+    await db
+      .update(schema.renderJobs)
+      .set({ status: "done", currentR2Key: "renders/x/1.mp4", currentHash: hashes[1].tape })
+      .where(eq(schema.renderJobs.id, renderJobId(show.eventId, 1, "tape")));
+
+    await enqueueRender(db, show.eventId, [1], Date.now() + 5000);
+    const quiet = await jobsOf(db, show.eventId);
+    expect(quiet.find((row) => row.template === "tape")?.status).toBe("done");
+
+    await enqueueRender(db, show.eventId, [1], Date.now() + 10_000, { force: true });
+    const forced = await jobsOf(db, show.eventId);
+    expect(forced.find((row) => row.template === "tape")?.status).toBe("queued");
+    // The video stays on the programme while it is remade.
+    expect(forced.find((row) => row.template === "tape")?.currentR2Key).toBe("renders/x/1.mp4");
   });
 
   it("hashes every bout on the card and nothing else", async () => {

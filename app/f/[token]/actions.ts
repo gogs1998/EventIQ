@@ -226,8 +226,9 @@ export async function submitProfile(token: string, input: unknown): Promise<Acti
         .where(eq(schema.invites.id, row.invite.id));
 
       // A fighter sending their photograph and record is the change the whole
-      // pipeline exists for. Asked for the card rather than their bout: the
-      // fingerprint leaves the other bouts alone, and it saves a lookup here.
+      // pipeline exists for. Asked for the card rather than their bout, which
+      // saves a lookup here: enqueueRender re-queues only the bouts whose
+      // fingerprint this submission moved and leaves every other row as it was.
       await requestRenderQuietly(db, row.event.id, "all", { event: "submitProfile", route: "/f/[token]", fighterId: row.fighter.id });
 
       revalidatePath(`/e/${row.event.slug}`);

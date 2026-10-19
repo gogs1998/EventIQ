@@ -43,7 +43,10 @@ export async function requestRender(
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
 
-      await enqueueRender(db, owned.card.eventId, bout === "all" ? "all" : [bout]);
+      // Forced: the button means it even for a bout that is already current.
+      await enqueueRender(db, owned.card.eventId, bout === "all" ? "all" : [bout], Date.now(), {
+        force: true,
+      });
 
       revalidatePath(`/promoter/e/${slug}`);
       return DONE;
