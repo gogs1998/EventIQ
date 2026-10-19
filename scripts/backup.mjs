@@ -50,8 +50,25 @@ function fail(...lines) {
 // checks quietly becoming the wrong file.
 const { database: DATABASE, bucket: BUCKET } = environmentFrom(args, (message) => fail(message));
 
+// `d1 export` prints a signed link that downloads the whole database for an
+// hour, and this runs in the nightly workflow of a public repository, where
+// every log line is readable by anybody. So nothing wrangler says reaches the
+// log with a link still in it.
 function wrangler(commandArgs) {
-  execFileSync(...localBin(["wrangler", ...commandArgs]), { stdio: "inherit" });
+  try {
+    const out = execFileSync(...localBin(["wrangler", ...commandArgs]), {
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+    });
+    process.stdout.write(withoutLinks(out));
+  } catch (error) {
+    process.stdout.write(withoutLinks(`${error.stdout ?? ""}${error.stderr ?? ""}`));
+    throw new Error(withoutLinks(error.message));
+  }
+}
+
+function withoutLinks(text) {
+  return String(text).replace(/https?:\/\/\S+/g, "[link withheld]");
 }
 
 // UTC, so a backup taken at half past midnight in one timezone and half past
