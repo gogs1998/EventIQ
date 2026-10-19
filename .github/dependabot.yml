@@ -2,10 +2,14 @@
 # requests a week rather than twenty.
 #
 # wrangler and @opennextjs/cloudflare are pinned to exact versions in
-# package.json because they decide how a deploy behaves, so their updates are
-# separated out: a bump to either one is a change to the deploy and wants
-# reading, not merging on a green tick. Everything else is grouped by whether it
-# can reach production.
+# package.json because they decide how a deploy behaves, and Next.js is pinned
+# with them because the adapter supports a narrow range of it: each adapter
+# release names the Next versions it builds and the wrangler it wants. Bumped
+# apart, they fail — the adapter alone failed `npm ci` with ERESOLVE (PR #2),
+# and Next 16.4 under an older adapter builds and then answers every request
+# with a 500. So the four move as one pull request, which is a change to the
+# deploy and wants reading and a staging deploy, not merging on a green tick.
+# Everything else is grouped by whether it can reach production.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -15,19 +19,35 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
-      cloudflare:
+      next-and-cloudflare:
         patterns:
+          - next
+          - eslint-config-next
           - wrangler
           - "@opennextjs/cloudflare"
           - "@cloudflare/*"
       production:
         dependency-type: production
         exclude-patterns:
+          - next
           - wrangler
           - "@opennextjs/cloudflare"
       development:
         dependency-type: development
         exclude-patterns:
+          - eslint-config-next
           - wrangler
           - "@opennextjs/cloudflare"
           - "@cloudflare/*"
+
+  # The workflows' own actions. A major that stops running on the runner's
+  # Node is a scheduled job that fails every night until somebody looks.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
