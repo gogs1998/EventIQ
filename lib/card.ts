@@ -99,6 +99,28 @@ export function featuredBout(card: Card): Bout | undefined {
   return running.find((bout) => bout.billing === "MAIN") ?? running[0];
 }
 
+/**
+ * The bout a fighter is on, and which corner, for their own page.
+ *
+ * A bout still going ahead before one that is off: a fighter whose first
+ * opponent withdrew and who was matched again on the same card is on the second
+ * bout, not the first. One who is only on a bout that is off still gets it,
+ * because the page should say where they were on the running order — but
+ * nothing about that bout may be offered as if it were happening, so the caller
+ * reads `cancelled` before it shows a promo or a video.
+ */
+export function boutForFighter(
+  card: Card,
+  fighterId: string,
+): { bout: Bout; corner: "red" | "blue" } | undefined {
+  const theirs = card.event.bouts.filter(
+    (bout) => bout.redId === fighterId || bout.blueId === fighterId,
+  );
+  const bout = theirs.find((candidate) => !candidate.cancelled) ?? theirs[0];
+  if (!bout) return undefined;
+  return { bout, corner: bout.redId === fighterId ? "red" : "blue" };
+}
+
 export function cornersOf(card: Card, bout: Bout): { red: Fighter; blue: Fighter } {
   return { red: fighterOf(card, bout.redId), blue: fighterOf(card, bout.blueId) };
 }

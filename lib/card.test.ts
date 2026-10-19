@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import {
+  boutForFighter,
   boutOf,
   boutsRunning,
   boutsTopDown,
@@ -163,6 +164,39 @@ describe("a bout that is off", () => {
     expect(boutsRunning(none)).toEqual([]);
     expect(boutsTopDown(none).length).toBe(event.bouts.length);
     expect(cardCompleteness(none, DONE_AT)).toEqual({ score: 0, done: 0, total: 0 });
+  });
+
+  /**
+   * A fighter's own page offered the promo of whichever bout it found first,
+   * off or not, with a download and a share beside it.
+   */
+  it("is reported as off on a fighter's page, so the page offers nothing from it", () => {
+    const main = event.bouts.find((bout) => bout.number === 15)!;
+    expect(boutForFighter(off([15]), main.redId)).toMatchObject({
+      bout: { number: 15, cancelled: true },
+      corner: "red",
+    });
+    expect(boutForFighter(card, main.blueId)).toMatchObject({ bout: { number: 15 }, corner: "blue" });
+  });
+
+  it("gives way on a fighter's page to a bout the same fighter is still on", () => {
+    const main = event.bouts.find((bout) => bout.number === 15)!;
+    // Their opponent withdrew from 15 and they were matched again as bout 14's red.
+    const rematched: Card = {
+      ...card,
+      event: {
+        ...event,
+        bouts: event.bouts.map((bout) =>
+          bout.number === 15
+            ? { ...bout, cancelled: true }
+            : bout.number === 14
+              ? { ...bout, redId: main.redId }
+              : bout,
+        ),
+      },
+    };
+    expect(boutForFighter(rematched, main.redId)?.bout.number).toBe(14);
+    expect(boutForFighter(card, "nobody-at-all")).toBeUndefined();
   });
 });
 
