@@ -35,6 +35,7 @@ import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
 import { hasSlug } from "@/lib/slug";
+import { isCalendarDate } from "@/lib/calendar";
 import { readBoutNumbers, type BoutFormProblem } from "@/lib/sheet";
 
 /**
@@ -99,7 +100,7 @@ export async function createEvent(
 
       const name = text(form, "name", 80);
       const date = text(form, "date", 10);
-      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      if (!name || !isCalendarDate(date)) {
         return refuse(ACTION_ERRORS.showNeedsNameAndDate);
       }
       // A name made only of punctuation slugifies to nothing, and the row that
@@ -203,9 +204,9 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
         .set({
           name: text(form, "name", 80) || show.name,
           tagline: text(form, "tagline", 120) || null,
-          date: /^\d{4}-\d{2}-\d{2}$/.test(text(form, "date", 10))
-            ? text(form, "date", 10)
-            : show.date,
+          // A day that does not exist keeps the one already there, the same as a
+          // blank: 31 February used to be written and then drawn as 3 March.
+          date: isCalendarDate(text(form, "date", 10)) ? text(form, "date", 10) : show.date,
           doorsTime: text(form, "doorsTime", 8) || show.doorsTime,
           firstBellTime: text(form, "firstBellTime", 8) || show.firstBellTime,
           venue: text(form, "venue", 80) || show.venue,

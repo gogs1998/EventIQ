@@ -50,6 +50,11 @@ describe("daysUntilShow", () => {
     expect(daysUntilShow(event.date, new Date("2026-10-31T09:00:00Z"))).toBe(14);
     expect(daysUntilShow(event.date, new Date("2026-11-14T23:00:00Z"))).toBe(0);
   });
+
+  it("turns over at midnight in the UK, not at midnight UTC", () => {
+    // 23:30 UTC on 30 June is 00:30 on 1 July in London.
+    expect(daysUntilShow("2026-07-04", new Date("2026-06-30T23:30:00Z"))).toBe(3);
+  });
 });
 
 describe("inviteStatus", () => {

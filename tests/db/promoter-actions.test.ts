@@ -386,6 +386,16 @@ describe("createEvent", () => {
     expect(event.published).toBe(false);
   });
 
+  it("refuses a date that has the shape of one and does not exist", async () => {
+    await twoPromoters();
+    await signInAs("pr_budo");
+
+    expect(await createEvent(null, form({ name: "Budo 80", date: "2026-02-31" }))).toEqual({
+      ok: false,
+      error: ACTION_ERRORS.showNeedsNameAndDate,
+    });
+  });
+
   it("refuses a name with no address in it", async () => {
     await twoPromoters();
     await signInAs("pr_budo");

@@ -1,3 +1,4 @@
+import { londonToday } from "@/lib/calendar";
 import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
 import { withdrawnByFighter } from "@/lib/consent";
 import { INVITE_CHANNEL, howLongAgo } from "@/lib/copy";
@@ -28,8 +29,9 @@ export const DONE_AT = 70;
  * long is left, and takes `now` so a test does not depend on the clock.
  */
 export function daysUntilShow(date: string, now = new Date()): number {
+  // Both sides as calendar days, and today is today in the UK (lib/calendar.ts).
   const to = new Date(`${date}T00:00:00Z`).getTime();
-  const from = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const from = new Date(`${londonToday(now)}T00:00:00Z`).getTime();
   return Math.round((to - from) / 86_400_000);
 }
 
