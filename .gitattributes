@@ -1,0 +1,32 @@
+# Line endings are LF in the repository and in every checkout.
+#
+# Development moved to a Windows machine, where core.autocrlf=true checks every
+# text file out as CRLF while the index stays LF. That is invisible until a
+# script reads a file as bytes, or a file written on one machine is committed
+# from the other. Pinning eol here makes every checkout the same whatever the
+# local git config says.
+* text=auto eol=lf
+
+# Shell is read by bash on the runners, and a CR on the end of a line is part
+# of the command.
+*.sh text eol=lf
+
+# Never touched: a line-ending rewrite inside one of these corrupts it.
+*.mp4 binary
+*.webm binary
+*.mov binary
+*.webp binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.onnx binary
+*.pdf binary
+*.zip binary
+*.gz binary
