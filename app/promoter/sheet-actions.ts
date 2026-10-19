@@ -398,7 +398,7 @@ export async function setFighterPhoto(
 
       const path = `/media/${key}`;
       // Only this fighter's own pictures: the row's paths are aimed by whatever
-      // wrote them, and a fighter's own save was once one of those (bug 48).
+      // wrote them, and a fighter's own save was once one of those (bug 51).
       const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
         .map((old) => ownMediaKeyOf(old, fighterId))
         .filter((old): old is string => old !== null && old !== key);

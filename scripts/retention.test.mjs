@@ -119,7 +119,7 @@ describe("bucketKeys", () => {
     expect(bucketKeys(row({ photo: "/media/../etc/passwd" }))).toEqual([]);
   });
 
-  /** HANDOVER bug 48: a row is only as trustworthy as whatever last wrote it. */
+  /** HANDOVER bug 51: a row is only as trustworthy as whatever last wrote it. */
   it("never names an object that is somebody else's", () => {
     expect(
       bucketKeys(

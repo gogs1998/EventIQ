@@ -131,7 +131,7 @@ export function alreadyClear(row) {
  * The objects in the bucket that belong to this fighter. Committed assets are
  * not ours, and neither is anything that is not a key `/media` would have
  * served — nor a key that names somebody else, however it reached this row
- * (HANDOVER bug 48). That is `ownMediaKeyOf`'s question and not one worth
+ * (HANDOVER bug 51). That is `ownMediaKeyOf`'s question and not one worth
  * answering twice.
  */
 export function bucketKeys(row) {

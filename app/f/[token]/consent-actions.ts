@@ -55,7 +55,7 @@ export async function removeMyDetails(token: string): Promise<ActionResult> {
       const { invite, fighter, event } = row;
 
       // Only this fighter's own pictures. A delete aimed by a stored path is
-      // aimed by whatever last wrote that path (bug 48).
+      // aimed by whatever last wrote that path (bug 51).
       const objects = [fighter.photo, fighter.cutout, fighter.stylised]
         .map((path) => ownMediaKeyOf(path, fighter.id))
         .filter((key): key is string => key !== null);

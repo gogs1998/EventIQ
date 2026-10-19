@@ -156,7 +156,7 @@ export async function makeStylisedPortrait(
       // Only a photograph in the bucket. The seeded card's pictures are static
       // assets rather than objects, and there is nothing here to read them with.
       // And only the fighter's own: a drawing of whatever the row names would
-      // hand back somebody else's photograph, redrawn (bug 48).
+      // hand back somebody else's photograph, redrawn (bug 51).
       const sourceKey = ownMediaKeyOf(fighter.photo, fighter.id);
       if (!sourceKey) return refuse(ACTION_ERRORS.portraitNeedsPhoto);
 

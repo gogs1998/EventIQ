@@ -114,7 +114,7 @@ export async function saveDraft(
       const { invite, fighter, event } = row;
 
       // The photograph is the one field a save may not choose: only an upload
-      // puts a path on the row, and a draft can keep it or clear it (bug 48).
+      // puts a path on the row, and a draft can keep it or clear it (bug 51).
       const sanitised = sanitiseDraft(input);
       const draft = { ...sanitised, photo: photoToKeep(fighter.photo, sanitised.photo) };
 
@@ -357,7 +357,7 @@ export async function uploadPhoto(
       const path = `/media/${key}`;
       // The three paths this write is about to orphan, read before it lands —
       // and only where each is one of this fighter's own pictures, because a
-      // delete aimed by a stored path is aimed by whatever wrote it (bug 48).
+      // delete aimed by a stored path is aimed by whatever wrote it (bug 51).
       const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
         .map((old) => ownMediaKeyOf(old, fighter.id))
         .filter((old): old is string => old !== null && old !== key);

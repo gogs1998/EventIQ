@@ -187,7 +187,7 @@ describe("stylisedBelongsTo", () => {
 });
 
 /**
- * HANDOVER bug 48. Every delete of a "superseded" picture is aimed by a path on
+ * HANDOVER bug 51. Every delete of a "superseded" picture is aimed by a path on
  * the fighter's row, so the path has to be one of theirs before it is aimed.
  */
 describe("ownMediaKeyOf", () => {

@@ -59,7 +59,7 @@ async function exists(key: string): Promise<boolean> {
   return (await platform().media.head(key)) !== null;
 }
 
-/** HANDOVER bug 48. */
+/** HANDOVER bug 51. */
 describe("a photograph path the browser sends back", () => {
   it("cannot point a fighter's row at somebody else's picture", async () => {
     const { show, me, other } = await consentingShow();

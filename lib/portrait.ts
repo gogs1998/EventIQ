@@ -130,7 +130,7 @@ export const FIGHTER_MEDIA_PREFIXES = ["fighters", "cutouts", STYLISED_PREFIX] a
  * fighter's row holds, and a path on a row is only as trustworthy as whatever
  * last wrote it. A key that names another fighter, a show's render or a
  * sponsor's emblem is never this fighter's to remove, so nothing is deleted for
- * it however it got there (HANDOVER bug 48). Fighter ids are hyphenated, so the
+ * it however it got there (HANDOVER bug 51). Fighter ids are hyphenated, so the
  * id is matched as a prefix and the remainder has to be a bare suffix and
  * extension with no hyphen in it, or `owen-pryce` would own `owen-pryce-2`'s.
  */
@@ -152,7 +152,7 @@ export function ownMediaKeyOf(path: string | null | undefined, fighterId: string
  * not a fact: believed, it let anybody holding an invite point their row at any
  * object in the bucket — another fighter's draft photograph, which `/media` then
  * served because it hung off a published card, or a key the next upload would
- * delete as "superseded" (HANDOVER bug 48). The only photograph that ever
+ * delete as "superseded" (HANDOVER bug 51). The only photograph that ever
  * reaches the row is one an upload put there, so a save keeps the stored one or
  * clears it, and never names a different one. A path that differs is a stale
  * save landing after an upload, and is ignored rather than obeyed.
