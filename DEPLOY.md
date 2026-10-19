@@ -483,20 +483,33 @@ npm run deploy -- --env staging      # all of the above, against staging
 waiting for, and prints the steps a real run would take. Worth a few seconds
 before a deploy you have not done in a while.
 
-**It refuses to deploy production from a side branch.** Everything here is built
-on branches that are merged into `main`, often
+**It refuses to deploy production from anything but a clean, current, green
+`main`.** Everything here is built on branches that are merged into `main`, often
 several at once in separate worktrees, and a deploy is a thing somebody types
-after doing something else. The script reads the branch and stops unless it is
-that one:
+after doing something else. The branch name used to be the whole check, so a
+`main` with an uncommitted edit, or one behind origin, or one carrying a commit
+CI had never seen, all went up. Now it fetches and names every problem at once:
 
 ```
-This is branch "wave2/staging", not "main".
+Refusing to deploy production from this checkout:
+
+  - This is branch "wave2/staging", not "main".
+  - The working tree has 1 uncommitted change, which would go up with it:
+     M lib/auth.ts
+  - HEAD is 32d6aef and origin/main is 6f69368. ...
+  - CI has never run on 32d6aef.
 ```
 
-`--force` overrides it and `--env staging` sidesteps it, which is the point:
-staging deploys from anywhere. `DEPLOY_BRANCH=...` changes which branch counts,
-for whoever renames it. `--check` and `--dry-run` change nothing and are allowed
-from anywhere.
+The CI check asks GitHub with `gh run list --workflow ci.yml --commit <sha>`, so
+`gh` has to be installed and logged in; any green run of that exact commit
+counts. **`--skip-ci-check` is for an emergency** — GitHub down, a fix that
+cannot wait for a run — and prints a banner saying production is going up
+unverified. `--force` waives the checks on the checkout (branch, clean tree,
+level with origin) and prints the reasons it waived; it does not waive the CI
+check, so a deploy that needs both says both. `--env staging` sidesteps all of
+it, which is the point: staging deploys from anywhere. `DEPLOY_BRANCH=...`
+changes which branch counts, for whoever renames it. `--check` changes nothing
+and is allowed from anywhere; `--dry-run` reports what would be refused.
 
 The branch it names is `main` rather than the working branch, and that is a
 consequence of GitHub rather than a preference: **a scheduled or dispatched
@@ -955,13 +968,10 @@ secrets:
 | `CLOUDFLARE_ACCOUNT_ID` | the account id from step 2 |
 | `RENDER_KEY` | an unscoped key from `npm run render-key -- mint --remote` |
 
-All three are set, as of 8 September 2026. **The workflow still does not run**,
-and that is not a secret that is missing: GitHub only runs a scheduled or
-dispatched workflow from the **default branch**, this one lives on
-`cursor/eventiq-digital-fight-programme`, and so `gh workflow run render.yml`
-answers 404 and the hourly cron has never fired. Merging
-[PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main` is the whole of
-the fix, and the first green run is what licenses
+All three are set. GitHub only runs a scheduled or dispatched workflow from the
+**default branch**, so nothing fired until
+[PR #1](https://github.com/gogs1998/EventIQ/pull/1) was merged into `main`; it
+has run hourly and green since, which is what licenses
 `npx wrangler secret delete RENDER_KEY` on the Worker.
 
 It also takes an `environment` input — `production` or `staging`. The hourly run
@@ -972,6 +982,9 @@ to one Worker and production's opens nothing on the other. The site it captures
 from and the database and bucket it writes to are chosen together from that one
 input: a renderer reading one environment's capture page and writing the other's
 rows would publish a key that site cannot serve.
+
+A failed run is an email to whoever last edited its cron line, like every other
+scheduled job here — see [Alerts](#alerts).
 
 The workflow finds Chrome on the runner and exports `CHROME_PATH`, and installs
 ffmpeg if the image does not already carry it. Neither is promised by anything
@@ -1129,24 +1142,55 @@ script's reordering rather than piping the raw export at a database.
 
 ### Scheduling it
 
-There is deliberately no workflow for this. The job needs a token with D1 and R2
-edit rights, and this repository holds no credentials otherwise; a nightly cron
-on any machine that already has the token is the smaller thing to secure.
+**[`.github/workflows/backup.yml`](.github/workflows/backup.yml) runs it every
+night at 03:15 UTC**, and on `workflow_dispatch`. In order: `npm run db:backup`
+exports production and uploads `eventiq-media/backups/<date>.sql`; the restore
+rehearsal fetches *that object back out of the bucket* and loads it into a
+throwaway local D1 on the runner, failing if the show tables come back empty;
+and only then `npm run db:prune-backups -- --keep 30 --apply` deletes the
+exports that have aged out. A night whose backup is bad therefore deletes
+nothing.
 
-```cron
-# 03:15 UTC nightly. Runs as whoever owns the token.
-15 3 * * *  cd /path/to/EventIQ && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run db:backup >> /var/log/eventiq-backup.log 2>&1
+It uses the two repository secrets the render workflow already has,
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. This section used to say
+there was deliberately no workflow because the repository held no credentials;
+it has held that token since the render pipeline moved to Actions, so the
+reason had gone and no machine had ever been given the cron line instead.
+
+The export never reaches the log or an artifact — it is the most sensitive file
+this project produces and the repository is public. The rehearsal prints row
+counts and nothing else.
+
+**A failure is the alert.** See [Alerts](#alerts). The same command still runs
+from a laptop or a cron line on any machine with the token, which is the way to
+take a copy *off* the account (`--out <dir>`), and that half is still nobody's
+job until somebody makes it theirs.
+
+#### Retention
+
+Thirty daily exports: today's and the twenty-nine before it.
+[scripts/prune-backups.mjs](scripts/prune-backups.mjs) cannot list the bucket —
+wrangler has no command for it — so it does not look and decide. It names the
+exact keys `backups/<date>.sql` for the fourteen days after the window closes and
+deletes those, so a fortnight of missed nights still catches up and nothing a
+pattern could widen to is ever in reach. Anything older is the
+[lifecycle rule](#the-r2-lifecycle-rule)'s. Without `--apply` it only names
+what it would delete.
+
+**Its first run deletes the hand-taken backups from early September**, the
+8 September pre-rollout export included. A copy of that one was kept off the
+account; if that copy is not where you think it is, fetch it before the first
+night:
+
+```bash
+npx wrangler r2 object get eventiq-media/backups/2026-09-08.sql --file 2026-09-08.sql --remote
 ```
-
-On Windows the equivalent is a Task Scheduler entry running the same command.
-Either way, **check the log the first week and then check the bucket monthly** —
-a backup job nobody looks at is the classic way to find out on the one day it
-matters that it stopped working in March.
 
 ### Folding the counting, and the sweeps
 
-The same machine, the same token, and the same argument for a cron line rather
-than a workflow.
+These are still cron lines on a machine with the token rather than workflows,
+and nothing has installed them. Unlike the backup they destroy data on purpose,
+so they want somebody reading the first few dry runs before they are scheduled.
 
 ```cron
 # 03:40 UTC nightly, after the backup. The order matters: the fold is what keeps
@@ -1170,13 +1214,13 @@ been folded, whatever its age, because until the fold has run those rows are the
 only copy of those numbers.
 
 Both are **dry run by default** and both destroy data with `--apply`. Neither is
-installed anywhere yet: as with the backup, the capability is not the schedule.
+installed anywhere yet: the capability is not the schedule.
 
 ### The R2 lifecycle rule
 
-Nothing in the backup script deletes anything, on purpose: a script that prunes
-is a script that can prune the wrong thing. R2 does it instead, and it only
-needs saying once:
+The backup script deletes nothing, and the pruner deletes only the exact keys
+it names (see [retention](#retention)). This rule is the backstop for anything
+older than the pruner reaches, and it only needs saying once:
 
 ```bash
 npx wrangler r2 bucket lifecycle add eventiq-media eventiq-backups backups/ --expire-days 90
@@ -1189,6 +1233,25 @@ Ninety days is a starting point rather than a considered retention period —
 that is a question for the privacy notice and the retention policy, which are
 [HANDOVER.md section 19](HANDOVER.md#19-what-to-build-next) item 2, and it wants
 answering before real fighters' details are in these files.
+
+## Alerts
+
+Nothing in the Worker phones home. What there is instead is GitHub's own
+behaviour: **a failed scheduled workflow run emails the person who last edited
+that workflow's cron line**, and a failed dispatched run emails whoever
+dispatched it. So every alert this project has arrives as a GitHub email:
+
+| Workflow | Runs | A failure means |
+| --- | --- | --- |
+| `uptime.yml` | every 15 minutes | `/api/health` or the showcase programme did not answer 200, or health reported D1 or R2 down |
+| `backup.yml` | 03:15 UTC nightly | no export, an upload that did not land, or a restore that came back without a show in it |
+| `render.yml` | hourly | a render or publish failed; the programme keeps playing the previous video or the live sequence |
+
+Two things to know. The emails go to a person, not a team — check *Settings →
+Notifications → Actions* on that account says "failed workflows only" and is not
+off. And GitHub disables every scheduled workflow on a public repository after
+sixty days without a commit, with one email saying so; a quiet spell is when to
+look for it.
 
 ### Objects nothing points at
 
@@ -1382,22 +1445,20 @@ once, before a promoter's card and a room full of spectators depend on it.
         secret and is printed exactly once. Anyone who can push a workflow can
         read a repository secret; that is the trade for the videos being made
         without a person.
-- [ ] **Point an external uptime check at `/api/health`.** Anything that will
-      send a message to a phone — a free tier is fine. Nothing here phones home,
-      so a 500 on show night stays a 500 until somebody happens to log in, and
-      that has already happened once: the PBKDF2 failure was live and invisible
-      until a person tried to sign in. It has to be *external*; a check running
-      on the same thing it is checking answers no useful question. The route
-      itself answers 200 in production as of 8 September 2026, so there is
-      something to point at now.
+- [ ] **Decide whether an email is fast enough.** `uptime.yml` asks
+      `/api/health` and the showcase programme every fifteen minutes and a
+      failure emails the owner ([Alerts](#alerts)). That is external to
+      Cloudflare, which is the property that matters — the PBKDF2 failure was
+      live and invisible until a person tried to sign in. It is not a phone
+      alert, and GitHub's scheduler runs late under load. On a show night, a
+      free external checker that sends a push notification is still worth
+      pointing at `/api/health`.
 - [ ] **Confirm the nightly backup actually ran**, rather than that it is
-      scheduled. A backup was taken by hand before the 8 September rollout —
-      `eventiq-media/backups/2026-09-08.sql`, with a copy kept off the account —
-      but **nothing schedules one**, so that is a habit rather than a mechanism.
-      `npm run db:restore-rehearsal -- --date <yesterday>` is the version of the
-      question worth asking, because it also proves the file restores.
-      [Backups](#backups). Set the [lifecycle rule](#the-r2-lifecycle-rule) at
-      the same time, or the bucket keeps every export forever.
+      scheduled: a green `Nightly backup` run in the Actions tab means the
+      export was uploaded *and* restored. The first one runs the night after
+      this is merged to `main`; dispatch it by hand once to see it go green
+      before relying on the schedule. Set the
+      [lifecycle rule](#the-r2-lifecycle-rule) too, as the backstop.
 - [ ] **Reprint the table card from the live URL.** The QR encodes the origin it
       was served from, so one printed off a laptop is useless at a venue.
 - [ ] **Get the consent wording legally reviewed**, and settle the lawful basis
@@ -1421,11 +1482,14 @@ found at the last minute. The rest of that half is
 
 ## What is left to do
 
-Nothing is blocking the site. As of **8 September 2026** the production Worker
-runs on a fresh account-scoped token, every migration through `0013` is applied,
-`INVITE_KEY` is set, staging exists, and `https://eventiq.win` serves the card
-out of D1 with the cache, CSP and HSTS headers it is meant to have. The
-[rollout log](#rollout-log--8-september-2026) is the sequence.
+Nothing is blocking the site. The production Worker runs on a fresh
+account-scoped token, `INVITE_KEY` is set, staging exists, and
+`https://eventiq.win` serves the card out of D1 with the cache, CSP and HSTS
+headers it is meant to have. **Which migrations are applied is not written down
+here**, because it was always out of date: every deploy applies whatever is in
+[db/migrations](db/migrations) before the Worker goes up, and
+`npx wrangler d1 migrations list eventiq --remote` is the answer. The
+[rollout log](#rollout-log--8-september-2026) is the sequence of the first one.
 
 This list is operational. The product roadmap — starting with getting a real
 show onto the platform, with consent as the gate — lives in
@@ -1443,16 +1507,13 @@ What is still open, and who does it:
    30 invites still in the clear. Every one of those links works and will go on
    working — the table is in the supported half-migrated state — but the sealing
    is the point of the key. [The invite backfill](#the-invite-backfill).
-3. **Merge [PR #1](https://github.com/gogs1998/EventIQ/pull/1) into `main`, and
-   confirm the hourly render runs.** *Owner.* GitHub runs scheduled and
-   dispatched workflows from the default branch only, so `render.yml`'s cron has
-   never fired and `gh workflow run render.yml` answers 404. The three secrets it
-   needs are all set; the branch is the only thing missing.
-4. **Delete the legacy `RENDER_KEY` Worker secret, after 3.** *Owner.*
-   `npx wrangler secret delete RENDER_KEY`. The runner holds a minted unscoped
-   key already, so this retires the last credential that reads every promoter's
-   cards without a row behind it. Not before a green render, because deleting
-   first stops every render until the new key is proven.
+3. **Protect `main`: require the CI workflow to pass before a merge.** *Owner,
+   in Settings → Branches.* The deploy now refuses a commit CI has not passed,
+   but only a branch rule stops one landing on `main` in the first place.
+4. **Delete the legacy `RENDER_KEY` Worker secret.** *Owner.*
+   `npx wrangler secret delete RENDER_KEY`. The hourly render has run green on
+   the runner's own minted key, which was the condition, so this retires the
+   last credential that reads every promoter's cards without a row behind it.
 5. **Turn on "Always Use HTTPS", and add the `/e/*` cache rule.** *Owner, in the
    zone dashboard.* Static files are still served over plain http and no
    application code can fix that; the cache rule is what makes the edge honour a
@@ -1472,12 +1533,17 @@ What is still open, and who does it:
    promoter asks rather than during the conversation.
 9. **Reprint the table card from the live URL.** The QR encodes the origin it
    was served from, so one printed from a laptop is useless at a venue.
-10. **Render the tapes into R2.** The programme falls back to playing the
-    sequence live in the browser where no mp4 exists, so this is a quality step
-    rather than a fix, and item 3 is what makes it happen on its own. See
-    [video rendering](#video-rendering).
+10. **Dispatch the first `Nightly backup` and `Uptime` runs by hand** once this
+    is on `main`, and watch both go green, so the first email is not also the
+    first time either has run. `gh workflow run backup.yml --ref main`. See
+    [Alerts](#alerts).
 
-Done on 8 September 2026, and no longer on this list: the API token rotated and
+Done since, and no longer on this list: PR #1 merged, so `render.yml`'s hourly
+cron runs from `main` and has been rendering green; the nightly backup, restore
+rehearsal and thirty-day pruning are a workflow rather than a cron line nobody
+installed; and an uptime check runs every fifteen minutes.
+
+Done on 8 September 2026: the API token rotated and
 narrowed to four account permissions with no zone row and no Pages; a backup
 taken before anything else; migrations `0002` to `0013` applied to production;
 `INVITE_KEY` set on the Worker; two production deploys carrying the showcase

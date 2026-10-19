@@ -12,19 +12,20 @@
  * fortnight. This produces a plain .sql file somebody can open, diff and count
  * rows in.
  *
- * It is deliberately a script rather than a workflow, because the thing it needs
- * is a token with D1 and R2 edit rights and there is no good reason to put one
- * in a repository that does not otherwise hold any credentials. Scheduling is a
- * cron line on any machine that has the token — see DEPLOY.md.
+ * It runs nightly from .github/workflows/backup.yml, with the repository's
+ * Cloudflare token, followed by a restore rehearsal of the file it uploaded and
+ * then scripts/prune-backups.mjs. It is still a script first, so the same
+ * command works from a laptop or a cron line — see DEPLOY.md.
  *
  * Two honest limits, both in DEPLOY.md as well:
  *   - R2 is in the same Cloudflare account as D1, so this protects against a bad
  *     migration or a wrong DELETE, and not against losing the account. Use
  *     --out on a machine you control for that half.
- *   - Nothing here prunes. The R2 lifecycle rule does; DEPLOY.md has the command.
+ *   - Nothing here prunes. scripts/prune-backups.mjs does, by exact key, and
+ *     the R2 lifecycle rule is the backstop; DEPLOY.md has both.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { environmentFrom } from "./environments.mjs";
@@ -119,6 +120,10 @@ try {
     "temporary directory is cleared.",
   );
 }
+
+// The workflow rehearses exactly the file this run uploaded, rather than
+// working the date out again and finding a different one after midnight.
+if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `date=${date}\nkey=${key}\n`);
 
 console.log(
   [

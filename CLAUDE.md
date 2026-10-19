@@ -32,7 +32,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 986 tests in 50 files, ~2 min
+npm test           # 1146 tests in 55 files (904 pure, 242 against D1), ~3 min
 npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck
@@ -110,7 +110,7 @@ The seam that matters: `lib/db/queries.ts` maps rows onto the same `Fighter`, `B
 
 **`db`** (`npm run test:db` on its own) runs against a real local D1. `getPlatformProxy()` from wrangler starts one Miniflare from this project's own wrangler.jsonc, `db/migrations` is applied to a database held in memory, and the four modules that exist only inside a request — `lib/db`, `next/headers`, `next/cache`, `next/navigation` — are aliased to doubles in `tests/db/`. Everything else runs exactly as written: the queries, `lib/visibility.ts`, and the promoter's server actions, against a real signed session cookie. It covers what a pure test structurally cannot — a where clause that selects one row too many, the hundred-parameter limit on a D1 statement, and the migration chain applied to a database that already has a card in it. [tests/db/platform.ts](tests/db/platform.ts) says why this and not `@cloudflare/vitest-pool-workers`, and why writes go through `exec` rather than the binding.
 
-The other half is `scripts/e2e.mjs`, 28 steps through a real browser:
+The other half is `scripts/e2e.mjs`, 31 steps through a real browser:
 
 ```bash
 npm run e2e -- --base http://localhost:8788        # against the Workers runtime

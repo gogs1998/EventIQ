@@ -8,7 +8,7 @@ EventIQ is **free for promoters**. The competition (myfightcard.com and the like
 
 ## Done
 
-**v1, September 2026** — from demo to product. Security gates (media gate, rate limits, lockout, CSP), CI, backups and a rehearsed restore, error boundaries and structured logs, the render pipeline on GitHub Actions with a leased queue and fingerprinted keys, operator-created promoter accounts, render keys in the database, invite tokens sealed at rest, consent and a privacy page, the promoter-side record importer, cancelled bouts, sponsor emblems, a staging environment, trustworthy counting with rollups, database-backed tests, one ownership chokepoint, an accessibility pass. HANDOVER section 14 carries the 47-entry bug ledger from this work.
+**v1, September 2026** — from demo to product. Security gates (media gate, rate limits, lockout, CSP), CI, nightly backups with a rehearsed restore and thirty-day retention (`backup.yml`), an uptime check every fifteen minutes (`uptime.yml`), error boundaries and structured logs, the render pipeline on GitHub Actions with a leased queue and fingerprinted keys, operator-created promoter accounts, render keys in the database, invite tokens sealed at rest, consent and a privacy page, the promoter-side record importer, cancelled bouts, sponsor emblems, a staging environment, trustworthy counting with rollups, database-backed tests, one ownership chokepoint, an accessibility pass. HANDOVER section 14 carries the 47-entry bug ledger from this work.
 
 **v2 tier one, 28 September 2026** — turning every show into the next customer:
 
@@ -55,12 +55,14 @@ Judged too risky for a review commit; each is one small job.
 - `PosterCrop` is drag-only; a keyboard path is owed.
 - `/api/health` reports `env: "production"` on a local dev server because `EVENTIQ_ENV` is a bound var. Make the label honest locally.
 - `arg()`, `run()` and `d1Query` are duplicated across seven scripts; one `scripts/cli.mjs` would do.
-- `npm audit` reports findings in the build chain only (wrangler → miniflare → sharp, the background-removal model, `qs`). None reach the Worker bundle. Fixing them means moving off the pinned wrangler; do it deliberately, with a staging deploy first.
+- `npm audit --omit=dev` reports four high-severity findings as of 19 October 2026, all one chain: wrangler 4.126.0 → miniflare → `sharp` and `undici`. wrangler counts as a production dependency only because it is a peer of `@opennextjs/cloudflare`; none of the four is in the Worker bundle, they are the local runtime and the deploy tool. Next.js itself was on 16.3.3 with seven advisories, one critical (RCE in `next/og`), until it moved to 16.3.8. Clearing the rest needs wrangler ≥ 4.131, and the newer `@opennextjs/cloudflare` releases that support Next 16.4 want wrangler ≥ 4.148 — 1.20.9 with Next 16.4.2 builds and then 500s on every request (`Unexpected loadManifest(preview-props.json)`). So the next step is next 16.4, `@opennextjs/cloudflare` 1.20.12+ and wrangler 4.148+ together, deliberately, with a staging deploy first; Dependabot now proposes those three as one pull request. The full `npm audit` adds dev-only findings (esbuild under drizzle-kit, `lodash`, `braces`, `zod`, the background-removal model's `sharp`).
 - Migration `0015` put `template` into the render fingerprint, which marked every existing render stale once; the hourly runner has since re-rendered them. `stylised` is not in the fingerprint and is covered by the fighter's `updatedAt`; adding it would do the same again.
 
 ## Only the owner can do these
 
 - In the Cloudflare dashboard: Always Use HTTPS, a cache rule for `/e/*`, and delete the old API token. The deploy token has no zone permissions.
+- Protect `main` in GitHub's branch settings with the CI workflow as a required check. `scripts/deploy.mjs` refuses a commit CI has not passed, but only the branch rule stops one reaching `main`.
+- After this lands, run `git add --renormalize .` once on `main` and commit whatever it changes, so files added on other branches before `.gitattributes` existed are stored LF too.
 - Password manager entries for the secrets: `INVITE_KEY`, the staging secrets, the runner's render key, the promoter passwords.
 - A lawyer's eye on the consent wording in `lib/consent.ts` and `/privacy`.
 - The commercial model beyond "free", and whether the demo card stays as the production showcase (`SHOWCASE_SLUG`).
@@ -73,7 +75,7 @@ A native app, AI-written fighter bios, AI likenesses of real fighters (a stylise
 ## How the work gets done
 
 - One agent per item, in its own git worktree off `main`, with a dev server on its own port. On an 8 GB machine, no more than two or three at once: six dev servers crashed workerd (bug 39).
-- Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 28-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
-- Merge to `main`, then `npm run deploy` (migrations first, then the Worker) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
-- Migrations are numbered in merge order; the next free number is `0016`. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
+- Every item ships with: lint, typecheck, both vitest projects (`npm test`), and the 31-step walkthrough (`node scripts/e2e.mjs --base http://localhost:<port>`). Anything touching the compositions keeps the golden frames.
+- Merge to `main`, then `npm run deploy` (migrations first, then the Worker; it refuses unless the checkout is a clean `main` level with origin and green on CI, and needs `gh` logged in to ask) and `node scripts/deploy.mjs --env staging`, then the staging suite from GitHub (`gh workflow run e2e-staging.yml --ref main`). Production renders happen on the hourly workflow; `gh workflow run render.yml --ref main -f slug=<slug>` for a one-off.
+- Migrations are numbered in merge order; the next free number is one past the highest in `db/migrations`, as of the moment of merging rather than of branching. When two branches both claim it, renumber and rebuild the snapshot chain so `npm run db:generate` reports nothing.
 - Commit messages name the wrong old behaviour in a sentence. New bugs go in HANDOVER section 14 with the rule they left behind. Copy goes in `lib/copy.ts` with the tone tests.

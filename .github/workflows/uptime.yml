@@ -1,0 +1,75 @@
+# Asks eventiq.win whether it is up, every fifteen minutes.
+#
+# Nothing else phones home. A 500 on show night used to stay a 500 until
+# somebody happened to open the programme, and the somebody was usually a
+# spectator. This fails on anything but a 200 from the health check, which
+# reads D1 and R2, and from the showcase programme, which is the page people
+# reach from the QR code on the table.
+#
+# **A failure here is the alert.** GitHub emails a failed scheduled run to the
+# person who last edited the cron line below. Two honest limits: GitHub's
+# scheduler runs late under load, so this is "within half an hour" rather than
+# "within fifteen minutes"; and it disables scheduled workflows on a public
+# repository after sixty days without a commit, with an email saying so.
+#
+# No secrets. It reads two public pages, as a stranger would.
+name: Uptime
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: https://eventiq.win
+      # SHOWCASE_SLUG in wrangler.jsonc: the show the front page runs on.
+      PROGRAMME: /e/cage-county-12
+
+    steps:
+      # Retried, because one dropped packet between a GitHub runner and
+      # Cloudflare is not an outage and should not be an email.
+      - name: The health check answers, from production, with D1 and R2 up
+        run: |
+          body="$(curl -fsS --retry 3 --retry-delay 10 --retry-all-errors --max-time 20 "$SITE/api/health")" || {
+            echo "::error::$SITE/api/health did not answer 200."
+            exit 1
+          }
+          echo "$body"
+          echo "$body" | node -e '
+            let s = "";
+            process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              const h = JSON.parse(s);
+              const bad = [];
+              if (h.ok !== true) bad.push("ok is not true");
+              if (h.env !== "production") bad.push(`env is "${h.env}"`);
+              if (h.d1 !== true) bad.push("D1 is not answering");
+              if (h.r2 !== true) bad.push("R2 is not answering");
+              if (bad.length) {
+                console.log(`::error::/api/health: ${bad.join(", ")}`);
+                process.exit(1);
+              }
+            });'
+
+      - name: The programme renders
+        run: |
+          status="$(curl -sS -o /tmp/programme.html -w '%{http_code}' --retry 3 --retry-delay 10 --retry-all-errors --max-time 20 "$SITE$PROGRAMME")" || status=000
+          if [ "$status" != "200" ]; then
+            echo "::error::$SITE$PROGRAMME answered $status, not 200."
+            exit 1
+          fi
+          # A 200 that is the error boundary is still an outage.
+          if grep -q '__next_error__' /tmp/programme.html; then
+            echo "::error::$SITE$PROGRAMME answered 200 with the error page."
+            exit 1
+          fi
+          echo "$SITE$PROGRAMME answered 200."

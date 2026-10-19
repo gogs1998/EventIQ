@@ -1,0 +1,82 @@
+# Exports the production database to R2 every night, restores what it uploaded
+# into a throwaway local D1 and counts the rows, then deletes exports older than
+# thirty days.
+#
+# This used to be a cron line "on any machine that has the token", and no
+# machine had one, so nothing was backed up unless somebody remembered. The
+# repository already holds a Cloudflare token for the render workflow, so the
+# argument for keeping it out of here had gone.
+#
+# **A failure here is the alert.** GitHub emails a failed scheduled run to the
+# person who last edited the cron line below, and every step fails loudly: an
+# export that is empty or not a schema, an upload that did not land, a restore
+# that does not load or comes back with no show in it. Pruning runs only after
+# the restore has succeeded, so a night whose backup is bad deletes nothing.
+#
+# The export is the most sensitive file this project produces — every invite
+# token, every fighter, the promoter's password verifier — and this log is
+# public. So nothing here prints it, uploads it as an artifact, or keeps it past
+# the job; the runner's temporary directory goes with the runner. The rehearsal
+# prints row counts and nothing else.
+#
+# Secrets: CLOUDFLARE_API_TOKEN (D1 · Edit and Workers R2 Storage · Edit) and
+# CLOUDFLARE_ACCOUNT_ID — the same pair render.yml uses.
+name: Nightly backup
+
+on:
+  schedule:
+    # 03:15 UTC, off the hour because every cron on the hour on GitHub queues
+    # behind everybody else's.
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+# Two at once would race on the same key.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Credentials are present
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID have to be repository secrets. No backup was taken."
+            exit 1
+          fi
+
+      - name: Export the production database to R2
+        id: export
+        run: npm run db:backup
+
+      # From the bucket, not from the file on disk: the point is that the copy
+      # somebody would restore from on a bad night is whole.
+      - name: Restore it into a throwaway database and count the rows
+        run: npm run db:restore-rehearsal -- --date "${{ steps.export.outputs.date }}"
+
+      - name: Delete exports older than thirty days
+        run: npm run db:prune-backups -- --keep 30 --apply
+
+      - name: Say what failed
+        if: failure()
+        run: |
+          echo "::error::The nightly backup did not complete. Read the step that failed above: an export that did not happen, an upload that did not land, or a restore that came back without a show in it. Nothing was pruned."

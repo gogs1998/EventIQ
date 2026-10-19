@@ -4,7 +4,7 @@
 # The unit suite cannot do this. TaleOfTheTape is a pure function of a frame
 # number and every test of it is a test of the numbers going in; a stray
 # transition, a font that stopped loading or a layer that now paints behind
-# another one leaves all 243 of them green and the video wrong. The only person
+# another one leaves every one of them green and the video wrong. The only person
 # who found out was whoever watched it.
 #
 # It needs no secrets. Everything runs against a dev server on a freshly seeded
@@ -33,12 +33,13 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          # 24 for the type stripping the renderer relies on.
-          node-version: "24"
+          # .nvmrc, like every other workflow. It says 24 for the type stripping
+          # the renderer relies on; this used to write 24 here while CI read 22.
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci

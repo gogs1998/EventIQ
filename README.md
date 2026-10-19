@@ -81,7 +81,7 @@ npx wrangler dev --port 8788 --local
 npm run e2e -- --base http://localhost:8788
 ```
 
-Drives a browser through 28 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, and be locked out again after signing out. Screenshots land in `eventiq-e2e` under the system temp directory, or wherever `--shots` says; not `/tmp`, because two of the three platforms these scripts run on have not got one.
+Drives a browser through 31 steps: sign in, check the renderer's capture page is shut to a stranger and open to the render key and to the promoter who owns the show, add a bout, watch it appear on the public card, remove it, open a fighter's invite, find it asking for consent before it asks for anything else, tick it, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the dashboard notice, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, find the programme cacheable for a stranger and not for a promoter, get a 206 for a byte range on the videos, and be locked out again after signing out. A step that depends on something outside the application — Sherdog answering, a card with a rendered video in R2 — says `SKIPPED` and is counted, never passed off as ok. Screenshots land in `eventiq-e2e` under the system temp directory, or wherever `--shots` says; not `/tmp`, because two of the three platforms these scripts run on have not got one.
 
 ## Staging
 
@@ -186,7 +186,9 @@ npm run db:backup                                   # export the live D1 into R2
 npm run db:restore-rehearsal -- --date 2026-09-07   # load it into a scratch database and count the rows
 ```
 
-D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the cron line and the R2 lifecycle rule.
+D1's time travel goes back thirty days and lives in the same account as the database, which is a recovery mechanism rather than a backup. The export is a plain `.sql` file somebody can open and count. The rehearsal exists because a backup nobody has restored is a hope, and it found something on its first run: a D1 export cannot be fed straight back in.
+
+`.github/workflows/backup.yml` does all of it every night — export, upload, restore what was uploaded into a throwaway database, then prune to thirty days with `npm run db:prune-backups` — and `.github/workflows/uptime.yml` asks the live site whether it is up every fifteen minutes. A failure of either is a GitHub email to the owner; that is the alerting. [DEPLOY.md](DEPLOY.md#backups) has the reasons, the retention and the R2 lifecycle rule.
 
 ### The nightly chores
 

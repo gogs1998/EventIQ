@@ -41,9 +41,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -97,7 +97,7 @@ jobs:
       # kept whether or not the run passed.
       - name: Keep the screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-staging-screenshots
           path: /tmp/e2e
@@ -112,9 +112,13 @@ jobs:
       # in, so it is the seed's environment that needs the key and not only the
       # Worker's secrets. Without it this step failed and left the card as the
       # suite had finished with it — a fighter submitted and photographed.
+      #
+      # --quiet, because the seed otherwise prints three working invite links and
+      # this log is public. The seed also stays quiet on its own under
+      # GITHUB_ACTIONS; the flag is here so the intent is readable in this file.
       - name: Put the demo card back
         if: always() && inputs.reseed
         env:
           INVITE_KEY: ${{ secrets.STAGING_INVITE_KEY }}
         run: |
-          npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
+          npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production --quiet

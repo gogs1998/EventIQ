@@ -33,22 +33,51 @@ export const ENVIRONMENTS = {
 };
 
 /**
- * The environment named by `--env`, or production.
+ * The environment named by `--env NAME` or `--env=NAME`, or production.
  *
  * An unknown name stops the script rather than falling back, because the two
  * ways of being wrong here are a typo and a shell that lost an argument, and
- * both of them silently mean production.
+ * both of them silently mean production. So does anything else that starts
+ * with `--env` and is not one of those two spellings: `--env=staging` used to
+ * be read as no flag at all, which is production.
  */
 export function environmentFrom(argv, fail) {
-  const at = argv.indexOf("--env");
-  const name = at === -1 ? "production" : argv[at + 1];
-  const target = ENVIRONMENTS[name];
+  const names = [];
+  for (let at = 0; at < argv.length; at++) {
+    const arg = String(argv[at]);
+    if (arg === "--env") {
+      names.push(String(argv[at + 1] ?? ""));
+      at++;
+    } else if (arg.startsWith("--env=")) {
+      names.push(arg.slice("--env=".length));
+    } else if (arg.startsWith("--env")) {
+      fail(`"${arg}" is not a flag this understands. Use --env <name> or --env=<name>.`);
+      return refused();
+    }
+  }
+
+  if (new Set(names).size > 1) {
+    fail(`--env was given more than once, as ${names.join(" and ")}. Say it once.`);
+    return refused();
+  }
+
+  const name = names[0] ?? "production";
+  const target = Object.hasOwn(ENVIRONMENTS, name) ? ENVIRONMENTS[name] : undefined;
   if (!target) {
     fail(
       `There is no "${name}" environment. Use one of: ${Object.keys(ENVIRONMENTS).join(", ")}.`,
     );
+    return refused();
   }
   return { name, ...target };
+}
+
+/**
+ * What a refused call returns when `fail` did not stop the process: nothing a
+ * script could mistake for a database.
+ */
+function refused() {
+  return { name: undefined, worker: undefined, database: undefined, bucket: undefined, zone: undefined, domain: undefined };
 }
 
 /**

@@ -27,7 +27,7 @@ That is what section 2 onwards now describes. The demo was a facade with five ho
 
 ## 2. Current state
 
-Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 564 unit tests and a 28-step browser walkthrough passing — the walkthrough against production, not just against local bindings.
+Branch `cursor/eventiq-digital-fight-programme`, [PR #1](https://github.com/gogs1998/EventIQ/pull/1). Build, lint and typecheck clean; 1146 tests in 55 files and the browser walkthrough passing — 31 steps against the Workers runtime locally, and in its earlier 28-step form against production, not just against local bindings.
 
 It has since been through a code review and a security review, which found six things and all six are fixed: an SVG upload that would have executed script at our own origin (section 6b), two crashes reachable by publishing a show before entering its running order, an open endpoint that could be made to write unbounded rows into D1, a printable table card that would print an unpublished show for anybody holding the slug, a sponsor save that could leave a fighter with none, and a promoter able to blank a fighter's name. Bugs 21 to 26 in section 14, with what each one actually did.
 
@@ -913,10 +913,13 @@ Three things about the shape of it are deliberate:
   passed in order to *reach* production is a flag somebody eventually forgets in
   the other direction, so the default is the thing that has always been the
   default.
-- **`scripts/deploy.mjs` refuses to deploy production from a side branch.**
-  Everything is built on branches merged into the working one, often several at
-  once in separate worktrees. It reads the branch, and `--force` is how you say
-  you mean it. Migrations here are additive with no down path, so a production
+- **`scripts/deploy.mjs` refuses to deploy production from anything but a
+  clean `main` that is level with origin and green on CI.** Everything is built
+  on branches merged into the working one, often several at once in separate
+  worktrees. It used to read only the branch name; it now also reads
+  `git status --porcelain`, fetches and compares HEAD with origin/main, and asks
+  `gh` for CI's verdict on HEAD. `--force` waives the checkout checks and
+  `--skip-ci-check` the CI one, each with a banner. Migrations here are additive with no down path, so a production
   deploy from the wrong worktree is not a rollback away.
 - **`/api/health` says which environment answered**, from a var rather than from
   the hostname, and the end-to-end workflow asks it before it opens a browser. A
@@ -986,7 +989,7 @@ npm run test:db
 npm run e2e -- --base http://localhost:8788
 ```
 
-[scripts/e2e.mjs](scripts/e2e.mjs) drives 28 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record, be refused by a made-up token, sign out.
+[scripts/e2e.mjs](scripts/e2e.mjs) drives 31 steps through the whole product: sign in with the wrong password and the right one, find the capture page shut to a stranger, open to the render key and to the promoter who owns the show, add a bout, see it on the public card, remove it, open a fighter's invite, type, reload, upload a photograph and fetch it back out of the bucket, submit, see it on the programme, see the score move on the dashboard, watch the counts go up for a spectator and hold still for a headless browser, import a Sherdog record (skipped, never passed, when Sherdog itself is not answering), be refused by a made-up token, find the programme cacheable for a stranger and not for a promoter (bug 37), get a 206 for a byte range on the pitch video and on a rendered bout out of R2, sign out.
 
 The unit tests cover the derivation layer, which is pure and therefore easy. This covers the half that is not, and it is the only thing that would catch a form posting to the wrong action or a cookie that never gets set.
 
@@ -1105,7 +1108,7 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 
 ## 15. Environment notes
 
-- Node 22, npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
+- Node 24 (`.nvmrc`, which every workflow but `render.yml` reads; that one writes 24 itself), npm. ffmpeg 6.1.1 at `/usr/bin/ffmpeg`. Chrome at `/usr/local/bin/google-chrome` (override with `CHROME_PATH`).
 - Wrangler 4.126.0 and `@opennextjs/cloudflare` 1.20.3, both pinned to exact versions in package.json because they decide what a deploy does. The scripts run the copy in `node_modules` through [scripts/local-bin.mjs](scripts/local-bin.mjs) rather than through `npx`, which on Windows cannot be spawned at all and elsewhere is free to offer a different version.
 - Rendering one bout takes about **60 seconds**. All 15 would be ~15 minutes.
 - `X` display is `:1`, 1920x1200, XFCE, `xdotool` available. Only needed for the sales recording.
@@ -1118,7 +1121,7 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 ```bash
 npm run dev                  # next dev, with local D1 and R2
 npm run build                # next build
-npm test                     # 564 unit tests
+npm test                     # 1146 tests in 55 files, both projects
 npm run lint
 npm run typecheck
 
@@ -1143,6 +1146,8 @@ npm run promoter -- reset-link --slug budo
 
 npm run db:backup                                   # export the live D1 into R2
 npm run db:restore-rehearsal -- --date 2026-09-07   # load one back and count the rows
+npm run db:prune-backups                            # name the exports past thirty days; --apply deletes
+gh workflow run backup.yml --ref main               # all three, as the nightly run does them
 
 npm run preview                          # build for Workers and serve it
 npx opennextjs-cloudflare build
@@ -1258,7 +1263,7 @@ Deploy is done (section 12) and is no longer on this list.
 
 2. **Consent wording, a privacy notice, a lawful basis and a retention policy.** Mostly built, and the rest is not code. The questionnaire asks before it collects anything, stores what was agreed to and at which version, refuses a fighter under eighteen, carries a removal control that clears the profile and the objects behind it, and there is a privacy notice at `/privacy` and a retention sweep at `npm run retention`. Section 6g has all of it. **What is left needs the originator, not a commit**: reading the wording and saying whether it is what you want said, confirming the controller/processor position with a lawyer, deciding the lawful basis for publishing — which is still stated nowhere — and confirming that 180 days is the retention you want, because fighters are now being told that number. Section 18 item 4. Item 1 is no longer blocked on somebody writing the code for this; it is blocked on somebody reading it.
 
-3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. The backup half of this item is now done: `npm run db:backup` exports D1 to a file in R2 and `npm run db:restore-rehearsal` proves one restores, both described in [DEPLOY.md](DEPLOY.md#backups), with the schedule as a cron line rather than a workflow. What is left of this item is the error reporting.
+3. **Error reporting, and a backup that is actually a backup.** Small, and both start mattering the moment item 1 puts real data in view, which is why they sit here rather than at the bottom. There is no error reporting of any kind: if the promoter's dashboard returns a 500 on show night, nobody finds out. That is exactly the class of failure section 14 already records — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. A Sentry, or Cloudflare's own exception reporting, or even a Tail Worker that posts somewhere, would have surfaced it. The backup half of this item is now done: `npm run db:backup` exports D1 to a file in R2 and `npm run db:restore-rehearsal` proves one restores, both described in [DEPLOY.md](DEPLOY.md#backups), and `.github/workflows/backup.yml` runs both nightly and prunes to thirty days. A start on the other half: `.github/workflows/uptime.yml` asks `/api/health` and the showcase programme every fifteen minutes, and a failed scheduled run is a GitHub email to the owner ([DEPLOY.md, Alerts](DEPLOY.md#alerts)). That catches the site being down, not a 500 on one promoter's dashboard. What is left of this item is the error reporting.
 
 4. ~~**A `cancelled` flag on a published bout.**~~ Done. `bouts.cancelled` and `bouts.cancelled_note`, a "Bout off" control in the card editor, and a struck-through bout on the programme carrying "Withdrawn" and the promoter's reason. It keeps its number, its place in the running order and its sponsor, because deleting it destroys a placement somebody paid for and orphans the analytics rows keyed on that number; and it stops counting in everything that measures how ready the card is, and is never rendered. Section 10. Item 18 below is still the larger product and is still deferred; this was not a foot in that door.
 
@@ -1331,7 +1336,7 @@ Native app, ticketing, betting, live scoring, AI image-to-video models, music be
 - **Remotion licensing** if the render harness is ever swapped. Section 4.
 - **Sponsor name accuracy.** Emblem-plus-typography exists precisely so a real business's name can never be misspelled by generated artwork. Keep it that way.
 - **Nothing tells anybody a failure has happened.** Every failure is written in one shape now and is searchable in the Cloudflare dashboard (section 12a), and `/api/health` says whether D1 and R2 are answering. That is the half of section 19's item 3 that needed no decision. The half that is left is the one that matters on show night: nothing pages anyone, so if the promoter's dashboard returns a 500 at first bell it is still true that nobody finds out until somebody looks. Section 14 records this exact class of thing — the PBKDF2 production 500 (bug 16) stayed invisible until somebody tried to log in. Section 12a has the two routes to alerting and why neither is taken yet.
-- **Backups exist now and are only as good as the schedule nobody has set.** `npm run db:backup` exports D1 to a plain .sql file in R2 and `npm run db:restore-rehearsal` proves one restores — D1's own time travel is 30 days, lives in the same account and cannot be inspected without restoring, which is a recovery mechanism rather than a backup. Two things about this stay risks. The bucket is in the same Cloudflare account as the database, so it covers a bad migration and not a lost account; `--out` on a machine somebody controls is the other half and is a habit rather than a mechanism. And nothing runs it: the cron line is in [DEPLOY.md](DEPLOY.md#scheduling-it), and until somebody installs it the capability is not the same as the backup. Check the bucket, not the schedule.
+- **Backups run nightly now, and are only as good as somebody reading the email.** `.github/workflows/backup.yml` exports D1 to a plain .sql file in R2, restores that object into a throwaway database and counts the rows, then prunes to thirty days — D1's own time travel is 30 days, lives in the same account and cannot be inspected without restoring, which is a recovery mechanism rather than a backup. Two things about this stay risks. The bucket is in the same Cloudflare account as the database, so it covers a bad migration and not a lost account; `--out` on a machine somebody controls is the other half and is a habit rather than a mechanism. And the alert is a GitHub email to one person ([DEPLOY.md, Alerts](DEPLOY.md#alerts)); scheduled workflows on a public repository also stop after sixty days without a commit. Check the Actions tab, not the schedule.
 - **Static files are served over plain http.** The zone's "Always Use HTTPS" is off and the deploy token cannot turn it on, so `http://eventiq.win/fighters/*.webp` answers 200 with no redirect. Pages redirect, because the Worker runs for those; the assets binding answers before any code does. One toggle in the dashboard fixes it — [DEPLOY.md](DEPLOY.md#https-at-the-edge).
 - **The edge runtime differs from every runtime you can test on.** PBKDF2's 100,000-iteration cap is the instance that has already cost this project a production 500, and there is no reason to think it is the only such limit. Anything cryptographic, anything with a size or time bound, should be exercised through `wrangler dev --remote` before it is believed. Section 6a.
 - **The demo card is a live database, not a fixture.** Anything run against production edits the card the pitch depends on. The end-to-end suite was the worst of that and now has staging to do it in (section 12b), which is a mitigation only once somebody has actually stood staging up. Everything else — a `wrangler d1 execute` typed to check something, a re-seed — is still a person and a terminal, and still wants putting back afterwards.

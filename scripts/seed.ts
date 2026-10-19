@@ -4,6 +4,7 @@
  *   npm run db:seed              # local Miniflare D1 under .wrangler
  *   npm run db:seed:remote -- --i-understand-this-rewrites-production
  *   npm run db:seed:remote -- --env staging --i-understand-this-rewrites-production
+ *   npm run db:seed -- --quiet   # say what was seeded, print no invite links
  *
  * The remote form wants that flag, a SEED_PROMOTER_PASSWORD, and a live database
  * holding nobody but the seeded promoter. All three are there because this is a
@@ -240,8 +241,18 @@ console.log(`Promoter sign in at ${site}/promoter/login as "cage-county".`);
 // Printed for the local database only. It holds invented fighters and the
 // alternative is guessing which of .dev.vars and the shell won.
 if (!remote) console.log(`The password is "${password}".`);
-console.log(`\nA few invite links, for trying the questionnaire:`);
-for (const { fighter, token } of inviteLinks.slice(0, 3)) {
-  console.log(`  ${fighter.padEnd(18)} ${site}/f/${token}`);
+
+// An invite link is the whole credential for a fighter's questionnaire, and a
+// GitHub Actions log on this repository is public. The staging re-seed printed
+// three working ones into every run, so a CI run never prints them, and
+// `--quiet` asks for the same anywhere else.
+const quiet = process.argv.includes("--quiet") || process.env.GITHUB_ACTIONS === "true";
+if (quiet) {
+  console.log(`\nInvite links are not printed (--quiet, or a CI log). They are on the promoter dashboard.`);
+} else {
+  console.log(`\nA few invite links, for trying the questionnaire:`);
+  for (const { fighter, token } of inviteLinks.slice(0, 3)) {
+    console.log(`  ${fighter.padEnd(18)} ${site}/f/${token}`);
+  }
+  console.log(`\nThe rest are on the promoter dashboard once you are signed in.`);
 }
-console.log(`\nThe rest are on the promoter dashboard once you are signed in.`);
