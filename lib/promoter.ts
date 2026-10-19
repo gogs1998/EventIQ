@@ -46,11 +46,17 @@ export function daysUntilShow(date: string, now = new Date()): number {
 export function inviteStatus(invite: Invite | undefined): InviteStatus {
   // First, because it is the one state that is the fighter's own decision and
   // the one where chasing them is the wrong thing to do.
-  if (invite && withdrawnByFighter(invite)) return "withdrawn";
-  if (!invite?.sentAt) return "not-sent";
+  if (!invite) return "not-sent";
+  if (withdrawnByFighter(invite)) return "withdrawn";
+  // What the fighter did outranks what the promoter recorded. A link handed
+  // over in person, or copied before the send controls existed, has no
+  // `sentAt` â€” and a fighter who has opened it, or finished, has plainly
+  // received it, so reading "not sent" off them told the promoter to send a
+  // link to somebody who had already used it.
   if (invite.submittedAt) return "submitted";
   if (invite.lastOpenedAt) return "opened";
-  return "sent";
+  if (invite.sentAt) return "sent";
+  return "not-sent";
 }
 
 export const INVITE_LABEL: Record<InviteStatus, string> = {

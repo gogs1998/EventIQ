@@ -70,6 +70,11 @@ describe("inviteStatus", () => {
     expect(inviteStatus({ fighterId: "f", sentAt: 5, withdrawnAt: 4 })).toBe("sent");
   });
 
+  it("believes what the fighter did over a send nobody recorded", () => {
+    expect(inviteStatus({ fighterId: "f", lastOpenedAt: 2 })).toBe("opened");
+    expect(inviteStatus({ fighterId: "f", lastOpenedAt: 2, submittedAt: 3 })).toBe("submitted");
+  });
+
   it("does not call a fighter finished just because they looked", () => {
     expect(inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2 })).not.toBe(
       "submitted",
