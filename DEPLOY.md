@@ -483,20 +483,33 @@ npm run deploy -- --env staging      # all of the above, against staging
 waiting for, and prints the steps a real run would take. Worth a few seconds
 before a deploy you have not done in a while.
 
-**It refuses to deploy production from a side branch.** Everything here is built
-on branches that are merged into `main`, often
+**It refuses to deploy production from anything but a clean, current, green
+`main`.** Everything here is built on branches that are merged into `main`, often
 several at once in separate worktrees, and a deploy is a thing somebody types
-after doing something else. The script reads the branch and stops unless it is
-that one:
+after doing something else. The branch name used to be the whole check, so a
+`main` with an uncommitted edit, or one behind origin, or one carrying a commit
+CI had never seen, all went up. Now it fetches and names every problem at once:
 
 ```
-This is branch "wave2/staging", not "main".
+Refusing to deploy production from this checkout:
+
+  - This is branch "wave2/staging", not "main".
+  - The working tree has 1 uncommitted change, which would go up with it:
+     M lib/auth.ts
+  - HEAD is 32d6aef and origin/main is 6f69368. ...
+  - CI has never run on 32d6aef.
 ```
 
-`--force` overrides it and `--env staging` sidesteps it, which is the point:
-staging deploys from anywhere. `DEPLOY_BRANCH=...` changes which branch counts,
-for whoever renames it. `--check` and `--dry-run` change nothing and are allowed
-from anywhere.
+The CI check asks GitHub with `gh run list --workflow ci.yml --commit <sha>`, so
+`gh` has to be installed and logged in; any green run of that exact commit
+counts. **`--skip-ci-check` is for an emergency** — GitHub down, a fix that
+cannot wait for a run — and prints a banner saying production is going up
+unverified. `--force` waives the checks on the checkout (branch, clean tree,
+level with origin) and prints the reasons it waived; it does not waive the CI
+check, so a deploy that needs both says both. `--env staging` sidesteps all of
+it, which is the point: staging deploys from anywhere. `DEPLOY_BRANCH=...`
+changes which branch counts, for whoever renames it. `--check` changes nothing
+and is allowed from anywhere; `--dry-run` reports what would be refused.
 
 The branch it names is `main` rather than the working branch, and that is a
 consequence of GitHub rather than a preference: **a scheduled or dispatched

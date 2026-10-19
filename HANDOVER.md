@@ -911,10 +911,13 @@ Three things about the shape of it are deliberate:
   passed in order to *reach* production is a flag somebody eventually forgets in
   the other direction, so the default is the thing that has always been the
   default.
-- **`scripts/deploy.mjs` refuses to deploy production from a side branch.**
-  Everything is built on branches merged into the working one, often several at
-  once in separate worktrees. It reads the branch, and `--force` is how you say
-  you mean it. Migrations here are additive with no down path, so a production
+- **`scripts/deploy.mjs` refuses to deploy production from anything but a
+  clean `main` that is level with origin and green on CI.** Everything is built
+  on branches merged into the working one, often several at once in separate
+  worktrees. It used to read only the branch name; it now also reads
+  `git status --porcelain`, fetches and compares HEAD with origin/main, and asks
+  `gh` for CI's verdict on HEAD. `--force` waives the checkout checks and
+  `--skip-ci-check` the CI one, each with a banner. Migrations here are additive with no down path, so a production
   deploy from the wrong worktree is not a rollback away.
 - **`/api/health` says which environment answered**, from a var rather than from
   the hostname, and the end-to-end workflow asks it before it opens a browser. A

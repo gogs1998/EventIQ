@@ -11,6 +11,11 @@
  * own database, its own bucket and its own secrets. Without it they mean
  * production, because that is what they have always meant.
  *
+ * Production refuses unless the checkout is a clean `main`, level with
+ * origin/main after a fetch, with a green CI run on HEAD (asked of GitHub
+ * through `gh`). `--skip-ci-check` and `--force` waive those, loudly; see
+ * requireDeployableCheckout().
+ *
  * This used to push a folder of files to Pages. It cannot any more: the app has
  * a database behind it, so there is a Worker to deploy, a D1 database to create
  * and migrate, and an R2 bucket to hold photographs. Those need permissions the
@@ -22,6 +27,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { ciVerdict, deployRefusals } from "./deploy-guard.mjs";
 import { environmentFrom, wranglerEnvArgs } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 
@@ -51,40 +57,110 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? `https://${DOMAIN}`;
  */
 const DEPLOY_BRANCH = process.env.DEPLOY_BRANCH ?? "main";
 
-/** Null where this is not a git checkout, which is a state to report, not to guess at. */
-function currentBranch() {
+/** The stdout of a git command, or null where it could not run. */
+function git(gitArgs) {
   try {
-    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    return execFileSync("git", gitArgs, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    }).trimEnd();
   } catch {
     return null;
   }
 }
 
+/** Null where this is not a git checkout, which is a state to report, not to guess at. */
+function currentBranch() {
+  return git(["rev-parse", "--abbrev-ref", "HEAD"])?.trim() ?? null;
+}
+
+/** What the CI workflow made of one commit, asked of GitHub through gh. */
+function ciOn(sha) {
+  if (!sha) return { state: "unknown", detail: "There is no HEAD to ask about." };
+  try {
+    const out = execFileSync(
+      "gh",
+      ["run", "list", "--workflow", "ci.yml", "--commit", sha, "--json", "status,conclusion,url", "--limit", "20"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return ciVerdict(JSON.parse(out));
+  } catch (error) {
+    const said = String(error.stderr || error.message || "").trim().split(/\r?\n/)[0];
+    return { state: "unknown", detail: `gh said: ${said || "nothing"}. Is it installed and logged in?` };
+  }
+}
+
+/** Everything that would stop a production deploy from this checkout. */
+function productionRefusals() {
+  const facts = {
+    branch: currentBranch(),
+    deployBranch: DEPLOY_BRANCH,
+    porcelain: null,
+    head: null,
+    upstream: null,
+    ci: null,
+  };
+  if (facts.branch === null) return deployRefusals(facts);
+
+  facts.porcelain = git(["status", "--porcelain"]);
+  facts.head = git(["rev-parse", "HEAD"])?.trim() ?? null;
+  // A fetch rather than trusting the last one: level with origin as of last
+  // Tuesday is not the claim being checked.
+  if (git(["fetch", "--quiet", "origin", DEPLOY_BRANCH]) !== null) {
+    facts.upstream = git(["rev-parse", `origin/${DEPLOY_BRANCH}`])?.trim() ?? null;
+  }
+  if (!has("skip-ci-check")) facts.ci = ciOn(facts.head);
+  return deployRefusals(facts);
+}
+
+function loudly(lines) {
+  const bar = "!".repeat(72);
+  console.warn(["", bar, ...lines.map((line) => `!! ${line}`), bar, ""].join("\n"));
+}
+
 /**
  * Staging is deployed from anywhere — that is what it is for. Production is
- * deployed from the working branch, or with --force from somebody who means it.
+ * deployed from a clean `main` that is exactly origin's and green on CI.
+ *
+ * `--force` waives the checks on the checkout and `--skip-ci-check` waives the
+ * one on CI. They are separate so that an emergency during a GitHub outage
+ * does not also have to accept a dirty tree, and both say so loudly when used.
  */
-function requireDeployableBranch() {
-  if (TARGET.name !== "production" || has("force")) return;
+function requireDeployableCheckout() {
+  if (TARGET.name !== "production") return;
 
-  const branch = currentBranch();
-  if (branch === DEPLOY_BRANCH) return;
+  if (has("skip-ci-check")) {
+    loudly([
+      "--skip-ci-check: deploying to PRODUCTION without asking whether CI passed",
+      "on this commit. Lint, types, tests and the build are unverified.",
+    ]);
+  }
+
+  const refusals = productionRefusals();
+  if (refusals.length === 0) return;
+
+  if (has("force")) {
+    loudly([
+      "--force: deploying to PRODUCTION from a checkout that would otherwise be",
+      "refused, for these reasons:",
+      ...refusals.flatMap((reason) => reason.split("\n")),
+    ]);
+    return;
+  }
 
   fail(
     [
-      branch === null
-        ? "This is not a git checkout, so there is no way to tell what would go up."
-        : `This is branch "${branch}", not "${DEPLOY_BRANCH}".`,
+      "Refusing to deploy production from this checkout:",
       "",
-      "Deploying production from a side branch puts whatever is in this worktree",
-      "on eventiq.win, migrations included, and migrations here are additive with",
-      "no down path.",
+      ...refusals.map((reason) => `  - ${reason}`),
+      "",
+      "Production goes up from a clean main that is level with origin and has",
+      "passed CI, because what is uploaded is whatever is in this worktree,",
+      "migrations included, and migrations here are additive with no down path.",
       "",
       "  node scripts/deploy.mjs --env staging     # the same thing, somewhere safe",
-      "  node scripts/deploy.mjs --force           # if this is deliberate",
+      "  node scripts/deploy.mjs --skip-ci-check   # an emergency with GitHub down",
+      "  node scripts/deploy.mjs --force           # if the rest is deliberate",
     ].join("\n"),
   );
 }
@@ -431,7 +507,7 @@ async function main() {
   // The cheapest refusal first. A deploy started in the wrong worktree should
   // not spend four API calls before finding that out, and --check and --dry-run
   // change nothing, so they are welcome from anywhere.
-  if (!has("check") && !has("dry-run")) requireDeployableBranch();
+  if (!has("check") && !has("dry-run")) requireDeployableCheckout();
 
   requireCredentials();
 
@@ -479,11 +555,13 @@ async function main() {
         `  apply those migrations to the remote ${DATABASE} database`,
         `  upload the Worker as ${NAME}`,
         ...(has("attach-domain") ? [`  point ${DOMAIN} at it`] : []),
-        "",
-        TARGET.name === "production" && currentBranch() !== DEPLOY_BRANCH && !has("force")
-          ? `And would then refuse: this is "${currentBranch()}" rather than "${DEPLOY_BRANCH}".`
-          : "Nothing has changed. Drop --dry-run to do it.",
       ].join("\n"),
+    );
+    const refusals = TARGET.name === "production" && !has("force") ? productionRefusals() : [];
+    console.log(
+      refusals.length > 0
+        ? ["", "And would refuse before any of it:", ...refusals.map((reason) => `  - ${reason}`)].join("\n")
+        : "\nNothing has changed. Drop --dry-run to do it.",
     );
     return;
   }
