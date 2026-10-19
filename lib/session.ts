@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import {
   ABSENT_PROMOTER_HASH,
@@ -13,7 +13,7 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { getDb, requireSecret, type Db } from "@/lib/db";
-import { NO_FAILURES, afterFailure, lockedOut } from "@/lib/lockout";
+import { LOCKOUT_ATTEMPTS, LOCKOUT_WINDOW_MS, NO_FAILURES, lockedOut } from "@/lib/lockout";
 
 /**
  * Server-side session handling.
@@ -149,26 +149,51 @@ export async function attemptLogin(db: Db, slug: string, password: string): Prom
     return { ok: false };
   }
 
-  if (!(await verifyPassword(password, promoter.passwordHash))) {
-    await recordFailure(db, promoter, now);
+  // Counted before the password is checked, and refused if the count says no.
+  // Read, verify, then write was a race: forty guesses sent at once all read
+  // the same count of nine, all verified, and the lock arrived after every one
+  // of them had been tried.
+  if (!(await countAttempt(db, promoter.id, now))) {
+    await verifyPassword(password, ABSENT_PROMOTER_HASH);
     return { ok: false };
   }
 
-  // Cleared only when it is holding something, so the ordinary sign-in is still
-  // a read and no write.
-  if (promoter.failedLogins > 0) {
-    await db
-      .update(schema.promoters)
-      .set(NO_FAILURES)
-      .where(eq(schema.promoters.id, promoter.id));
-  }
+  if (!(await verifyPassword(password, promoter.passwordHash))) return { ok: false };
+
+  // The attempt that worked was counted on the way in, so it is cleared here.
+  await db
+    .update(schema.promoters)
+    .set(NO_FAILURES)
+    .where(eq(schema.promoters.id, promoter.id));
 
   return { ok: true, promoterId: promoter.id, sessionVersion: promoter.sessionVersion };
 }
 
-async function recordFailure(db: Db, promoter: Promoter, now: number): Promise<void> {
-  await db
-    .update(schema.promoters)
-    .set(afterFailure(promoter, now))
-    .where(eq(schema.promoters.id, promoter.id));
+/**
+ * Counts one attempt against the account and says whether it may go ahead.
+ *
+ * One statement, so the database rather than the request decides: the update
+ * matches only while the account is not locked, increments the count or opens a
+ * new window in the same breath, and comes back empty when the door is shut.
+ * The same rule as `afterFailure` and `lockedOut` in lib/lockout.ts, written as
+ * SQL because it has to happen in one step; the window still does not extend
+ * while locked, because a locked row is not updated at all.
+ *
+ * Exported for the password change form, which takes the current password and
+ * is therefore the same door as the login form.
+ */
+export async function countAttempt(db: Db, promoterId: string, now: number): Promise<boolean> {
+  const p = schema.promoters;
+  const inWindow = sql`(${p.firstFailedLoginAt} IS NOT NULL AND ${now} - ${p.firstFailedLoginAt} < ${LOCKOUT_WINDOW_MS})`;
+  const rows = await db
+    .update(p)
+    .set({
+      failedLogins: sql`CASE WHEN ${inWindow} THEN ${p.failedLogins} + 1 ELSE 1 END`,
+      firstFailedLoginAt: sql`CASE WHEN ${inWindow} THEN ${p.firstFailedLoginAt} ELSE ${now} END`,
+    })
+    .where(
+      and(eq(p.id, promoterId), sql`NOT (${p.failedLogins} >= ${LOCKOUT_ATTEMPTS} AND ${inWindow})`),
+    )
+    .returning({ id: p.id });
+  return rows.length > 0;
 }

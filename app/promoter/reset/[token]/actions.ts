@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { digestToken, hashPassword, passwordLongEnough } from "@/lib/auth";
@@ -25,9 +25,13 @@ import { withinLoginLimit } from "@/lib/rate-limit";
  * that takes no session, does a PBKDF2 derivation, and writes — which is the
  * exact shape of thing worth flooding, and the limiter is already there.
  *
- * The row is stamped used in the same batch that writes the password, so a link
- * opened twice in two tabs cannot set two passwords. D1 runs a batch as one
- * transaction, which is what makes that true rather than nearly true.
+ * The link is spent before the password is written, by an update that only
+ * matches while it is unspent, and the password is written only if that update
+ * changed a row. It used to be stamped in the same batch as the password, which
+ * read as atomic and was not: both tabs read the row as unspent before either
+ * batch ran, and both set a password. The cost of this order is that a write
+ * that fails after the claim leaves the link spent, and the answer to that is
+ * the same as to a link that has run out â€” the operator mints another.
  */
 export async function setPasswordFromReset(
   _state: ActionResult | null,
@@ -67,24 +71,26 @@ export async function setPasswordFromReset(
       if (!promoter) return refuse(RESET_COPY.deadBody);
 
       const passwordHash = await hashPassword(next);
-      await db.batch([
-        db
-          .update(schema.promoters)
-          // The version bump is the point of doing this rather than only writing
-          // a hash: somebody resetting a password has usually lost control of
-          // something, and every session already out there ends here.
-          .set({
-            passwordHash,
-            sessionVersion: promoter.sessionVersion + 1,
-            // Whatever guessing locked the account is what sent them here.
-            ...NO_FAILURES,
-          })
-          .where(eq(schema.promoters.id, promoter.id)),
-        db
-          .update(schema.passwordResets)
-          .set({ usedAt: now })
-          .where(eq(schema.passwordResets.id, reset.id)),
-      ]);
+
+      const claimed = await db
+        .update(schema.passwordResets)
+        .set({ usedAt: now })
+        .where(and(eq(schema.passwordResets.id, reset.id), isNull(schema.passwordResets.usedAt)))
+        .returning({ id: schema.passwordResets.id });
+      if (!claimed.length) return refuse(RESET_COPY.deadBody);
+
+      await db
+        .update(schema.promoters)
+        // The version bump is the point of doing this rather than only writing
+        // a hash: somebody resetting a password has usually lost control of
+        // something, and every session already out there ends here.
+        .set({
+          passwordHash,
+          sessionVersion: promoter.sessionVersion + 1,
+          // Whatever guessing locked the account is what sent them here.
+          ...NO_FAILURES,
+        })
+        .where(eq(schema.promoters.id, promoter.id));
 
       return done({ message: RESET_COPY.done });
     },

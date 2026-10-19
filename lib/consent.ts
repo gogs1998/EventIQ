@@ -123,6 +123,22 @@ export function hasConsented(record: ConsentRecord): boolean {
 }
 
 /**
+ * Whether the link on this row is off because the fighter took their details
+ * down, rather than because the promoter pulled it.
+ *
+ * Removal stamps both columns with the same instant. A promoter who issues a new
+ * link and later revokes that one stamps `revokedAt` after it, which is the
+ * promoter's revoke and reads as one; `withdrawnAt` stays as the record that the
+ * fighter once asked.
+ */
+export function withdrawnByFighter(record: {
+  revokedAt?: number | null;
+  withdrawnAt?: number | null;
+}): boolean {
+  return !!record.withdrawnAt && !!record.revokedAt && record.revokedAt <= record.withdrawnAt;
+}
+
+/**
  * Old enough to fill this in, as far as the form can tell.
  *
  * An empty box is not an answer either way, so it is neither old enough nor too

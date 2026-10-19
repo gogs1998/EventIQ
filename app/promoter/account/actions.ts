@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { attempt, done, refuse, type ActionResult } from "@/lib/action-result";
@@ -12,7 +13,8 @@ import {
 import { ACCOUNT_COPY, ACTION_ERRORS } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { NO_FAILURES } from "@/lib/lockout";
-import { currentPromoter, signIn } from "@/lib/session";
+import { withinLoginLimit } from "@/lib/rate-limit";
+import { countAttempt, currentPromoter, signIn } from "@/lib/session";
 
 /**
  * The promoter changing their own password.
@@ -33,6 +35,13 @@ import { currentPromoter, signIn } from "@/lib/session";
  * already signed in. That matters here more than it looks: this page is reachable
  * from a session, and a session is exactly what a shared machine leaves behind.
  *
+ * **It is the same door as the login form, and is held to the same count.** It
+ * takes the current password, so a session left open on a shared machine was an
+ * unlimited guessing oracle for it until this went behind the LOGIN_ATTEMPTS
+ * limiter and the account's own lockout. A wrong current password here counts
+ * against the account exactly as a wrong one at sign-in does, and a locked
+ * account answers the same as a wrong password.
+ *
  * **It bumps the session version**, which is the revocation. Every other cookie
  * naming this promoter is a generation behind from the next request onward, and
  * the browser doing the changing is handed a fresh one so it stays signed in —
@@ -49,6 +58,7 @@ export async function changePassword(
     async () => {
       const promoter = await currentPromoter();
       if (!promoter) return refuse(ACTION_ERRORS.signedOut);
+      if (!(await withinLoginLimit(await headers()))) return refuse(ACCOUNT_COPY.tooMany);
 
       const current = String(form.get("current") ?? "");
       const next = String(form.get("next") ?? "");
@@ -63,14 +73,18 @@ export async function changePassword(
       // Both derivations run whatever the answer turns out to be. A promoter row
       // with no hash on it — which only an operator can create — verifies
       // against the decoy for the same reason the login does.
+      const db = await getDb();
+      // Counted before it is checked, in one statement, for the reason the
+      // login form does it that way (lib/session.ts).
+      const allowed = await countAttempt(db, promoter.id, Date.now());
       const [matches, passwordHash] = await Promise.all([
-        verifyPassword(current, promoter.passwordHash ?? ABSENT_PROMOTER_HASH),
+        verifyPassword(current, (allowed && promoter.passwordHash) || ABSENT_PROMOTER_HASH),
         hashPassword(next),
       ]);
-      if (!matches) return refuse(ACCOUNT_COPY.currentNotRecognised);
+      if (!allowed || !matches) return refuse(ACCOUNT_COPY.currentNotRecognised);
 
       const sessionVersion = promoter.sessionVersion + 1;
-      await (await getDb())
+      await db
         .update(schema.promoters)
         // Any lockout counted against the account goes too. Somebody who has just
         // proved the current password and set a new one should not find the door

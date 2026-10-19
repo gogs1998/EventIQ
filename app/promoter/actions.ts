@@ -35,7 +35,8 @@ import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
 import { hasSlug } from "@/lib/slug";
-import { parseWeightKg } from "@/lib/tape";
+import { isCalendarDate } from "@/lib/calendar";
+import { readBoutNumbers, type BoutFormProblem } from "@/lib/sheet";
 
 /**
  * Everything the promoter can change.
@@ -69,11 +70,19 @@ function text(form: FormData, key: string, max = 200): string {
   return String(form.get(key) ?? "").slice(0, max).trim();
 }
 
-function number(form: FormData, key: string): number | null {
-  const value = text(form, key);
-  if (!value) return null;
-  const n = Math.round(Number(value));
-  return Number.isFinite(n) ? n : null;
+const BOUT_FORM_PROBLEM: Record<BoutFormProblem, string> = {
+  weight: ACTION_ERRORS.boutWeightUnreadable,
+  rounds: ACTION_ERRORS.boutRoundsUnreadable,
+  minutes: ACTION_ERRORS.boutMinutesUnreadable,
+};
+
+/** The bout form's weight and format, or the sentence saying which box to fix. */
+function boutNumbers(form: FormData) {
+  return readBoutNumbers({
+    weightKg: text(form, "weightKg", 20),
+    rounds: text(form, "rounds", 10),
+    roundMinutes: text(form, "roundMinutes", 10),
+  });
 }
 
 // ------------------------------------------------------------------- events
@@ -91,7 +100,7 @@ export async function createEvent(
 
       const name = text(form, "name", 80);
       const date = text(form, "date", 10);
-      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      if (!name || !isCalendarDate(date)) {
         return refuse(ACTION_ERRORS.showNeedsNameAndDate);
       }
       // A name made only of punctuation slugifies to nothing, and the row that
@@ -195,9 +204,9 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
         .set({
           name: text(form, "name", 80) || show.name,
           tagline: text(form, "tagline", 120) || null,
-          date: /^\d{4}-\d{2}-\d{2}$/.test(text(form, "date", 10))
-            ? text(form, "date", 10)
-            : show.date,
+          // A day that does not exist keeps the one already there, the same as a
+          // blank: 31 February used to be written and then drawn as 3 March.
+          date: isCalendarDate(text(form, "date", 10)) ? text(form, "date", 10) : show.date,
           doorsTime: text(form, "doorsTime", 8) || show.doorsTime,
           firstBellTime: text(form, "firstBellTime", 8) || show.firstBellTime,
           venue: text(form, "venue", 80) || show.venue,
@@ -282,6 +291,8 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
       const redName = text(form, "redName", 60);
       const blueName = text(form, "blueName", 60);
       if (!redName || !blueName) return refuse(ACTION_ERRORS.boutNeedsBothCorners);
+      const numbers = boutNumbers(form);
+      if (!numbers.ok) return refuse(BOUT_FORM_PROBLEM[numbers.problem]);
 
       // Off the card the ownership check has already loaded, rather than a
       // second query for a number that is sitting in it.
@@ -367,11 +378,11 @@ export async function addBout(slug: string, form: FormData): Promise<ActionResul
           // Weights are the one number here that is not whole: catchweights on
           // these cards are agreed at the half kilo, so this is not rounded like
           // the rounds.
-          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          weightKg: numbers.weightKg,
           classLabel: text(form, "classLabel", 30) || null,
           womens: form.get("womens") === "on",
-          rounds: number(form, "rounds") ?? 3,
-          roundMinutes: number(form, "roundMinutes") ?? 3,
+          rounds: numbers.rounds,
+          roundMinutes: numbers.roundMinutes,
           redId: fighterIds[0],
           blueId: fighterIds[1],
         }),
@@ -459,6 +470,8 @@ export async function updateBout(
 
       const sponsorId = text(form, "sponsorId", 60);
       const billing = text(form, "billing", 10);
+      const numbers = boutNumbers(form);
+      if (!numbers.ok) return refuse(BOUT_FORM_PROBLEM[numbers.problem]);
 
       // The show is checked to be this promoter's and the sponsor was not: an id
       // typed into the form put another promoter's sponsor on the bout, and the
@@ -484,12 +497,12 @@ export async function updateBout(
         .update(schema.bouts)
         .set({
           discipline: text(form, "discipline", 20) || "MMA",
-          weightKg: parseWeightKg(text(form, "weightKg")) ?? 70,
+          weightKg: numbers.weightKg,
           classLabel: text(form, "classLabel", 30) || null,
           titleLabel: text(form, "titleLabel", 60) || null,
           womens: form.get("womens") === "on",
-          rounds: number(form, "rounds") ?? 3,
-          roundMinutes: number(form, "roundMinutes") ?? 3,
+          rounds: numbers.rounds,
+          roundMinutes: numbers.roundMinutes,
           billing: billing === "MAIN" || billing === "CO_MAIN" ? billing : null,
           sponsorId: sponsorId || null,
         })
@@ -703,9 +716,7 @@ export async function updateFighter(
       const owned = await ownedEvent(db, slug);
       if (!owned.ok) return owned;
 
-      if (!(await isOnCard(db, owned.card.eventId, fighterId))) {
-        return refuse(ACTION_ERRORS.notOnThisCard);
-      }
+      if (!isOnCard(owned.card, fighterId)) return refuse(ACTION_ERRORS.notOnThisCard);
 
       const name = text(form, "name", 60);
       if (!name) return refuse(ACTION_ERRORS.fighterNeedsName);
@@ -876,7 +887,7 @@ async function importableFighter(
   if (!owned.ok) return owned;
   const { promoter, card } = owned;
 
-  if (!(await isOnCard(db, card.eventId, fighterId))) return refuse(ACTION_ERRORS.notOnThisCard);
+  if (!isOnCard(card, fighterId)) return refuse(ACTION_ERRORS.notOnThisCard);
 
   if (!(await withinPromoterImportLimit(promoter.id))) {
     return refuse(ACTION_ERRORS.importTooMany);
@@ -916,14 +927,17 @@ function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
   };
 }
 
-/** A fighter is on a card if there is an invite for them on it, and not otherwise. */
-async function isOnCard(db: Db, eventId: string, fighterId: string): Promise<boolean> {
-  const [invite] = await db
-    .select({ id: schema.invites.id })
-    .from(schema.invites)
-    .where(and(eq(schema.invites.eventId, eventId), eq(schema.invites.fighterId, fighterId)))
-    .limit(1);
-  return !!invite;
+/**
+ * A fighter is on a card if a bout of it has them in a corner, and not otherwise.
+ *
+ * It used to be "has an invite on it", and an invite outlives the bout: taking a
+ * bout off revokes the link and keeps the row, so a promoter could go on
+ * renaming, and importing a record over, a fighter the running order no longer
+ * names â€” and since fighters are a global table, whoever that row is now on the
+ * card of. The running order is the card, so it is what is asked.
+ */
+function isOnCard(card: OwnedCard, fighterId: string): boolean {
+  return card.event.bouts.some((bout) => bout.redId === fighterId || bout.blueId === fighterId);
 }
 
 // ------------------------------------------------------------------ invites

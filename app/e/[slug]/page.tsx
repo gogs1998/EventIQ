@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { BoutCard } from "@/components/BoutCard";
 import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
-import { boutsTopDown, featuredBout, fighterOf, showSponsors } from "@/lib/card";
+import { boutsTopDown, featuredBout, fighterOf, publicCard, showSponsors } from "@/lib/card";
 import { EMPTY_PROGRAMME, SHOWS_LINK, boutCountLabel, programmeLinkNote } from "@/lib/copy";
 import { getDb } from "@/lib/db";
 import { loadRenders } from "@/lib/db/queries";
@@ -38,6 +38,7 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
   const { event } = card;
   const renders = await loadRenders(db, card.eventId);
   const bouts = boutsTopDown(card);
+  const spectatorCard = publicCard(card);
   // The bout the card calls the main event, not just the top of the list, so the
   // names under the show's own title are the pair wearing the label below.
   const main = featuredBout(card);
@@ -169,7 +170,9 @@ export default async function ProgrammePage({ params }: PageProps<"/e/[slug]">) 
               {bouts.map((bout) => (
                 <BoutCard
                   key={bout.number}
-                  card={card}
+                  // A plain Card rather than the loaded one, so the row ids and
+                  // timestamps the server reads do not go out to the browser.
+                  card={spectatorCard}
                   bout={bout}
                   renders={renders[bout.number]}
                 />

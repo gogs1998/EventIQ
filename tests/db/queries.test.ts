@@ -364,7 +364,7 @@ describe("loadInvites and loadDashboardRows", () => {
     );
   });
 
-  it("reads a row that is still in the clear, so a half-migrated card still works", async () => {
+  it("shows no link for a row still in the clear, because no lookup opens one", async () => {
     const { db, published } = await twoPromoters();
     const fighterId = published.fighterIds[0];
     await db
@@ -374,7 +374,7 @@ describe("loadInvites and loadDashboardRows", () => {
 
     const invites = await loadInvites(db, published.eventId);
 
-    expect(invites[fighterId].token).toBe("plaintext-token");
+    expect(invites[fighterId].token).toBeUndefined();
   });
 
   it("counts nothing for a promoter's first show, rather than filling the space", async () => {
@@ -506,7 +506,12 @@ describe("loadInviteByToken", () => {
     expect(row?.event.slug).toBe("cage-county-12");
   });
 
-  it("finds a row still holding a plaintext token, so a fighter does not lose their form", async () => {
+  /**
+   * The backfill has sealed every row, and matching the plaintext column beside
+   * the digest made every lookup a scan of the table. A stored plaintext token
+   * is therefore not a credential any more.
+   */
+  it("matches on the digest alone, so a token stored in the clear opens nothing", async () => {
     const { db, published } = await twoPromoters();
     const fighterId = published.fighterIds[0];
     await db
@@ -514,7 +519,7 @@ describe("loadInviteByToken", () => {
       .set({ token: "plaintext-token", tokenDigest: null, tokenCipher: null })
       .where(eqInvite(published.eventId, fighterId));
 
-    expect((await loadInviteByToken(db, "plaintext-token"))?.fighter.id).toBe(fighterId);
+    expect(await loadInviteByToken(db, "plaintext-token")).toBeNull();
   });
 
   it("is null for an expired link", async () => {

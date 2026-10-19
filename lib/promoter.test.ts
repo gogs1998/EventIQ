@@ -50,6 +50,11 @@ describe("daysUntilShow", () => {
     expect(daysUntilShow(event.date, new Date("2026-10-31T09:00:00Z"))).toBe(14);
     expect(daysUntilShow(event.date, new Date("2026-11-14T23:00:00Z"))).toBe(0);
   });
+
+  it("turns over at midnight in the UK, not at midnight UTC", () => {
+    // 23:30 UTC on 30 June is 00:30 on 1 July in London.
+    expect(daysUntilShow("2026-07-04", new Date("2026-06-30T23:30:00Z"))).toBe(3);
+  });
 });
 
 describe("inviteStatus", () => {
@@ -61,6 +66,18 @@ describe("inviteStatus", () => {
     expect(
       inviteStatus({ fighterId: "f", token: "t", sentAt: 1, lastOpenedAt: 2, submittedAt: 3 }),
     ).toBe("submitted");
+  });
+
+  it("says a fighter took their details down, rather than that they are done", () => {
+    const removed = { fighterId: "f", sentAt: 1, lastOpenedAt: 2, submittedAt: 3 };
+    expect(inviteStatus({ ...removed, revokedAt: 4, withdrawnAt: 4 })).toBe("withdrawn");
+    // A fresh link sent since reads as a link again.
+    expect(inviteStatus({ fighterId: "f", sentAt: 5, withdrawnAt: 4 })).toBe("sent");
+  });
+
+  it("believes what the fighter did over a send nobody recorded", () => {
+    expect(inviteStatus({ fighterId: "f", lastOpenedAt: 2 })).toBe("opened");
+    expect(inviteStatus({ fighterId: "f", lastOpenedAt: 2, submittedAt: 3 })).toBe("submitted");
   });
 
   it("does not call a fighter finished just because they looked", () => {
@@ -355,6 +372,14 @@ describe("linkState", () => {
 
   it("treats a row from before expiry existed as live", () => {
     expect(linkState(base, now)).toBe("live");
+  });
+
+  it("tells the fighter taking their details down from the promoter pulling the link", () => {
+    expect(linkState({ ...base, revokedAt: now - 1, withdrawnAt: now - 1 }, now)).toBe("withdrawn");
+    // A new link issued since, and that one revoked by the promoter.
+    expect(linkState({ ...base, revokedAt: now - 1, withdrawnAt: now - 9 }, now)).toBe("revoked");
+    // A new link issued since and still working.
+    expect(linkState({ ...base, expiresAt: now + 1, withdrawnAt: now - 9 }, now)).toBe("live");
   });
 });
 

@@ -59,12 +59,44 @@ export type HeaderReader = { get(name: string): string | null };
 
 export function callerKey(headers: HeaderReader): string {
   const direct = headers.get("cf-connecting-ip")?.trim();
-  if (direct) return direct;
+  if (direct) return addressBucket(direct);
 
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded) return forwarded;
+  if (forwarded) return addressBucket(forwarded);
 
   return "unattributed";
+}
+
+/**
+ * The part of an address that names a caller rather than one of their devices.
+ *
+ * An IPv4 address is the caller. An IPv6 one is not: a single home connection
+ * or a single rented server is routinely handed a whole /64, which is eighteen
+ * quintillion addresses, so keyed on the full address every guess could arrive
+ * as a fresh caller with a fresh allowance. The /64 is the unit an ISP hands
+ * out, so it is the unit counted. An IPv4 address written in IPv6 form is
+ * counted as the IPv4 address it is.
+ */
+export function addressBucket(address: string): string {
+  const ip = address.trim().toLowerCase().replace(/%.*$/, "");
+  if (!ip.includes(":")) return ip;
+
+  const mapped = /^(?:0*:)*:?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  if (mapped) return mapped[1];
+
+  const halves = ip.split("::");
+  if (halves.length > 2) return ip;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) return ip;
+  const groups = [...head, ...Array<string>(missing).fill("0"), ...tail];
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return ip;
+
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
 }
 
 /**

@@ -46,7 +46,14 @@ const draft = { published: false, promoterId: "cage-county" };
 
 /** Enough of a card for the rules here; nothing in them reads the rest of it. */
 const cardOf = (published: boolean, promoterId: string) =>
-  ({ published, promoterId, eventId: `ev-${promoterId}` }) as unknown as LoadedCard;
+  ({
+    published,
+    promoterId,
+    eventId: `ev-${promoterId}`,
+    event: { showSponsorIds: [], bouts: [] },
+    fighters: {},
+    sponsors: {},
+  }) as unknown as LoadedCard;
 
 /**
  * The rule used to live inline in one page, which is how three other routes came

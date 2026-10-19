@@ -1,11 +1,6 @@
 import { getDb } from "@/lib/db";
 import { eventVisibility } from "@/lib/db/queries";
-import {
-  TOO_MANY_LOOKUPS,
-  UNATTRIBUTED_SCOPE,
-  eventScope,
-  importRecord,
-} from "@/lib/record-import";
+import { TOO_MANY_LOOKUPS, importRecord, openLookupScope } from "@/lib/record-import";
 import { withinImportLimit } from "@/lib/rate-limit";
 
 /**
@@ -43,11 +38,11 @@ export async function POST(request: Request) {
   const db = await getDb();
 
   // Which allowance this lookup is counted against. The show a fighter is on,
-  // where they named one we recognise, so one card's thirty fighters cannot use
-  // up another card's hour. It is not a credential and grants nothing: naming
-  // somebody else's show only chooses which bounded allowance to spend.
+  // where they named a published one, so one card's thirty fighters cannot use
+  // up another card's hour. It is not a credential and grants nothing, and a
+  // draft is treated as a slug nobody recognises (openLookupScope says why).
   const event = typeof slug === "string" && slug ? await eventVisibility(db, slug) : null;
-  const scope = event ? eventScope(event.id) : UNATTRIBUTED_SCOPE;
+  const scope = openLookupScope(event);
 
   const outcome = await importRecord(db, url, scope);
   return Response.json(outcome);

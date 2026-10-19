@@ -10,7 +10,7 @@ import { getAi, getMedia, readVar } from "@/lib/db";
 import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
-import { mediaKeyOf, stylisedBelongsTo, stylisedKey } from "@/lib/portrait";
+import { mediaKeyOf, ownMediaKeyOf, stylisedBelongsTo, stylisedKey } from "@/lib/portrait";
 
 /**
  * The opt-in stylised portrait.
@@ -155,7 +155,9 @@ export async function makeStylisedPortrait(
 
       // Only a photograph in the bucket. The seeded card's pictures are static
       // assets rather than objects, and there is nothing here to read them with.
-      const sourceKey = mediaKeyOf(fighter.photo);
+      // And only the fighter's own: a drawing of whatever the row names would
+      // hand back somebody else's photograph, redrawn (bug 48).
+      const sourceKey = ownMediaKeyOf(fighter.photo, fighter.id);
       if (!sourceKey) return refuse(ACTION_ERRORS.portraitNeedsPhoto);
 
       const media = await getMedia();

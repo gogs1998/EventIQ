@@ -15,8 +15,14 @@ import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { cutoutSurvives, mediaKeyOf } from "@/lib/portrait";
-import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
+import { cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
+import {
+  allowedSponsorIds,
+  num,
+  recordFromDraft,
+  sanitiseDraft,
+  type Draft,
+} from "@/lib/questionnaire";
 
 /**
  * Everything a fighter can do with their invite.
@@ -51,12 +57,9 @@ import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questio
  * in the one case where it has to.
  */
 function columnsFrom(draft: Draft) {
-  const w = num(draft.w);
-  const l = num(draft.l);
-  const d = num(draft.d);
+  const record = recordFromDraft(draft);
   const ko = num(draft.ko);
   const sub = num(draft.sub);
-  const hasRecord = w !== undefined || l !== undefined || d !== undefined;
 
   return {
     nickname: draft.nickname || null,
@@ -68,11 +71,12 @@ function columnsFrom(draft: Draft) {
     heightCm: num(draft.heightCm) ?? null,
     reachCm: num(draft.reachCm) ?? null,
     stance: draft.stance || null,
-    // All three or none, so a fighter who has answered nothing is never stored
-    // as 0-0-0 and later read back as a debutant.
-    recordW: hasRecord ? (w ?? 0) : null,
-    recordL: hasRecord ? (l ?? 0) : null,
-    recordD: hasRecord ? (d ?? 0) : null,
+    // All three or none, and only once wins and losses are both given, so a
+    // half-typed record is never stored with noughts in its blanks and later
+    // read back as something the fighter did not say.
+    recordW: record?.w ?? null,
+    recordL: record?.l ?? null,
+    recordD: record?.d ?? null,
     finishKo: ko !== undefined || sub !== undefined ? (ko ?? 0) : null,
     finishSub: ko !== undefined || sub !== undefined ? (sub ?? 0) : null,
     walkoutTitle: draft.walkoutTitle || null,
@@ -109,7 +113,10 @@ export async function saveDraft(
       const { db, row } = found;
       const { invite, fighter, event } = row;
 
-      const draft = sanitiseDraft(input);
+      // The photograph is the one field a save may not choose: only an upload
+      // puts a path on the row, and a draft can keep it or clear it (bug 48).
+      const sanitised = sanitiseDraft(input);
+      const draft = { ...sanitised, photo: photoToKeep(fighter.photo, sanitised.photo) };
 
       // Consent decides whether any of this may be written, and the tick is the
       // one thing a save is allowed to carry before there is one. The rule and
@@ -269,9 +276,7 @@ export async function markOpened(token: string): Promise<ActionResult> {
       .set({ lastOpenedAt: now, expiresAt: now + INVITE_TTL_MS })
       .where(
         and(
-          // The plaintext column is still matched for rows the backfill has not
-          // reached. See loadInviteByToken.
-          or(eq(schema.invites.tokenDigest, digest), eq(schema.invites.token, token)),
+          eq(schema.invites.tokenDigest, digest),
           isNull(schema.invites.revokedAt),
           or(isNull(schema.invites.expiresAt), gt(schema.invites.expiresAt, now)),
         ),
@@ -350,9 +355,11 @@ export async function uploadPhoto(
       await media.put(key, bytes, { httpMetadata: { contentType } });
 
       const path = `/media/${key}`;
-      // The three paths this write is about to orphan, read before it lands.
+      // The three paths this write is about to orphan, read before it lands —
+      // and only where each is one of this fighter's own pictures, because a
+      // delete aimed by a stored path is aimed by whatever wrote it (bug 48).
       const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
-        .map(mediaKeyOf)
+        .map((old) => ownMediaKeyOf(old, fighter.id))
         .filter((old): old is string => old !== null && old !== key);
 
       // After the object, so a row can never point at bytes that are not there.

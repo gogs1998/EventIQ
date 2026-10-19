@@ -1,4 +1,6 @@
+import { londonToday } from "@/lib/calendar";
 import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
+import { withdrawnByFighter } from "@/lib/consent";
 import { INVITE_CHANNEL, howLongAgo } from "@/lib/copy";
 import { inviteLive } from "@/lib/invite-token";
 import {
@@ -27,8 +29,9 @@ export const DONE_AT = 70;
  * long is left, and takes `now` so a test does not depend on the clock.
  */
 export function daysUntilShow(date: string, now = new Date()): number {
+  // Both sides as calendar days, and today is today in the UK (lib/calendar.ts).
   const to = new Date(`${date}T00:00:00Z`).getTime();
-  const from = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const from = new Date(`${londonToday(now)}T00:00:00Z`).getTime();
   return Math.round((to - from) / 86_400_000);
 }
 
@@ -43,10 +46,19 @@ export function daysUntilShow(date: string, now = new Date()): number {
  * this only reports it. Same principle as isDebut: absence is not evidence.
  */
 export function inviteStatus(invite: Invite | undefined): InviteStatus {
-  if (!invite?.sentAt) return "not-sent";
+  // First, because it is the one state that is the fighter's own decision and
+  // the one where chasing them is the wrong thing to do.
+  if (!invite) return "not-sent";
+  if (withdrawnByFighter(invite)) return "withdrawn";
+  // What the fighter did outranks what the promoter recorded. A link handed
+  // over in person, or copied before the send controls existed, has no
+  // `sentAt` â€” and a fighter who has opened it, or finished, has plainly
+  // received it, so reading "not sent" off them told the promoter to send a
+  // link to somebody who had already used it.
   if (invite.submittedAt) return "submitted";
   if (invite.lastOpenedAt) return "opened";
-  return "sent";
+  if (invite.sentAt) return "sent";
+  return "not-sent";
 }
 
 export const INVITE_LABEL: Record<InviteStatus, string> = {
@@ -54,6 +66,7 @@ export const INVITE_LABEL: Record<InviteStatus, string> = {
   sent: "Not opened",
   opened: "Opened, unfinished",
   submitted: "Done",
+  withdrawn: "Details removed",
 };
 
 
@@ -71,7 +84,7 @@ export function sentNote(invite: Invite | undefined, now = Date.now()): string |
   return `Sent ${howLongAgo(invite.sentAt, now)}${how ? ` ${how}` : ""}`;
 }
 
-export type LinkState = "live" | "revoked" | "expired";
+export type LinkState = "live" | "revoked" | "expired" | "withdrawn";
 
 /**
  * Whether the link on this row still opens anything, and if not, which of the
@@ -80,6 +93,7 @@ export type LinkState = "live" | "revoked" | "expired";
  * only one who can do something about it.
  */
 export function linkState(invite: Invite, now = Date.now()): LinkState {
+  if (withdrawnByFighter(invite)) return "withdrawn";
   if (invite.revokedAt) return "revoked";
   return inviteLive(invite, now) ? "live" : "expired";
 }

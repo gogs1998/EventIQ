@@ -94,6 +94,32 @@ export function InviteLink({
   const quiet =
     "text-ash-dim hover:text-chalk shrink-0 font-mono text-[0.5rem] uppercase tracking-[0.14em] transition-colors disabled:opacity-50";
 
+  // A fighter who took their own details down is not somebody to chase. The
+  // link is off, so the message would carry a dead one anyway; what is left is
+  // the note saying what happened and the one control that starts again.
+  if (state === "withdrawn") {
+    return (
+      <div className="grid gap-1.5">
+        <p className="text-ash-dim text-[0.65rem] leading-relaxed">{INVITE_STATE.withdrawn}</p>
+        <button
+          type="button"
+          onClick={() =>
+            start(async () => {
+              const result = await regenerateInvite(slug, fighterId);
+              setError(result.ok ? null : result.error);
+            })
+          }
+          disabled={pending}
+          className={`${quiet} justify-self-start`}
+          title={INVITE_SHARE.regenerateHint}
+        >
+          {INVITE_SHARE.regenerate}
+        </button>
+        <ActionStatus error={error} className="text-[0.65rem]" />
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-1.5">
       {/* An anchor rather than a button: this hands an address to the operating

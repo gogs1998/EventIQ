@@ -120,6 +120,13 @@
       "when": 1792425209220,
       "tag": "0016_render_job_ids_follow_bout",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792426920269,
+      "tag": "0017_invite_withdrawal_and_indexes",
+      "breakpoints": true
     }
   ]
 }

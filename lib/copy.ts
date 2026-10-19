@@ -803,6 +803,10 @@ export const ACTION_ERRORS = {
   noSuchSponsor: "That sponsor is not on this account.",
 
   notSaved: "That did not save. Try again in a moment.",
+  /** The bout form's three numbers, each refused in words that say what would be read. */
+  boutWeightUnreadable: "The weight needs to be in kilograms, between 30 and 200 â€” 70 or 70.5, for example.",
+  boutRoundsUnreadable: "Rounds needs to be a whole number from 1 to 12.",
+  boutMinutesUnreadable: "The length of each round needs to be a whole number from 1 to 15.",
   showNotCreated: "The show could not be created. Try again in a moment.",
   /**
    * Asking for a video again. It says the video the programme is playing is
@@ -1117,6 +1121,7 @@ export const ACCOUNT_COPY = {
   tooShort: "A new password needs to be twelve characters or more.",
   mismatch: "The two new passwords are not the same. Type the new one again.",
   currentNotRecognised: "That current password was not recognised. Try it again.",
+  tooMany: "That has been tried a few times just now. Leave it a moment and try again.",
   notChanged: "The password was not changed. Try again in a moment.",
 } as const;
 
@@ -1433,6 +1438,16 @@ export const INVITE_CHANNEL = {
 /** What the dashboard says about a link that will not open anything. */
 export const INVITE_STATE = {
   revoked: "This link has been withdrawn. New link issues a working one.",
+  /**
+   * The fighter took their own details down. Nothing here says they did
+   * anything wrong, and nothing invites the promoter to chase: a new link starts
+   * from nothing and asks for their consent again, so it is one to send only
+   * where they have said they want back on the programme.
+   */
+  withdrawn:
+    "They asked for their details to be taken off the programme. Their name and gym stay " +
+    "on the running order. New link starts again from a blank form and asks for their " +
+    "consent afresh, so send one only if they have said they would like to be back on.",
   expired: "This link has lapsed. New link issues a working one.",
   /** A rotated key is the only thing that leaves a stored link unreadable. */
   unreadable: "The link for this fighter cannot be shown. New link issues a fresh one.",
