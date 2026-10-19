@@ -1093,6 +1093,7 @@ export const ACCOUNT_COPY = {
   tooShort: "A new password needs to be twelve characters or more.",
   mismatch: "The two new passwords are not the same. Type the new one again.",
   currentNotRecognised: "That current password was not recognised. Try it again.",
+  tooMany: "That has been tried a few times just now. Leave it a moment and try again.",
   notChanged: "The password was not changed. Try again in a moment.",
 } as const;
 

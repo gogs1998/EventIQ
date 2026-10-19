@@ -1,11 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
-import { hashPassword } from "@/lib/auth";
+import { changePassword } from "@/app/promoter/account/actions";
+import { setPasswordFromReset } from "@/app/promoter/reset/[token]/actions";
+import { digestToken, hashPassword } from "@/lib/auth";
+import { ACCOUNT_COPY, RESET_COPY } from "@/lib/copy";
 import { LOCKOUT_ATTEMPTS } from "@/lib/lockout";
 import { attemptLogin } from "@/lib/session";
 import { plantPromoters } from "./fixtures";
-import { testDatabase } from "./harness";
+import { signInAs, testDatabase } from "./harness";
 
 /**
  * The lockout against a real database, because the thing that was wrong with it
@@ -61,5 +64,73 @@ describe("attemptLogin", () => {
       .set({ failedLogins: LOCKOUT_ATTEMPTS, firstFailedLoginAt: Date.now() - 16 * 60 * 1000 })
       .where(eq(schema.promoters.id, "pr_cage"));
     expect((await attemptLogin(db, "pr_cage", PASSWORD)).ok).toBe(true);
+  });
+});
+
+describe("changePassword", () => {
+  const change = (current: string) => {
+    const data = new FormData();
+    data.set("current", current);
+    data.set("next", "a much longer new password");
+    data.set("confirm", "a much longer new password");
+    return changePassword(null, data);
+  };
+
+  it("counts a wrong current password against the account, like the login form", async () => {
+    await promoter();
+    await signInAs("pr_cage");
+    expect(await change("wrong")).toEqual({
+      ok: false,
+      error: ACCOUNT_COPY.currentNotRecognised,
+    });
+    expect(await failures()).toBe(1);
+  });
+
+  it("takes no current password at all once the account is locked", async () => {
+    const db = await promoter();
+    await db
+      .update(schema.promoters)
+      .set({ failedLogins: LOCKOUT_ATTEMPTS, firstFailedLoginAt: Date.now() })
+      .where(eq(schema.promoters.id, "pr_cage"));
+    await signInAs("pr_cage");
+    expect(await change(PASSWORD)).toEqual({
+      ok: false,
+      error: ACCOUNT_COPY.currentNotRecognised,
+    });
+  });
+
+  it("still changes it for the right current password, and clears the count", async () => {
+    await promoter();
+    await signInAs("pr_cage");
+    expect((await change(PASSWORD)).ok).toBe(true);
+    expect(await failures()).toBe(0);
+  });
+});
+
+describe("setPasswordFromReset", () => {
+  it("sets one password from a link opened twice at once, not two", async () => {
+    const db = await promoter();
+    const token = "reset-token-0123456789abcdef0123456789";
+    const now = Date.now();
+    await db.insert(schema.passwordResets).values({
+      id: "rs_1",
+      promoterId: "pr_cage",
+      tokenDigest: await digestToken(token),
+      expiresAt: now + 30 * 60 * 1000,
+      createdAt: now,
+    });
+
+    const reset = (password: string) => {
+      const data = new FormData();
+      data.set("token", token);
+      data.set("next", password);
+      data.set("confirm", password);
+      return setPasswordFromReset(null, data);
+    };
+    const results = await Promise.all([reset("first new password 1"), reset("second new password 2")]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toEqual([
+      { ok: false, error: RESET_COPY.deadBody },
+    ]);
   });
 });
