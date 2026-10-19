@@ -70,7 +70,16 @@ const browser = await puppeteer.launch({
   args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
 });
 
+/**
+ * Thrown by a step that could not be run here for a reason outside this
+ * application — a third-party site that is down, a card with no rendered video
+ * on it. It is reported and counted, never passed off as an ok, and it is only
+ * for causes the step has checked are not ours: anything else stays a failure.
+ */
+class Skip extends Error {}
+
 let failures = 0;
+const skipped = [];
 const step = async (name, fn) => {
   process.stdout.write(`${name.padEnd(48)}`);
   try {
@@ -78,11 +87,35 @@ const step = async (name, fn) => {
     console.log(`ok${typeof result === "string" ? ` — ${result}` : ""}`);
     return result;
   } catch (error) {
+    if (error instanceof Skip) {
+      skipped.push(name);
+      console.log(`SKIPPED: ${error.message}`);
+      return null;
+    }
     failures += 1;
     console.log(`FAILED: ${error.message}`);
     return null;
   }
 };
+
+/**
+ * A two-byte range request, and what came back. Node's fetch rather than the
+ * page's, so no session cookie rides along: these are the requests a stranger's
+ * phone makes.
+ */
+async function firstTwoBytes(url) {
+  const res = await fetch(url, { headers: { range: "bytes=0-1" } });
+  const body = new Uint8Array(await res.arrayBuffer());
+  return { status: res.status, range: res.headers.get("content-range"), type: res.headers.get("content-type"), bytes: body.byteLength };
+}
+
+/** An iPhone will not play a video from a server that answers Range with a 200 (bug 47). */
+function expectPartial(what, got) {
+  if (got.status !== 206) throw new Error(`${what} answered a range with ${got.status}, wanted 206`);
+  if (!/^bytes 0-1\/\d+$/.test(got.range ?? "")) throw new Error(`${what} Content-Range was ${got.range}`);
+  if (got.bytes !== 2) throw new Error(`${what} sent ${got.bytes} bytes for a two-byte range`);
+  return got.range;
+}
 
 /**
  * Sets a controlled input the way a user would, rather than the way puppeteer
@@ -658,18 +691,44 @@ await step("a headless browser is not a spectator", async () => {
   return `held at ${after.opens} opens`;
 });
 
+/**
+ * The one step that depends on somebody else's website. It skips rather than
+ * fails only when Sherdog itself can be shown to be the problem: our endpoint
+ * said the page did not answer or would not let us in, *and* the same page
+ * fetched from here does not come back as a readable 200 either. A 500, a
+ * non-JSON answer, our own rate limit, or a parse failure on a page that loads
+ * fine from here are all ours and still fail.
+ */
+const SHERDOG = "https://www.sherdog.com/fighter/Conor-McGregor-29688";
 await step("a Sherdog link is read for real", async () => {
-  const outcome = await page.evaluate(async (base) => {
+  const answer = await page.evaluate(async (base, url) => {
     const res = await fetch(`${base}/api/import-record`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: "https://www.sherdog.com/fighter/Conor-McGregor-29688" }),
+      body: JSON.stringify({ url }),
     });
-    return res.json();
-  }, BASE);
-  if (!outcome.ok) throw new Error(JSON.stringify(outcome).slice(0, 160));
-  const { record, recordKind, name } = outcome.tape;
-  return `${name} ${record.w}-${record.l}-${record.d} ${recordKind}`;
+    return { status: res.status, text: await res.text() };
+  }, BASE, SHERDOG);
+  if (answer.status !== 200) throw new Error(`the importer answered ${answer.status}: ${answer.text.slice(0, 120)}`);
+  const outcome = JSON.parse(answer.text);
+  if (outcome.ok) {
+    const { record, recordKind, name } = outcome.tape;
+    return `${name} ${record.w}-${record.l}-${record.d} ${recordKind}`;
+  }
+
+  if (outcome.kind === "unreadable" && /didn't respond|wouldn't let us/.test(outcome.reason ?? "")) {
+    const direct = await fetch(SHERDOG, { signal: AbortSignal.timeout(15000) })
+      .then(async (res) => ({ status: res.status, html: await res.text() }))
+      .catch((error) => ({ status: 0, html: String(error.message) }));
+    const readable = direct.status === 200 && /fighter|record/i.test(direct.html) && !/challenge|captcha|just a moment/i.test(direct.html);
+    if (!readable) {
+      throw new Skip(
+        `Sherdog is not answering from here either (${direct.status || direct.html.slice(0, 60)}); ` +
+          `the importer said "${outcome.reason}"`,
+      );
+    }
+  }
+  throw new Error(JSON.stringify(outcome).slice(0, 160));
 });
 
 await step("a Tapology link fails honestly", async () => {
@@ -706,6 +765,47 @@ await step("a made-up token is not a way in", async () => {
   if (res !== 404) throw new Error(`got ${res}, wanted 404`);
 });
 
+/**
+ * The programme is cached at the edge for a stranger and never for a promoter.
+ * The rule named the session cookie, which is __Host- prefixed off localhost,
+ * so it matched in development and nothing in production and signed-in
+ * promoters were handed cacheable pages (bug 37). Checked from both sides.
+ */
+await step("the programme is cacheable for strangers only", async () => {
+  const stranger = (await fetch(`${BASE}/e/${slug}`)).headers.get("cache-control") ?? "";
+  const promoter = await page.evaluate(
+    async (base, s) => (await fetch(`${base}/e/${s}`, { credentials: "include" })).headers.get("cache-control") ?? "",
+    BASE,
+    slug,
+  );
+  if (!/\bpublic\b/.test(stranger) || !/s-maxage=60\b/.test(stranger)) {
+    // `next dev` answers every page no-store whatever the config says; the
+    // rule is exercised under the Workers runtime, which is `npm run preview`.
+    if (/no-store/.test(stranger) && /localhost:3\d{3}/.test(BASE)) {
+      throw new Skip(`the dev server says "${stranger}"; run against npm run preview to check this`);
+    }
+    throw new Error(`a stranger got "${stranger}", wanted public, s-maxage=60`);
+  }
+  if (/\bpublic\b/.test(promoter)) throw new Error(`a signed-in promoter got "${promoter}"`);
+  return `stranger "${stranger}", promoter "${promoter || "none"}"`;
+});
+
+await step("the pitch video answers a byte range", async () =>
+  expectPartial("/clips/hero-faceoff.mp4", await firstTwoBytes(`${BASE}/clips/hero-faceoff.mp4`)),
+);
+
+/**
+ * A rendered bout out of R2, through /media. The seeded card's videos are files
+ * under public/, so a local run usually has none; the step says so rather than
+ * passing on a video it never fetched.
+ */
+await step("a rendered bout answers a byte range", async () => {
+  const html = await (await fetch(`${BASE}/e/${slug}`)).text();
+  const video = html.match(/\/media\/[^"'\s?#]+\.mp4/)?.[0];
+  if (!video) throw new Skip("no /media mp4 on this card (the seeded videos are files under public/)");
+  return `${video} ${expectPartial(video, await firstTwoBytes(`${BASE}${video}`))}`;
+});
+
 await step("signing out locks the dashboard again", async () => {
   await page.goto(`${BASE}/promoter/e/${slug}`, { waitUntil: "networkidle0" });
   await readyText(page, "Sign out");
@@ -719,5 +819,6 @@ await step("signing out locks the dashboard again", async () => {
 
 await browser.close();
 await writeFile(`${OUT}/base.txt`, `${BASE}\n`);
-console.log(`\n${failures} failed. Screenshots in ${OUT}`);
+if (skipped.length > 0) console.log(`\nSkipped, not passed: ${skipped.join("; ")}`);
+console.log(`\n${failures} failed, ${skipped.length} skipped. Screenshots in ${OUT}`);
 process.exit(failures ? 1 : 0);
