@@ -3,6 +3,8 @@ import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
 import {
   brokenImageMessage,
   claimSql,
+  isParked,
+  parkedReport,
   renderInputsFrom,
   runTargets,
   sameOrigin,
@@ -293,5 +295,41 @@ describe("runTargets", () => {
 
     expect(failures).toBe(0);
     expect(lines).toEqual(["bout 15 tape: left to another runner (missing)"]);
+  });
+});
+
+describe("isParked", () => {
+  const job = (status, attempts, extra = {}) => ({
+    number: 15,
+    template: "faceoff",
+    held: false,
+    job: { status, attempts, error: "ffmpeg exited 1\nand more", ...extra },
+  });
+
+  /**
+   * It used to print "left to another runner (failed)" on a run that went
+   * green, about a bout no runner would ever take again.
+   */
+  it("is a bout that has used its attempts, and nothing else", () => {
+    expect(isParked(job("failed", 2))).toBe(true);
+    expect(isParked(job("running", 2))).toBe(true);
+    expect(isParked(job("failed", 1))).toBe(false);
+    expect(isParked(job("done", 2))).toBe(false);
+    expect(isParked({ ...job("failed", 2), held: true })).toBe(false);
+    expect(isParked({ number: 1, template: "tape", held: false, job: null })).toBe(false);
+  });
+
+  it("is reported as parked, with the way out and the first line of what went wrong", () => {
+    const [line] = parkedReport([job("failed", 2)]);
+    expect(line).toContain("bout 15 faceoff: parked after 2 failed attempts");
+    expect(line).toContain('"Render again"');
+    expect(line).toContain("Last error: ffmpeg exited 1");
+    expect(line).not.toContain("and more");
+    expect(line).not.toMatch(/another runner/);
+  });
+
+  it("is a warning on the run's summary under GitHub Actions", () => {
+    const [line] = parkedReport([job("failed", 2)], { actions: true });
+    expect(line.startsWith("::warning title=Bout 15 faceoff is parked::")).toBe(true);
   });
 });

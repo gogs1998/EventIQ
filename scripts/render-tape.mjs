@@ -559,15 +559,30 @@ async function refuseBrokenImages(page) {
   if (broken.length) throw new Error(brokenImageMessage(broken));
 }
 
-export async function withPage(fn) {
+/**
+ * A failure that says nothing about the bout: the machine, the key or the site
+ * is wrong, and every bout on the card would fail the same way. It is not
+ * counted against the bout's two attempts, because parking thirty bouts for a
+ * missing ffmpeg would leave the card needing a promoter to press thirty buttons
+ * once somebody had installed it.
+ */
+export class PreCaptureError extends Error {
+  preCapture = true;
+}
+
+function requireRenderKey() {
   if (!renderKey) {
-    throw new Error(
+    throw new PreCaptureError(
       "RENDER_KEY is not set, so the capture page will refuse this render.\n" +
         "  Local:  add RENDER_KEY to .dev.vars (the same file the dev server reads).\n" +
         "  Remote: export RENDER_KEY to the value held by `wrangler secret put RENDER_KEY`.\n" +
         "See DEPLOY.md, Video rendering.",
     );
   }
+}
+
+export async function withPage(fn) {
+  requireRenderKey();
 
   const browser = await puppeteer.launch({
     executablePath: await preflight(),
@@ -645,7 +660,7 @@ export async function openBout(page, bout, eventSlug = slug, templateId = templa
   // Checking the status here turns either into one clear line instead of a
   // two-minute wait for window.__ready that never arrives.
   if (response && !response.ok()) {
-    throw new Error(
+    throw new PreCaptureError(
       `${url} answered ${response.status()}. If the show and bout are right, it is ` +
         `either --template ${templateId} naming a composition that does not exist, or ` +
         "the render key: this script's RENDER_KEY must match the one the server has. " +
@@ -899,9 +914,8 @@ export async function runTargets(
 function stateOf(target) {
   if (target.held) return "running";
   if (target.job?.status === "queued") return "queued";
-  if (target.job?.status === "failed") {
-    return target.job.attempts < MAX_RENDER_ATTEMPTS ? "failed, will try again" : "failed";
-  }
+  if (isParked(target)) return `parked after ${target.job.attempts} failed attempts`;
+  if (target.job?.status === "failed") return "failed, will try again";
   if (target.rendered && target.rendered === target.hash) return "current";
   return target.playable ? "stale" : "missing";
 }
@@ -924,6 +938,35 @@ function wantsRendering(target) {
     return true;
   }
   return target.rendered !== target.hash;
+}
+
+/**
+ * A bout that has used its attempts and that no unattended run will take again
+ * until somebody presses "Render again" or the bout changes.
+ *
+ * Told apart from a bout another runner holds, because the two used to print
+ * the same line — "left to another runner (failed)" — on a workflow that went
+ * green, so a bout that could never render read as somebody else's business
+ * every hour. Exported for the test.
+ */
+export function isParked(target) {
+  if (target.held || !target.job) return false;
+  const { status, attempts } = target.job;
+  return (status === "failed" || status === "running") && attempts >= MAX_RENDER_ATTEMPTS;
+}
+
+/**
+ * What a run says about its parked bouts: one line each, and on GitHub Actions
+ * a `::warning::` so it is on the run's summary rather than in a folded log.
+ */
+export function parkedReport(targets, { actions = false } = {}) {
+  return targets.map((target) => {
+    const line =
+      `bout ${target.number} ${target.template}: parked after ${target.job.attempts} failed ` +
+      `attempts and not retried. "Render again" on the dashboard puts it back in the queue.` +
+      (target.job.error ? ` Last error: ${target.job.error.split("\n")[0]}` : "");
+    return actions ? `::warning title=Bout ${target.number} ${target.template} is parked::${line}` : line;
+  });
 }
 
 async function main() {
@@ -1008,6 +1051,7 @@ async function main() {
   // working through a queue, and has to leave alone whatever another runner is
   // already holding.
   let wanted;
+  let parked = [];
   let force = false;
   if (boutArg && boutArg !== true) {
     const named = all.filter((b) => b.number === Number(boutArg));
@@ -1015,8 +1059,10 @@ async function main() {
     wanted = targetsOf(named, wantedTemplates);
     force = true;
   } else if (arg("stale")) {
-    wanted = targetsOf(all, wantedTemplates).filter(wantsRendering);
-    if (!wanted.length) console.log("Every video on this card is already current.");
+    const targets = targetsOf(all, wantedTemplates);
+    parked = targets.filter(isParked);
+    wanted = targets.filter((target) => !isParked(target) && wantsRendering(target));
+    if (!wanted.length && !parked.length) console.log("Every video on this card is already current.");
   } else if (arg("all")) {
     wanted = targetsOf(all, wantedTemplates);
     force = true;
@@ -1036,6 +1082,13 @@ async function main() {
     return 1;
   }
 
+  // Before anything is claimed: a run that cannot capture at all must not take
+  // a lease, or a fifteen-minute wait, on every bout it was never going to make.
+  if (wanted.length) {
+    requireRenderKey();
+    await preflight();
+  }
+
   const eventId = publish ? await eventIdOf(slug) : null;
 
   const failures = await runTargets(wanted, {
@@ -1049,10 +1102,20 @@ async function main() {
         status: lit("failed"),
         // Long enough to say what happened, short enough for a table cell.
         error: lit(error.message.slice(0, 500)),
+        // The claim counted this attempt. A failure that was the site's or the
+        // key's rather than the bout's gives it back.
+        ...(error.preCapture ? { attempts: "MAX(attempts - 1, 0)" } : {}),
       }),
   });
 
-  return failures ? 1 : 0;
+  // A parked bout is a failure of this run as well as of its last one: the card
+  // is in the render window and a video on it will not be made. Said loudly and
+  // in the exit code, so the hourly run goes red rather than green.
+  for (const line of parkedReport(parked, { actions: Boolean(process.env.GITHUB_ACTIONS) })) {
+    console.error(line);
+  }
+
+  return failures || parked.length ? 1 : 0;
 }
 
 // Only when run directly, so the tests can import the pure parts. Through
