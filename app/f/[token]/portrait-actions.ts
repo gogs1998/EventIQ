@@ -6,6 +6,7 @@ import * as schema from "@/db/schema";
 import { DONE, attempt, done, refuse, type ActionResult } from "@/lib/action-result";
 import { flagOn, hasConsented } from "@/lib/consent";
 import { ACTION_ERRORS } from "@/lib/copy";
+import { collect, toBase64 } from "@/lib/ai-image";
 import { getAi, getMedia, readVar } from "@/lib/db";
 import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
@@ -86,46 +87,6 @@ async function offered(): Promise<boolean> {
  */
 export async function stylisedPortraitsOffered(): Promise<boolean> {
   return offered();
-}
-
-/**
- * The whole of a byte stream.
- *
- * Read through a reader rather than handed to `new Response(...)`, because the
- * Workers stream type and the DOM one this app also compiles against are not the
- * same declaration and will not assign to each other. The shape below is all
- * either of them needs to satisfy.
- */
-async function collect(stream: {
-  getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> };
-}): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      total += value.length;
-    }
-  }
-  const bytes = new Uint8Array(total);
-  let at = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, at);
-    at += chunk.length;
-  }
-  return bytes;
-}
-
-/** Base64 without blowing the stack on a few hundred kilobytes at a time. */
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  }
-  return btoa(binary);
 }
 
 /**

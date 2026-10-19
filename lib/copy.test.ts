@@ -61,6 +61,8 @@ import {
   PHOTO_GUIDE_STRINGS,
   PHOTO_QUALITY,
   PHOTO_QUALITY_STRINGS,
+  TIDY,
+  TIDY_STRINGS,
   photoIssueLine,
   STYLISED,
   tableCardNote,
@@ -1766,5 +1768,38 @@ describe("the photo-quality copy", () => {
     expect(photoIssueLine(["head-only", "faint-body"])).toBe("Hard to separate from the background.");
     expect(photoIssueLine(["multiple-people", "dark"])).toBe("More than one person in the frame. Low light.");
     expect(photoIssueLine(undefined)).toBe("");
+  });
+});
+
+describe("the tidied photo copy", () => {
+  /**
+   * The mirror of the stylised portrait's rule. That one is never called a
+   * photograph; this one is never called untouched, and always says the
+   * original is kept.
+   */
+  it("never presents an edited photo as the one the fighter took", () => {
+    const all = TIDY_STRINGS.join(" ").toLowerCase();
+    expect(all).toContain("optional");
+    expect(all).toContain("edited copy");
+    expect(all).not.toMatch(/\buntouched\b|\boriginal photo as taken\b|\bunedited\b/);
+    expect(TIDY.hint.toLowerCase()).toContain("the photo you sent is kept");
+    expect(TIDY.preview.toLowerCase()).toContain("nothing is published");
+    expect(TIDY.onCard.toLowerCase()).toContain("tidied");
+    expect(TIDY.approved.toLowerCase()).toContain("labelled");
+  });
+
+  it("names the model, so nobody consents to something they could not have guessed", () => {
+    expect(TIDY.consent.toLowerCase()).toContain("ai image model");
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of TIDY_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b|\bbad\b|\bwrong\b|\bpoor\b|\bfix\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|optimiz|!/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line.trim()).toBe(line);
+    }
   });
 });

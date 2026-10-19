@@ -9,6 +9,12 @@ import {
   makeStylisedPortrait,
   stylisedPortraitsOffered,
 } from "@/app/f/[token]/portrait-actions";
+import {
+  approveTidiedPhoto,
+  discardTidiedPhoto,
+  makeTidiedPhoto,
+  photoRepairOffered,
+} from "@/app/f/[token]/repair-actions";
 import { Questionnaire } from "@/components/Questionnaire";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
@@ -66,6 +72,7 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
   // Decided here rather than guessed in the browser, so an instance with no AI
   // binding draws no control at all instead of one that always refuses.
   const offersStylised = await stylisedPortraitsOffered();
+  const offersTidy = await photoRepairOffered();
 
   // A fighter who has filled one of these in for another show is asked to
   // confirm rather than to start again. It is a submitted invite elsewhere and
@@ -99,6 +106,15 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
               make: makeStylisedPortrait.bind(null, token),
               approve: approveStylisedPortrait.bind(null, token),
               discard: discardStylisedPortrait.bind(null, token),
+            }
+          : undefined
+      }
+      tidy={
+        offersTidy
+          ? {
+              make: makeTidiedPhoto.bind(null, token),
+              approve: approveTidiedPhoto.bind(null, token),
+              discard: discardTidiedPhoto.bind(null, token),
             }
           : undefined
       }

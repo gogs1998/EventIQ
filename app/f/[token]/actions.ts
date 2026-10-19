@@ -358,7 +358,7 @@ export async function uploadPhoto(
       // The three paths this write is about to orphan, read before it lands —
       // and only where each is one of this fighter's own pictures, because a
       // delete aimed by a stored path is aimed by whatever wrote it (bug 51).
-      const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
+      const superseded = [fighter.photo, fighter.cutout, fighter.stylised, fighter.tidied]
         .map((old) => ownMediaKeyOf(old, fighter.id))
         .filter((old): old is string => old !== null && old !== key);
 

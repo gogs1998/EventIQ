@@ -168,3 +168,13 @@ describe("recordCutoutSql", () => {
     expect(sql).not.toContain("DROP");
   });
 });
+
+describe("a tidied photograph", () => {
+  it("is what gets cut out while the fighter has one approved", () => {
+    expect(
+      needsCutout({ photo: "/media/fighters/f1-ab.jpg", tidied: "/media/tidied/f1-cd.png", cutout: null }),
+    ).toBe(true);
+    expect(needsCutout({ photo: null, tidied: "/media/tidied/f1-cd.png", cutout: null })).toBe(true);
+    expect(cutoutKey("f1", "/media/tidied/f1-cd.png")).not.toBe(cutoutKey("f1", "/media/fighters/f1-ab.jpg"));
+  });
+});

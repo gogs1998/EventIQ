@@ -1,5 +1,6 @@
 import { cx } from "@/lib/cx";
-import { plateInitials, portraitOf } from "@/lib/portrait";
+import { TIDY } from "@/lib/copy";
+import { plateInitials, portraitIsTidied, portraitOf } from "@/lib/portrait";
 import type { Corner, Fighter } from "@/lib/types";
 
 /**
@@ -57,6 +58,13 @@ export function FighterPortrait({
             )}
           />
           <div className="from-ink/85 absolute inset-0 bg-gradient-to-t via-transparent to-transparent" />
+          {/* A tidied photograph is an edited one, and says so wherever it is
+              shown. Top corner, so it never sits under the name. */}
+          {portraitIsTidied(fighter, portrait) ? (
+            <span className="bg-ink/70 text-ash absolute left-1.5 top-1.5 px-1 py-0.5 font-mono text-[0.45rem] uppercase tracking-[0.16em]">
+              {TIDY.onCard}
+            </span>
+          ) : null}
         </>
       ) : (
         <div className="absolute inset-0">

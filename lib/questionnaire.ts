@@ -169,6 +169,7 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
     // A stylised portrait is made from one particular photograph, so it goes
     // the same way the cutout does when that photograph is replaced.
     stylised: draft.photo === base.photo ? base.stylised : undefined,
+    tidied: draft.photo === base.photo ? base.tidied : undefined,
     bio: draft.bio || undefined,
     hometown: draft.hometown || undefined,
     age: num(draft.age),

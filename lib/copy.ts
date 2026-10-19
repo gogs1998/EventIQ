@@ -941,6 +941,17 @@ export const ACTION_ERRORS = {
     "That portrait would not come out. The photograph you sent is still the one on your card.",
   portraitNotFound:
     "That portrait is no longer here. Make another one, or keep the photograph you sent.",
+
+  /** The tidied photograph. Every one of these says the original is untouched. */
+  tidyNotHere:
+    "Tidying a photo is not switched on here. The photo you sent is what goes on the card.",
+  tidyNotNeeded:
+    "Your photo is already being used as it is, so there is nothing to tidy. Send a different " +
+    "one any time.",
+  tidyNotMade:
+    "That tidied copy would not come out. The photo you sent is still the one on your card.",
+  tidyNotFound:
+    "That tidied copy is no longer here. Make another one, or keep the photo you sent.",
 } as const;
 
 /**
@@ -1781,4 +1792,46 @@ export const PHOTO_QUALITY_STRINGS: readonly string[] = [
   PHOTO_QUALITY.pending,
   PHOTO_QUALITY.replace,
   photoRequestMessage({ firstName: "Sam", eventName: "Cage County 12", link: "https://eventiq.win/f/x" }),
+];
+
+/**
+ * The tidied photograph, offered only where a photo would not cut out cleanly.
+ *
+ * Optional, previewed and approved, exactly like the stylised portrait, and with
+ * the same honesty rule in the other direction: that one is never called a
+ * photograph, and this one is never called untouched. It is the fighter's own
+ * photograph with the light and the background cleaned up, and every line here
+ * says so — including on the card, where it is labelled for anybody reading.
+ */
+export const TIDY = {
+  label: "Tidied photo",
+  hint:
+    "Optional. A tidied copy of your photo can be made with the light evened out and the " +
+    "background cleaned up, so it cuts out better for your video. Your face, build and skin " +
+    "tone are meant to stay exactly as they are. The photo you sent is kept, and is what " +
+    "goes on the card unless you ask for this and then approve it.",
+  consent:
+    "I would like a tidied copy of my photo made by an AI image model, and I understand it is " +
+    "an edited copy rather than the photo as I took it.",
+  make: "Make a tidied copy",
+  making: "Tidying it…",
+  again: "Try again",
+  preview: "Nothing is published until you approve it. Check it still looks like you.",
+  approve: "Use the tidied copy",
+  discard: "Discard it",
+  approved:
+    "Your card uses the tidied copy, labelled as tidied. Discard it any time to go back to the " +
+    "photo you sent.",
+  discarded: "Discarded. The photo you sent is what goes on the card.",
+  /** On the card itself, under a tidied photograph. */
+  onCard: "Photo tidied",
+} as const;
+
+/** Every line of the tidied-photo copy, for the tone tests. */
+export const TIDY_STRINGS: readonly string[] = [
+  ...Object.values(TIDY),
+  ACTION_ERRORS.tidyNotHere,
+  ACTION_ERRORS.tidyNotNeeded,
+  ACTION_ERRORS.tidyNotMade,
+  ACTION_ERRORS.tidyNotFound,
 ];

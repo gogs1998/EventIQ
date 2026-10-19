@@ -54,7 +54,7 @@ export type SecretName = "SESSION_SECRET" | "RENDER_KEY" | "INVITE_KEY";
  * names something public — which show the shop window is pointed at — and
  * putting it in the config is what makes a deploy able to change it.
  */
-export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS";
+export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS" | "AI_PHOTO_REPAIR";
 
 /** Undefined where the secret is not set. Never an empty string. */
 export async function readSecret(name: SecretName): Promise<string | undefined> {

@@ -79,7 +79,7 @@ const LOCAL_R2_STATE = path.join(".wrangler", "state", "v3", "r2", "miniflare-R2
  * knows — a backup, an export, something a person uploaded by hand — and a
  * sweep that took it would be the accident this script is meant to prevent.
  */
-export const MANAGED_PREFIXES = ["fighters/", "cutouts/", "portraits/", "sponsors/", "renders/"];
+export const MANAGED_PREFIXES = ["fighters/", "cutouts/", "portraits/", "tidied/", "sponsors/", "renders/"];
 
 /**
  * How long an object is left alone whatever the rows say.
@@ -114,7 +114,7 @@ export function referencedKeys(rows) {
     // answers null for anything that is not ours — a committed asset under
     // public/, an absolute URL — which is exactly the right answer: those are
     // not objects in this bucket and cannot be orphans in it.
-    for (const value of [row.photo, row.cutout, row.stylised]) {
+    for (const value of [row.photo, row.cutout, row.stylised, row.tidied]) {
       const key = mediaKeyOf(value);
       if (key) keys.add(key);
     }
@@ -221,16 +221,19 @@ function d1Query(sql, scope) {
  * names the same four columns so the rows come back one shape.
  */
 const REFERENCES_SQL = `
-  SELECT photo, NULL AS cutout, NULL AS stylised, NULL AS mark_key, NULL AS current_r2_key
+  SELECT photo, NULL AS cutout, NULL AS stylised, NULL AS tidied, NULL AS mark_key,
+         NULL AS current_r2_key
     FROM fighters WHERE photo IS NOT NULL
    UNION ALL
-  SELECT NULL, cutout, NULL, NULL, NULL FROM fighters WHERE cutout IS NOT NULL
+  SELECT NULL, cutout, NULL, NULL, NULL, NULL FROM fighters WHERE cutout IS NOT NULL
    UNION ALL
-  SELECT NULL, NULL, stylised, NULL, NULL FROM fighters WHERE stylised IS NOT NULL
+  SELECT NULL, NULL, stylised, NULL, NULL, NULL FROM fighters WHERE stylised IS NOT NULL
    UNION ALL
-  SELECT NULL, NULL, NULL, mark_key, NULL FROM sponsors WHERE mark_key IS NOT NULL
+  SELECT NULL, NULL, NULL, tidied, NULL, NULL FROM fighters WHERE tidied IS NOT NULL
    UNION ALL
-  SELECT NULL, NULL, NULL, NULL, current_r2_key
+  SELECT NULL, NULL, NULL, NULL, mark_key, NULL FROM sponsors WHERE mark_key IS NOT NULL
+   UNION ALL
+  SELECT NULL, NULL, NULL, NULL, NULL, current_r2_key
     FROM render_jobs WHERE current_r2_key IS NOT NULL`;
 
 /**

@@ -138,7 +138,7 @@ export function alreadyClear(row) {
  * answering twice.
  */
 export function bucketKeys(row) {
-  return [row.photo, row.cutout, row.stylised]
+  return [row.photo, row.cutout, row.stylised, row.tidied]
     .map((value) => (typeof value === "string" ? ownMediaKeyOf(value, row.id) : null))
     .filter((key) => key !== null);
 }
@@ -247,6 +247,7 @@ const CANDIDATES_SQL = `
          f.photo AS photo,
          f.cutout AS cutout,
          f.stylised AS stylised,
+         f.tidied AS tidied,
          f.created_at AS created_at,
          (SELECT MAX(e.date) FROM bouts b JOIN events e ON e.id = b.event_id
            WHERE b.red_id = f.id OR b.blue_id = f.id) AS on_card,
@@ -254,7 +255,7 @@ const CANDIDATES_SQL = `
            WHERE i.fighter_id = f.id) AS invited,
          (f.nickname IS NULL AND f.hometown IS NULL AND f.age IS NULL AND f.height_cm IS NULL
           AND f.reach_cm IS NULL AND f.stance IS NULL AND f.photo IS NULL AND f.cutout IS NULL
-          AND f.stylised IS NULL AND f.instagram IS NULL AND f.record_w IS NULL
+          AND f.stylised IS NULL AND f.tidied IS NULL AND f.instagram IS NULL AND f.record_w IS NULL
           AND f.finish_ko IS NULL AND f.walkout_title IS NULL AND f.walkout_artist IS NULL
           AND f.bio IS NULL AND f.style_tags IS NULL) AS already_clear
     FROM fighters f

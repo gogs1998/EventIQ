@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import { FighterPortrait } from "@/components/FighterPortrait";
 import {
   CLEARED_WITH_PHOTO,
+  cutoutSourceOf,
+  portraitIsTidied,
+  tidiedBelongsTo,
+  tidiedKey,
   cutoutSurvives,
   cutoutUsable,
   mediaKeyOf,
@@ -15,6 +19,7 @@ import {
   stylisedBelongsTo,
   stylisedKey,
 } from "@/lib/portrait";
+import { TIDY } from "@/lib/copy";
 import type { Fighter } from "@/lib/types";
 
 const base: Fighter = { id: "f1", name: "Nadia Farrukh", gym: "Kettle Row" };
@@ -331,5 +336,51 @@ describe("a cutout the renderer judged poor", () => {
     for (const column of ["cutout", "cutoutQuality", "cutoutIssues", "stylised", "tidied"]) {
       expect(CLEARED_WITH_PHOTO).toHaveProperty(column, null);
     }
+  });
+});
+
+/**
+ * A tidied copy the fighter approved. It stands in for the photograph — the
+ * renderer cuts it out, the card shows it — and it is labelled wherever it is
+ * shown, because an edited photograph is never presented as untouched.
+ */
+describe("a tidied photograph", () => {
+  const photo = "/media/fighters/f1-cd34.jpg";
+  const tidied = "/media/tidied/f1-ab12cd34.png";
+  const cutout = "/media/cutouts/f1-ef56.webp";
+  const named = (over: Partial<Fighter>): Fighter => ({ ...base, ...over });
+  const drawn = (fighter: Fighter) =>
+    renderToStaticMarkup(createElement(FighterPortrait, { fighter, corner: "red" as const }));
+
+  it("is shown in place of the photograph until its own cutout exists", () => {
+    expect(portraitOf({ photo, tidied })).toEqual({ kind: "photo", src: tidied });
+    expect(portraitOf({ photo, tidied, cutout }).kind).toBe("cutout");
+    expect(portraitOf({ photo, tidied, cutout, cutoutQuality: "poor" })).toEqual({
+      kind: "photo",
+      src: tidied,
+    });
+  });
+
+  it("is what the renderer cuts out, and the photograph is kept regardless", () => {
+    expect(cutoutSourceOf({ photo, tidied })).toBe(tidied);
+    expect(cutoutSourceOf({ photo })).toBe(photo);
+    expect(cutoutSourceOf({})).toBeNull();
+  });
+
+  it("is labelled on the card wherever it shows, and only then", () => {
+    expect(drawn(named({ photo, tidied }))).toContain(TIDY.onCard);
+    expect(drawn(named({ photo, tidied, cutout }))).toContain(TIDY.onCard);
+    expect(drawn(named({ photo, cutout }))).not.toContain(TIDY.onCard);
+    expect(portraitIsTidied({ tidied }, { kind: "stylised", src: "/media/portraits/f1-ab12.png" })).toBe(
+      false,
+    );
+  });
+
+  it("belongs only to the fighter it was made for", () => {
+    expect(tidiedKey("f1", "ab12cd34", "png")).toBe("tidied/f1-ab12cd34.png");
+    expect(tidiedBelongsTo(tidied, "f1")).toBe(true);
+    expect(tidiedBelongsTo(tidied, "f2")).toBe(false);
+    expect(tidiedBelongsTo("/media/portraits/f1-ab12cd34.png", "f1")).toBe(false);
+    expect(tidiedBelongsTo("/media/tidied/f1-2-ab12cd34.png", "f1")).toBe(false);
   });
 });

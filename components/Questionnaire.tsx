@@ -22,9 +22,11 @@ import {
   REMOVAL,
   RETURNING_FIGHTER,
   STYLISED,
+  TIDY,
   UNDER_AGE,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
+import { photoCouldBeBetter } from "@/lib/photo-quality";
 import { cutoutUsable } from "@/lib/portrait";
 import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
@@ -96,6 +98,15 @@ export type QuestionnaireProps = {
    * the control is not drawn at all, rather than drawn and always refusing.
    */
   stylised?: {
+    make: () => Promise<ActionResult<{ path: string; preview: string }>>;
+    approve: (path: string) => Promise<ActionResult>;
+    discard: (path: string) => Promise<ActionResult>;
+  };
+  /**
+   * The opt-in tidied photograph, where a deployment offers one. Drawn only for
+   * a photograph whose cutout came out poor, or one already tidied.
+   */
+  tidy?: {
     make: () => Promise<ActionResult<{ path: string; preview: string }>>;
     approve: (path: string) => Promise<ActionResult>;
     discard: (path: string) => Promise<ActionResult>;
@@ -281,6 +292,7 @@ export function Questionnaire({
   returning,
   remove,
   stylised,
+  tidy,
 }: QuestionnaireProps) {
   const eventName = card.event.name;
   const sponsors = Object.values(card.sponsors);
@@ -319,6 +331,14 @@ export function Questionnaire({
     base.stylised ? "approved" : "idle",
   );
   const [artError, setArtError] = useState<string | null>(null);
+
+  const [tidyOptIn, setTidyOptIn] = useState(false);
+  const [tidyPath, setTidyPath] = useState<string | null>(base.tidied ?? null);
+  const [tidyPreview, setTidyPreview] = useState<string | null>(null);
+  const [tidyState, setTidyState] = useState<"idle" | "making" | "ready" | "approved">(
+    base.tidied ? "approved" : "idle",
+  );
+  const [tidyError, setTidyError] = useState<string | null>(null);
 
   // The age is asked before anything else because a fighter under the minimum is
   // not asked anything else at all, and the tick is what opens the rest of it.
@@ -493,9 +513,58 @@ export function Questionnaire({
       setArtState("idle");
       setArtPath(null);
       setArtPreview(null);
+      // And a tidied copy, for the same reason.
+      setTidyState("idle");
+      setTidyPath(null);
+      setTidyPreview(null);
     } catch {
       setPhotoError(ACTION_ERRORS.photoNotStored);
     }
+  };
+
+  const makeTidy = async () => {
+    if (!tidy) return;
+    setTidyError(null);
+    if (tidyPath && tidyState === "ready") await tidy.discard(tidyPath).catch(() => {});
+    setTidyState("making");
+    try {
+      const result = await tidy.make();
+      if (!result.ok) {
+        setTidyError(result.error);
+        setTidyState("idle");
+        return;
+      }
+      setTidyPath(result.path);
+      setTidyPreview(result.preview);
+      setTidyState("ready");
+    } catch {
+      setTidyError(ACTION_ERRORS.tidyNotMade);
+      setTidyState("idle");
+    }
+  };
+
+  const approveTidy = async () => {
+    if (!tidy || !tidyPath) return;
+    setTidyError(null);
+    const result = await tidy.approve(tidyPath).catch(() => null);
+    if (!result?.ok) {
+      setTidyError(result?.error ?? ACTION_ERRORS.tidyNotMade);
+      return;
+    }
+    setTidyState("approved");
+  };
+
+  const discardTidy = async () => {
+    if (!tidy || !tidyPath) return;
+    setTidyError(null);
+    const result = await tidy.discard(tidyPath).catch(() => null);
+    if (!result?.ok) {
+      setTidyError(result?.error ?? ACTION_ERRORS.tidyNotMade);
+      return;
+    }
+    setTidyPath(null);
+    setTidyPreview(null);
+    setTidyState("idle");
   };
 
   const makeArt = async () => {
@@ -1048,6 +1117,88 @@ export function Questionnaire({
                 )}
                 {artError ? (
                   <p className="text-red-corner-hot mt-2 text-[0.7rem]">{artError}</p>
+                ) : null}
+              </Field>
+            ) : null}
+
+            {/* Only for a photograph that would not cut out, or one already
+                tidied. A fighter whose photo works is never offered an edited
+                copy of it. */}
+            {tidy &&
+            draft.photo &&
+            draft.photo === base.photo &&
+            (tidyState !== "idle" || photoCouldBeBetter(base)) ? (
+              <Field group label={TIDY.label} hint={TIDY.hint}>
+                {tidyState === "approved" ? (
+                  <div>
+                    <p className="text-gold text-[0.7rem] leading-relaxed">{TIDY.approved}</p>
+                    <button
+                      type="button"
+                      onClick={() => void discardTidy()}
+                      className="border-hairline hover:border-chalk/40 text-ash mt-2 border px-3 py-1.5 text-xs transition-colors"
+                    >
+                      {TIDY.discard}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        id="tidy-consent"
+                        type="checkbox"
+                        checked={tidyOptIn}
+                        onChange={(e) => setTidyOptIn(e.target.checked)}
+                        className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="text-ash text-xs leading-relaxed">{TIDY.consent}</span>
+                    </label>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!tidyOptIn || tidyState === "making"}
+                        onClick={() => void makeTidy()}
+                        className="border-chalk/60 hover:bg-chalk hover:text-ink border px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {tidyState === "making"
+                          ? TIDY.making
+                          : tidyState === "ready"
+                            ? TIDY.again
+                            : TIDY.make}
+                      </button>
+                      {tidyState === "ready" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void approveTidy()}
+                            className="border-gold/60 text-gold hover:bg-gold hover:text-ink border px-3 py-1.5 text-xs transition-colors"
+                          >
+                            {TIDY.approve}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void discardTidy()}
+                            className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                          >
+                            {TIDY.discard}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                    {tidyState === "ready" && tidyPreview ? (
+                      <div className="mt-3 flex gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={tidyPreview}
+                          alt={TIDY.label}
+                          className="h-36 w-24 shrink-0 object-cover object-top"
+                        />
+                        <p className="text-ash-dim text-[0.7rem] leading-relaxed">{TIDY.preview}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+                {tidyError ? (
+                  <p className="text-red-corner-hot mt-2 text-[0.7rem]">{tidyError}</p>
                 ) : null}
               </Field>
             ) : null}

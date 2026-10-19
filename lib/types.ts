@@ -57,6 +57,11 @@ export type Fighter = {
   cutoutIssues?: CutoutIssue[];
   /** Poster art made from the photograph, opted into and approved by the fighter. */
   stylised?: string;
+  /**
+   * A tidied copy of the photograph — relit and cleaned, nothing about the
+   * fighter changed — opted into and approved. `photo` is still the original.
+   */
+  tidied?: string;
   instagram?: string;
   record?: Record;
   /** Wins by method. Never more than record.w between them. */

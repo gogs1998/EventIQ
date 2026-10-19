@@ -31,6 +31,10 @@ SHOWCASE_SLUG=cage-county-12
 # decision rather than a default. It does nothing under `next dev` either way:
 # there is no AI binding there, and the action says so rather than failing.
 STYLISED_PORTRAITS=off
+# Whether a fighter whose photo would not cut out cleanly is offered a tidied
+# copy of it from Workers AI. Off for the same reason, and likewise inert under
+# `next dev`, which has no AI binding.
+AI_PHOTO_REPAIR=off
 # INVITE_KEY signs the digest an invite is found by and encrypts the token the
 # dashboard shows back. Leave it out locally and SESSION_SECRET stands in; a
 # deployed Worker without it refuses to serve an invite rather than falling back

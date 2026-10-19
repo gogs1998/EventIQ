@@ -47,10 +47,14 @@ export type Portrait =
  * a fighter gets for sending a picture and saying nothing.
  */
 export function portraitOf(
-  fighter: Pick<Fighter, "cutout" | "photo" | "stylised" | "cutoutQuality">,
+  fighter: Pick<Fighter, "cutout" | "photo" | "stylised" | "cutoutQuality" | "tidied">,
 ): Portrait {
   if (fighter.stylised) return { kind: "stylised", src: fighter.stylised };
   if (cutoutUsable(fighter)) return { kind: "cutout", src: fighter.cutout! };
+  // A tidied copy the fighter approved stands in for the photograph it was made
+  // from, and is what the renderer cuts out while it is set (cutoutSourceOf). It
+  // is still a photograph of them, so it moves like one.
+  if (fighter.tidied) return { kind: "photo", src: fighter.tidied };
   if (fighter.photo) return { kind: "photo", src: fighter.photo };
   return { kind: "plate" };
 }
@@ -89,6 +93,14 @@ export const CLEARED_WITH_PHOTO = {
   stylised: null,
   tidied: null,
 } as const;
+
+/**
+ * Whether what is shown is the tidied copy, or a cutout of it. Either way it
+ * is an edited photograph and is labelled as one.
+ */
+export function portraitIsTidied(fighter: Pick<Fighter, "tidied">, portrait: Portrait): boolean {
+  return !!fighter.tidied && (portrait.kind === "photo" || portrait.kind === "cutout");
+}
 
 /**
  * How far the subject travels against the backdrop, as a fraction of the full
@@ -152,12 +164,28 @@ export function mediaKeyOf(path: string | null | undefined): string | null {
 /** Where a stylised portrait lives. Its own prefix, so /media can have a rule for it. */
 export const STYLISED_PREFIX = "portraits";
 
+/** Where a tidied photograph lives. Its own prefix, so it is never mistaken for an upload. */
+export const TIDIED_PREFIX = "tidied";
+
+/**
+ * The photograph the renderer cuts out: the tidied copy where the fighter
+ * approved one, and the photograph they sent otherwise. One answer, read by
+ * scripts/cutouts.mjs, so the cutout and the card agree on which picture is the
+ * fighter's.
+ */
+export function cutoutSourceOf(fighter: {
+  photo?: string | null;
+  tidied?: string | null;
+}): string | null {
+  return fighter.tidied || fighter.photo || null;
+}
+
 /**
  * The prefixes of the objects that are pictures of one fighter: the photograph
- * they sent (or the promoter cropped), the renderer's cutout of it, and the
- * stylised portrait. Every one is written as `<prefix>/<fighterId>-<suffix>.<ext>`.
+ * they sent (or the promoter cropped), the renderer's cutout of it, the
+ * stylised portrait and the tidied copy. Every one is written as `<prefix>/<fighterId>-<suffix>.<ext>`.
  */
-export const FIGHTER_MEDIA_PREFIXES = ["fighters", "cutouts", STYLISED_PREFIX] as const;
+export const FIGHTER_MEDIA_PREFIXES = ["fighters", "cutouts", STYLISED_PREFIX, TIDIED_PREFIX] as const;
 
 /**
  * The bucket key behind a path, but only where the key is one of this fighter's
@@ -220,6 +248,21 @@ export function stylisedKey(fighterId: string, suffix: string, extension: string
 export function stylisedBelongsTo(path: string, fighterId: string): boolean {
   const key = ownMediaKeyOf(path, fighterId);
   return !!key && key.startsWith(`${STYLISED_PREFIX}/`);
+}
+
+/** The key for a tidied photograph, with the random suffix. */
+export function tidiedKey(fighterId: string, suffix: string, extension: string): string {
+  return `${TIDIED_PREFIX}/${fighterId}-${suffix}.${extension}`;
+}
+
+/**
+ * Whether a path names a tidied photograph of this fighter. The same check, for
+ * the same reason, as `stylisedBelongsTo`: approve takes the path back from the
+ * browser.
+ */
+export function tidiedBelongsTo(path: string, fighterId: string): boolean {
+  const key = ownMediaKeyOf(path, fighterId);
+  return !!key && key.startsWith(`${TIDIED_PREFIX}/`);
 }
 
 /**

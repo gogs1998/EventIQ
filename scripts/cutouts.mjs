@@ -39,7 +39,7 @@ import { pathToFileURL } from "node:url";
 // Node strips the types on the way in. lib/portrait.ts is pure and imports
 // nothing at runtime, which is what lets the app and this script decide what a
 // stored path means the same way.
-import { mediaKeyOf } from "../lib/portrait.ts";
+import { cutoutSourceOf, mediaKeyOf } from "../lib/portrait.ts";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
 import {
@@ -130,10 +130,17 @@ export function cutoutKey(fighterId, photo) {
   return `cutouts/${fighterId}-${digest}.webp`;
 }
 
-/** A fighter needs cutting out when there is a photograph and no cutout of it. */
+/**
+ * A fighter needs cutting out when there is a photograph and no cutout of it.
+ *
+ * "The photograph" is the tidied copy where the fighter approved one
+ * (`cutoutSourceOf`); approving or discarding it clears the cutout, which is
+ * what brings a fighter back here.
+ */
 export function needsCutout(fighter, { refresh = false } = {}) {
-  if (!fighter.photo) return false;
-  if (!photoSource(fighter.photo)) return false;
+  const source = cutoutSourceOf(fighter);
+  if (!source) return false;
+  if (!photoSource(source)) return false;
   return refresh || !fighter.cutout;
 }
 
@@ -302,7 +309,7 @@ async function fetchPhoto(source, into, scope) {
  */
 export async function cardFighters(slug, scope) {
   const rows = await d1(
-    `SELECT f.id AS id, f.photo AS photo, f.cutout AS cutout, f.name AS name
+    `SELECT f.id AS id, f.photo AS photo, f.tidied AS tidied, f.cutout AS cutout, f.name AS name
        FROM fighters f
       WHERE f.id IN (
         SELECT b.red_id FROM bouts b JOIN events e ON e.id = b.event_id WHERE e.slug = ${lit(slug)}
@@ -465,14 +472,15 @@ export async function processPhoto(file, { work, name, timeoutMs = DEFAULT_TIMEO
 }
 
 async function makeCutout(fighter, { scope, work, timeoutMs }) {
-  const source = photoSource(fighter.photo);
-  if (!source) throw new Error(`cannot read a photograph at "${fighter.photo}"`);
+  const from = cutoutSourceOf(fighter);
+  const source = photoSource(from);
+  if (!source) throw new Error(`cannot read a photograph at "${from}"`);
 
   const original = path.join(work, `${fighter.id}-original`);
   const file = await fetchPhoto(source, original, scope);
   const { webp, verdict, reasons } = await processPhoto(file, { work, name: fighter.id, timeoutMs });
 
-  const key = cutoutKey(fighter.id, fighter.photo);
+  const key = cutoutKey(fighter.id, from);
   await run("npx", [
     "wrangler",
     "r2",
