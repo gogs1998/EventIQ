@@ -13,6 +13,7 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish --env staging
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template faceoff
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template walkout --corner blue
+ *   node scripts/render-tape.mjs --fighter amelia-kerr --template confirmed-poster
  *
  * The last is a sample to a file: --publish takes the tape and the promo, and
  * refuses anything the programme has nowhere to put.
@@ -110,7 +111,8 @@ function arg(name, fallback) {
 const base = arg("base", "http://localhost:3000");
 const outDir = arg("out", ".renders");
 const quality = Number(arg("quality", 92));
-const slug = arg("slug");
+// Both may be filled in from --fighter, which names a person rather than a bout.
+let slug = arg("slug");
 const publish = Boolean(arg("publish"));
 
 /**
@@ -142,7 +144,7 @@ const template = str(arg("template", "tape"), "tape");
  * published walkout would replace the bout's promo and read as current.
  */
 const wantedTemplates = explicitTemplate ? [explicitTemplate] : [...PUBLISHED_TEMPLATES];
-const corner = str(arg("corner", "red"), "red") === "blue" ? "blue" : "red";
+let corner = str(arg("corner", "red"), "red") === "blue" ? "blue" : "red";
 
 /** A flag given with no value comes back as `true`. Treat that as unset. */
 function str(value, fallback) {
@@ -733,8 +735,14 @@ export async function seek(page, frame) {
  * default, because it means nothing for the three templates that draw both.
  */
 function outputName(bout, templateId = template) {
+  // A clip asked for by fighter is named after them, because that is who it is
+  // going to and the bout number means nothing to them.
+  if (namedFighter) return `${slug}-${namedFighter}-${templateId}`;
   return `${slug}-bout-${bout}-${templateId}${corner === "red" ? "" : `-${corner}`}`;
 }
+
+/** Set from --fighter. */
+let namedFighter = null;
 
 async function renderStill(bout, frame) {
   await mkdir(".stills", { recursive: true });
@@ -969,9 +977,62 @@ export function parkedReport(targets, { actions = false } = {}) {
   });
 }
 
+/**
+ * Which show, bout and corner a fighter is on, for a template made about one
+ * person.
+ *
+ * Asking for a fighter rather than a bout and a corner is how a one-corner clip
+ * is made for somebody whose photograph has just arrived, without anybody
+ * looking up where they are on the running order and getting the corner wrong.
+ * A fighter can be on more than one show, so --slug narrows it, and without one
+ * the latest-dated show they are on is taken. A withdrawn bout is never chosen.
+ */
+export function fighterPlacementSql(fighterId, eventSlug) {
+  const id = lit(fighterId);
+  return `SELECT e.slug AS slug, b.number AS number,
+            CASE WHEN b.red_id = ${id} THEN 'red' ELSE 'blue' END AS corner
+       FROM bouts b
+       JOIN events e ON e.id = b.event_id
+      WHERE (b.red_id = ${id} OR b.blue_id = ${id}) AND b.cancelled = 0${
+        eventSlug ? ` AND e.slug = ${lit(eventSlug)}` : ""
+      }
+      ORDER BY e.date DESC, b.number DESC
+      LIMIT 1`;
+}
+
+async function placeFighter(fighterId, eventSlug, templateId) {
+  if (typeof fighterId !== "string" || !fighterId) throw new Error("--fighter needs a fighter id, e.g. --fighter amelia-kerr");
+  // A fighter is one corner of one bout, so the only thing that can be made for
+  // them alone is a template drawn about one corner. The capture page knows
+  // which those are; here it is enough that one was asked for by name.
+  if (!templateId) {
+    throw new Error(
+      "--fighter needs --template: a one-corner composition such as confirmed-stamp, " +
+        "confirmed-poster, confirmed-broadcast or walkout.",
+    );
+  }
+  const [row] = await d1(fighterPlacementSql(fighterId, typeof eventSlug === "string" ? eventSlug : undefined));
+  if (!row) {
+    throw new Error(
+      `${fighterId} is not in a bout${typeof eventSlug === "string" ? ` on "${eventSlug}"` : ""} in the ${scope.slice(2)} database`,
+    );
+  }
+  return { slug: row.slug, number: row.number, corner: row.corner === "blue" ? "blue" : "red" };
+}
+
 async function main() {
   const still = arg("still");
-  const boutArg = arg("bout");
+  let boutArg = arg("bout");
+
+  const fighterArg = arg("fighter");
+  if (fighterArg !== undefined) {
+    const found = await placeFighter(fighterArg, slug, explicitTemplate);
+    slug = found.slug;
+    boutArg = String(found.number);
+    corner = found.corner;
+    namedFighter = fighterArg;
+    console.log(`${fighterArg}: bout ${found.number} of ${found.slug}, ${found.corner} corner`);
+  }
 
   /**
    * Only what the programme carries may be published.
@@ -1032,8 +1093,9 @@ async function main() {
   } else {
     // One bout asked for means only its two corners need cutting out. Anything
     // wider has to consider the whole card, because --stale is about every bout.
-    const only =
-      boutArg && boutArg !== true
+    const only = fighterArg
+      ? [fighterArg]
+      : boutArg && boutArg !== true
         ? (all.find((bout) => bout.number === Number(boutArg))?.fighterIds ?? [])
         : null;
     const cutoutTimeout = arg("cutout-timeout");
@@ -1076,7 +1138,8 @@ async function main() {
         "the ones that already exist.\n" +
         "Every bout is made in both published compositions — the tale of the tape\n" +
         "and the promo — unless --template <id> names one. --corner red|blue picks\n" +
-        "the fighter where a template is about one, and a template the programme\n" +
+        "the fighter where a template is about one, and --fighter <id> --template <id>\n" +
+        "finds that fighter's bout and corner for you. A template the programme\n" +
         "does not carry is a sample to a file: --publish refuses it.",
     );
     return 1;

@@ -3,6 +3,7 @@ import { RENDER_INPUT_FIELDS, renderFingerprint } from "../lib/renders.ts";
 import {
   brokenImageMessage,
   claimSql,
+  fighterPlacementSql,
   isParked,
   parkedReport,
   renderInputsFrom,
@@ -331,5 +332,32 @@ describe("isParked", () => {
   it("is a warning on the run's summary under GitHub Actions", () => {
     const [line] = parkedReport([job("failed", 2)], { actions: true });
     expect(line.startsWith("::warning title=Bout 15 faceoff is parked::")).toBe(true);
+  });
+});
+
+/**
+ * A one-corner clip asked for by fighter. The corner is decided in SQL from
+ * which side of the bout the fighter is on, so a clip about the blue corner
+ * cannot come out with the red corner's name on it.
+ */
+describe("fighterPlacementSql", () => {
+  it("finds the bout from either corner and says which corner it is", () => {
+    const sql = fighterPlacementSql("amelia-kerr");
+    expect(sql).toContain("b.red_id = 'amelia-kerr' OR b.blue_id = 'amelia-kerr'");
+    expect(sql).toContain("CASE WHEN b.red_id = 'amelia-kerr' THEN 'red' ELSE 'blue' END");
+  });
+
+  it("never picks a withdrawn bout", () => {
+    expect(fighterPlacementSql("amelia-kerr")).toContain("b.cancelled = 0");
+  });
+
+  it("narrows to one show when given one, and otherwise takes the latest", () => {
+    expect(fighterPlacementSql("amelia-kerr", "cage-county-12")).toContain("e.slug = 'cage-county-12'");
+    expect(fighterPlacementSql("amelia-kerr")).not.toContain("e.slug =");
+    expect(fighterPlacementSql("amelia-kerr")).toMatch(/ORDER BY e\.date DESC/);
+  });
+
+  it("quotes the id rather than trusting it", () => {
+    expect(fighterPlacementSql("o'rourke")).toContain("'o''rourke'");
   });
 });
