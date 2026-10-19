@@ -269,7 +269,14 @@ async function cardWhere(db: Db, where: SQL): Promise<LoadedCard | null> {
   if (!eventRow) return null;
 
   const bouts = boutRows.map((row) => row.bout);
-  const fighterIds = [...new Set(bouts.flatMap((bout) => [bout.redId, bout.blueId]))];
+
+  // The card's fighters, through the bouts rather than as a list of ids. D1
+  // binds at most a hundred parameters to a statement, and an IN list of every
+  // corner on the card is two a bout, so a fifty-bout card was refused outright
+  // and the programme, the dashboard and the render queue all fell over with it.
+  // Two subqueries bind the event id twice, whatever the size of the card.
+  const onCard = (column: typeof schema.bouts.redId | typeof schema.bouts.blueId) =>
+    db.select({ id: column }).from(schema.bouts).where(eq(schema.bouts.eventId, eventRow.id));
 
   const [promoterRows, eventSponsorRows, sponsorRows, fighterRows, fighterSponsorRows] =
     await db.batch([
@@ -287,13 +294,24 @@ async function cardWhere(db: Db, where: SQL): Promise<LoadedCard | null> {
       // fighter sponsors all resolve from one map. A promoter's book is a few
       // dozen rows.
       db.select().from(schema.sponsors).where(eq(schema.sponsors.promoterId, eventRow.promoterId)),
-      // An empty id list compiles to `where false`, so a show with no running
-      // order costs these two statements and reads no rows.
-      db.select().from(schema.fighters).where(inArray(schema.fighters.id, fighterIds)),
+      db
+        .select()
+        .from(schema.fighters)
+        .where(
+          or(
+            inArray(schema.fighters.id, onCard(schema.bouts.redId)),
+            inArray(schema.fighters.id, onCard(schema.bouts.blueId)),
+          ),
+        ),
       db
         .select()
         .from(schema.fighterSponsors)
-        .where(inArray(schema.fighterSponsors.fighterId, fighterIds))
+        .where(
+          or(
+            inArray(schema.fighterSponsors.fighterId, onCard(schema.bouts.redId)),
+            inArray(schema.fighterSponsors.fighterId, onCard(schema.bouts.blueId)),
+          ),
+        )
         .orderBy(schema.fighterSponsors.position),
     ]);
 

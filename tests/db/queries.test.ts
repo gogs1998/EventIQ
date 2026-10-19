@@ -101,6 +101,32 @@ describe("loadCard", () => {
 
     expect(Object.keys(card!.sponsors)).toEqual(["sp_ours"]);
   });
+
+  /**
+   * D1 binds at most a hundred parameters to a statement. The fighters used to
+   * be read with an IN list of every corner on the card — two a bout — so a
+   * card past fifty bouts was refused, and with it the programme, the dashboard
+   * and every render request for the show.
+   */
+  it("loads a sixty-bout card, which an IN list of its corners cannot", async () => {
+    const db = platform().db;
+    await plantPromoters(db, [{ id: "pr_cage", name: "Cage County" }]);
+    const show = await plantShow(db, {
+      promoterId: "pr_cage",
+      slug: "cage-county-marathon",
+      published: true,
+      bouts: 60,
+    });
+    await plantSponsor(db, { id: "sp_ours", promoterId: "pr_cage" });
+    const last = show.fighterIds.at(-1)!;
+    await db.insert(schema.fighterSponsors).values({ fighterId: last, sponsorId: "sp_ours", position: 0 });
+
+    const card = await loadCard(db, "cage-county-marathon");
+
+    expect(card?.event.bouts).toHaveLength(60);
+    expect(Object.keys(card!.fighters)).toHaveLength(120);
+    expect(card!.fighters[last].sponsorIds).toEqual(["sp_ours"]);
+  });
 });
 
 describe("loadShowcase", () => {
