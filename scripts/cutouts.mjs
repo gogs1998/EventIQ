@@ -32,7 +32,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -42,6 +42,7 @@ import { pathToFileURL } from "node:url";
 import { mediaKeyOf } from "../lib/portrait.ts";
 import { environmentFrom } from "./environments.mjs";
 import { localBin } from "./local-bin.mjs";
+import { eqFilter, exposurePlan, lumaStats, pngSize, repairMask } from "./photo-quality.mjs";
 
 // See scripts/environments.mjs. `--env staging` reads and writes staging's own
 // rows and objects; without it this is production, as it always was.
@@ -227,26 +228,6 @@ async function toPng(input, output) {
   ]);
 }
 
-/** The same output treatment as scripts/prepare-assets.mjs: transparent WebP, 1000px, q88. */
-async function toCutoutWebp(input, output) {
-  await run("ffmpeg", [
-    "-y",
-    "-loglevel",
-    "error",
-    "-i",
-    input,
-    "-vf",
-    `scale=${CUTOUT_WIDTH}:-1,format=yuva420p`,
-    "-c:v",
-    "libwebp",
-    "-q:v",
-    String(CUTOUT_QUALITY),
-    "-compression_level",
-    "6",
-    output,
-  ]);
-}
-
 /**
  * Mean alpha of an image, 0 to 1, read off a 96x96 reduction of its alpha channel.
  *
@@ -341,10 +322,10 @@ export async function ensureCutouts({
   try {
     for (const fighter of wanted) {
       try {
-        const key = await makeCutout(fighter, { scope, work, timeoutMs });
+        const { key, verdict, reasons } = await makeCutout(fighter, { scope, work, timeoutMs });
         await recordCutout(fighter, key, scope);
         summary.made += 1;
-        log(`  ${fighter.id}  ${key}`);
+        log(`  ${fighter.id}  ${key}  ${verdict}${reasons.length ? ` (${reasons.join(", ")})` : ""}`);
       } catch (error) {
         // Left null on purpose. The video falls back to the photograph, which is
         // the fighter's own face, and the next run tries again.
@@ -359,17 +340,48 @@ export async function ensureCutouts({
   return summary;
 }
 
-async function makeCutout(fighter, { scope, work, timeoutMs }) {
-  const source = photoSource(fighter.photo);
-  if (!source) throw new Error(`cannot read a photograph at "${fighter.photo}"`);
+/** Raw 8-bit samples out of ffmpeg: one plane, `vf` deciding which and at what size. */
+async function grayPlane(file, vf) {
+  return run(
+    "ffmpeg",
+    ["-v", "error", "-i", file, "-vf", vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+    { binary: true },
+  );
+}
 
-  const original = path.join(work, `${fighter.id}-original`);
-  const normalised = path.join(work, `${fighter.id}-in.png`);
-  const cut = path.join(work, `${fighter.id}-cut.png`);
-  const webp = path.join(work, `${fighter.id}.webp`);
+/**
+ * One photograph to one cutout, with the repairs in scripts/photo-quality.mjs.
+ *
+ * Kept apart from the bucket and the database so it can be run against a
+ * photograph on disk — which is how the repairs were checked against real bad
+ * photographs without any of them going near the repository.
+ *
+ * The model is shown a lifted copy where the photograph is dark, because it
+ * finds edges in light; the cutout is coloured from the photograph itself, lifted
+ * by half as much, so the fighter looks like their own photograph rather than
+ * like the model's input. The alpha comes from the model and is then repaired in
+ * JS — isolate the fighter, rebuild a lost torso — and merged back over those
+ * colours in one ffmpeg pass.
+ */
+export async function processPhoto(file, { work, name, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  const normalised = path.join(work, `${name}-in.png`);
+  const lifted = path.join(work, `${name}-lifted.png`);
+  const colour = path.join(work, `${name}-colour.png`);
+  const cut = path.join(work, `${name}-cut.png`);
+  const mask = path.join(work, `${name}-mask.raw`);
+  const webp = path.join(work, `${name}.webp`);
 
-  const file = await fetchPhoto(source, original, scope);
   await toPng(file, normalised);
+  const size = pngSize(await readFile(normalised));
+  if (!size) throw new Error("the photograph would not decode");
+  const { width, height } = size;
+
+  const luma = lumaStats(await grayPlane(normalised, "scale=64:64,format=gray"));
+  const plan = exposurePlan(luma);
+  if (plan) {
+    await run("ffmpeg", ["-y", "-loglevel", "error", "-i", normalised, "-vf", eqFilter(plan.model), lifted]);
+    await run("ffmpeg", ["-y", "-loglevel", "error", "-i", normalised, "-vf", eqFilter(plan.output), colour]);
+  }
 
   // Imported here rather than at the top of the file so that requiring this
   // module — from the renderer, or from a test of the bookkeeping above — does
@@ -378,16 +390,63 @@ async function makeCutout(fighter, { scope, work, timeoutMs }) {
   const blob = await withTimeout(
     // A URL rather than the path: the library reads a string as a URL, and a
     // Windows path parses as one whose protocol is the drive letter.
-    removeBackground(pathToFileURL(normalised).href, { output: { format: "image/png", quality: 0.95 } }),
+    removeBackground(pathToFileURL(plan ? lifted : normalised).href, {
+      output: { format: "image/png", quality: 0.95 },
+    }),
     timeoutMs,
     "background removal",
   );
   await writeFile(cut, Buffer.from(await blob.arrayBuffer()));
 
-  const verdict = alphaVerdict(await alphaCoverage(cut));
-  if (verdict !== "ok") throw new Error(`background removal came back ${verdict}`);
+  const coverage = alphaVerdict(await alphaCoverage(cut));
+  if (coverage !== "ok") throw new Error(`background removal came back ${coverage}`);
 
-  await toCutoutWebp(cut, webp);
+  // At the photograph's own size, so the repaired mask lines up pixel for pixel
+  // with the colours it is merged over.
+  const alpha = await grayPlane(cut, `format=rgba,alphaextract,scale=${width}:${height}`);
+  if (alpha.length !== width * height) throw new Error("the cutout's mask came back the wrong size");
+  const repaired = repairMask({ alpha: new Uint8Array(alpha), width, height, luma, lifted: !!plan });
+  await writeFile(mask, repaired.alpha);
+
+  // The same output treatment as scripts/prepare-assets.mjs — transparent WebP,
+  // 1000px, q88 — so a curated cutout and a generated one look alike.
+  await run("ffmpeg", [
+    "-y",
+    "-loglevel",
+    "error",
+    "-i",
+    plan ? colour : normalised,
+    "-f",
+    "rawvideo",
+    "-pix_fmt",
+    "gray",
+    "-s",
+    `${width}x${height}`,
+    "-i",
+    mask,
+    "-filter_complex",
+    `[0]format=rgb24[c];[c][1]alphamerge,scale=${CUTOUT_WIDTH}:-1,format=yuva420p`,
+    "-frames:v",
+    "1",
+    "-c:v",
+    "libwebp",
+    "-q:v",
+    String(CUTOUT_QUALITY),
+    "-compression_level",
+    "6",
+    webp,
+  ]);
+
+  return { webp, verdict: repaired.verdict, reasons: repaired.reasons };
+}
+
+async function makeCutout(fighter, { scope, work, timeoutMs }) {
+  const source = photoSource(fighter.photo);
+  if (!source) throw new Error(`cannot read a photograph at "${fighter.photo}"`);
+
+  const original = path.join(work, `${fighter.id}-original`);
+  const file = await fetchPhoto(source, original, scope);
+  const { webp, verdict, reasons } = await processPhoto(file, { work, name: fighter.id, timeoutMs });
 
   const key = cutoutKey(fighter.id, fighter.photo);
   await run("npx", [
@@ -402,7 +461,7 @@ async function makeCutout(fighter, { scope, work, timeoutMs }) {
     "image/webp",
     scope,
   ]);
-  return key;
+  return { key, verdict, reasons };
 }
 
 /**
