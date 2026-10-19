@@ -20,7 +20,7 @@ import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { bothCornersAreOnePerson, resolveCorner, type CornerResolution } from "@/lib/fighter-match";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { mediaKeyOf } from "@/lib/portrait";
+import { ownMediaKeyOf } from "@/lib/portrait";
 import {
   MAX_SHEET_BOUTS,
   MAX_SHEET_LENGTH,
@@ -397,8 +397,10 @@ export async function setFighterPhoto(
       await media.put(key, bytes, { httpMetadata: { contentType } });
 
       const path = `/media/${key}`;
+      // Only this fighter's own pictures: the row's paths are aimed by whatever
+      // wrote them, and a fighter's own save was once one of those (bug 48).
       const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
-        .map(mediaKeyOf)
+        .map((old) => ownMediaKeyOf(old, fighterId))
         .filter((old): old is string => old !== null && old !== key);
 
       // After the object, so a row can never point at bytes that are not there.

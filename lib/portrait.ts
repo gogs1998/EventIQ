@@ -115,6 +115,56 @@ export function mediaKeyOf(path: string | null | undefined): string | null {
 /** Where a stylised portrait lives. Its own prefix, so /media can have a rule for it. */
 export const STYLISED_PREFIX = "portraits";
 
+/**
+ * The prefixes of the objects that are pictures of one fighter: the photograph
+ * they sent (or the promoter cropped), the renderer's cutout of it, and the
+ * stylised portrait. Every one is written as `<prefix>/<fighterId>-<suffix>.<ext>`.
+ */
+export const FIGHTER_MEDIA_PREFIXES = ["fighters", "cutouts", STYLISED_PREFIX] as const;
+
+/**
+ * The bucket key behind a path, but only where the key is one of this fighter's
+ * own pictures — or null.
+ *
+ * Every action that deletes a "superseded" picture deletes whatever path the
+ * fighter's row holds, and a path on a row is only as trustworthy as whatever
+ * last wrote it. A key that names another fighter, a show's render or a
+ * sponsor's emblem is never this fighter's to remove, so nothing is deleted for
+ * it however it got there (HANDOVER bug 48). Fighter ids are hyphenated, so the
+ * id is matched as a prefix and the remainder has to be a bare suffix and
+ * extension with no hyphen in it, or `owen-pryce` would own `owen-pryce-2`'s.
+ */
+export function ownMediaKeyOf(path: string | null | undefined, fighterId: string): string | null {
+  const key = mediaKeyOf(path);
+  if (!key || !fighterId) return null;
+  const slash = key.indexOf("/");
+  if (slash < 0) return null;
+  if (!(FIGHTER_MEDIA_PREFIXES as readonly string[]).includes(key.slice(0, slash))) return null;
+  const name = key.slice(slash + 1);
+  if (!name.startsWith(`${fighterId}-`)) return null;
+  return /^[A-Za-z0-9]{4,32}\.[a-z]{3,4}$/.test(name.slice(fighterId.length + 1)) ? key : null;
+}
+
+/**
+ * The photograph a save from the questionnaire may leave on the row.
+ *
+ * The draft carries the photo path back from the browser, so it is a claim and
+ * not a fact: believed, it let anybody holding an invite point their row at any
+ * object in the bucket — another fighter's draft photograph, which `/media` then
+ * served because it hung off a published card, or a key the next upload would
+ * delete as "superseded" (HANDOVER bug 48). The only photograph that ever
+ * reaches the row is one an upload put there, so a save keeps the stored one or
+ * clears it, and never names a different one. A path that differs is a stale
+ * save landing after an upload, and is ignored rather than obeyed.
+ */
+export function photoToKeep(
+  stored: string | null | undefined,
+  requested: string | null | undefined,
+): string | undefined {
+  if (!requested) return undefined;
+  return stored ?? undefined;
+}
+
 /** The key for one, with the random suffix that stops a replacement being cached. */
 export function stylisedKey(fighterId: string, suffix: string, extension: string): string {
   return `${STYLISED_PREFIX}/${fighterId}-${suffix}.${extension}`;
@@ -131,11 +181,8 @@ export function stylisedKey(fighterId: string, suffix: string, extension: string
  * writes rather than anything else containing a hyphen.
  */
 export function stylisedBelongsTo(path: string, fighterId: string): boolean {
-  const key = mediaKeyOf(path);
-  if (!key || !key.startsWith(`${STYLISED_PREFIX}/`)) return false;
-  const name = key.slice(STYLISED_PREFIX.length + 1);
-  if (!name.startsWith(`${fighterId}-`)) return false;
-  return /^[A-Za-z0-9]{4,32}\.[a-z]{3,4}$/.test(name.slice(fighterId.length + 1));
+  const key = ownMediaKeyOf(path, fighterId);
+  return !!key && key.startsWith(`${STYLISED_PREFIX}/`);
 }
 
 /**

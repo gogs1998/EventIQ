@@ -11,7 +11,7 @@ import { getMedia } from "@/lib/db";
 import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { logError } from "@/lib/log";
-import { mediaKeyOf } from "@/lib/portrait";
+import { ownMediaKeyOf } from "@/lib/portrait";
 
 /**
  * Taking it back.
@@ -54,8 +54,10 @@ export async function removeMyDetails(token: string): Promise<ActionResult> {
       const { db, row } = found;
       const { invite, fighter, event } = row;
 
+      // Only this fighter's own pictures. A delete aimed by a stored path is
+      // aimed by whatever last wrote that path (bug 48).
       const objects = [fighter.photo, fighter.cutout, fighter.stylised]
-        .map(mediaKeyOf)
+        .map((path) => ownMediaKeyOf(path, fighter.id))
         .filter((key): key is string => key !== null);
 
       const now = Date.now();

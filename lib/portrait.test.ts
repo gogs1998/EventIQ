@@ -5,7 +5,9 @@ import { FighterPortrait } from "@/components/FighterPortrait";
 import {
   cutoutSurvives,
   mediaKeyOf,
+  ownMediaKeyOf,
   parallaxTravel,
+  photoToKeep,
   plateInitials,
   portraitOf,
   stylisedBelongsTo,
@@ -181,6 +183,69 @@ describe("stylisedBelongsTo", () => {
     expect(stylisedBelongsTo("/media/fighters/f1-a1b2c3d4.jpg", "f1")).toBe(false);
     expect(stylisedBelongsTo("/fighters/f1-a1b2c3d4.jpg", "f1")).toBe(false);
     expect(stylisedBelongsTo("/media/portraits/f1-a1b2c3d4.png/../x.png", "f1")).toBe(false);
+  });
+});
+
+/**
+ * HANDOVER bug 48. Every delete of a "superseded" picture is aimed by a path on
+ * the fighter's row, so the path has to be one of theirs before it is aimed.
+ */
+describe("ownMediaKeyOf", () => {
+  it("names this fighter's photograph, cutout and stylised portrait", () => {
+    expect(ownMediaKeyOf("/media/fighters/chloe-baines-a1b2c3d4.jpg", "chloe-baines")).toBe(
+      "fighters/chloe-baines-a1b2c3d4.jpg",
+    );
+    expect(ownMediaKeyOf("/media/cutouts/chloe-baines-0f9e8d7c.webp", "chloe-baines")).toBe(
+      "cutouts/chloe-baines-0f9e8d7c.webp",
+    );
+    expect(ownMediaKeyOf("/media/portraits/chloe-baines-a1b2c3d4.png", "chloe-baines")).toBe(
+      "portraits/chloe-baines-a1b2c3d4.png",
+    );
+  });
+
+  it("refuses another fighter's, including one whose id starts the same way", () => {
+    expect(ownMediaKeyOf("/media/fighters/otis-grant-a1b2c3d4.jpg", "chloe-baines")).toBeNull();
+    expect(ownMediaKeyOf("/media/fighters/chloe-baines-2-a1b2c3d4.jpg", "chloe-baines")).toBeNull();
+    expect(ownMediaKeyOf("/media/fighters/chloe-baines-a1b2c3d4.jpg", "chloe")).toBeNull();
+  });
+
+  it("refuses every key that is not a picture of a fighter", () => {
+    for (const path of [
+      "/media/renders/cage-county-12/bout-15-ab12cd34.mp4",
+      "/media/sponsors/pr_cage/a1b2c3d4.png",
+      "/media/posters/ev_cage/a1b2c3d4.jpg",
+      "/media/chloe-baines-a1b2c3d4.jpg",
+      "/media/fighters/chloe-baines-a1b2/../../renders/x.mp4",
+      "/fighters/chloe-baines.webp",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(ownMediaKeyOf(path, "chloe-baines")).toBeNull();
+    }
+  });
+});
+
+describe("photoToKeep", () => {
+  it("keeps the photograph already on the row", () => {
+    expect(photoToKeep("/media/fighters/f1-a1b2.jpg", "/media/fighters/f1-a1b2.jpg")).toBe(
+      "/media/fighters/f1-a1b2.jpg",
+    );
+    expect(photoToKeep("/fighters/nadia-farrukh.webp", "/fighters/nadia-farrukh.webp")).toBe(
+      "/fighters/nadia-farrukh.webp",
+    );
+  });
+
+  it("clears it when the fighter takes it off", () => {
+    expect(photoToKeep("/media/fighters/f1-a1b2.jpg", undefined)).toBeUndefined();
+  });
+
+  it("never puts a path on the row that an upload did not", () => {
+    expect(photoToKeep("/media/fighters/f1-a1b2.jpg", "/media/fighters/f2-c3d4.jpg")).toBe(
+      "/media/fighters/f1-a1b2.jpg",
+    );
+    expect(photoToKeep(null, "/media/renders/cage-county-12/bout-15-ab12cd34.mp4")).toBeUndefined();
+    expect(photoToKeep(null, "/fighters/dre-osei.webp")).toBeUndefined();
   });
 });
 

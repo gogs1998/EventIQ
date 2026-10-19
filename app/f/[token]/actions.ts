@@ -15,7 +15,7 @@ import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { cutoutSurvives, mediaKeyOf } from "@/lib/portrait";
+import { cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
 import { allowedSponsorIds, num, sanitiseDraft, type Draft } from "@/lib/questionnaire";
 
 /**
@@ -109,7 +109,10 @@ export async function saveDraft(
       const { db, row } = found;
       const { invite, fighter, event } = row;
 
-      const draft = sanitiseDraft(input);
+      // The photograph is the one field a save may not choose: only an upload
+      // puts a path on the row, and a draft can keep it or clear it (bug 48).
+      const sanitised = sanitiseDraft(input);
+      const draft = { ...sanitised, photo: photoToKeep(fighter.photo, sanitised.photo) };
 
       // Consent decides whether any of this may be written, and the tick is the
       // one thing a save is allowed to carry before there is one. The rule and
@@ -349,9 +352,11 @@ export async function uploadPhoto(
       await media.put(key, bytes, { httpMetadata: { contentType } });
 
       const path = `/media/${key}`;
-      // The three paths this write is about to orphan, read before it lands.
+      // The three paths this write is about to orphan, read before it lands —
+      // and only where each is one of this fighter's own pictures, because a
+      // delete aimed by a stored path is aimed by whatever wrote it (bug 48).
       const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
-        .map(mediaKeyOf)
+        .map((old) => ownMediaKeyOf(old, fighter.id))
         .filter((old): old is string => old !== null && old !== key);
 
       // After the object, so a row can never point at bytes that are not there.

@@ -118,6 +118,19 @@ describe("bucketKeys", () => {
     expect(bucketKeys(row({ photo: "/fighters/nadia-farrukh.webp" }))).toEqual([]);
     expect(bucketKeys(row({ photo: "/media/../etc/passwd" }))).toEqual([]);
   });
+
+  /** HANDOVER bug 48: a row is only as trustworthy as whatever last wrote it. */
+  it("never names an object that is somebody else's", () => {
+    expect(
+      bucketKeys(
+        row({
+          photo: "/media/fighters/f2-ab12.jpg",
+          cutout: "/media/renders/cage-county-12/bout-15-ab12cd34.mp4",
+          stylised: "/media/sponsors/pr_cage/ab12.png",
+        }),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("clearStatements", () => {
