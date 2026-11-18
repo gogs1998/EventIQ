@@ -18,7 +18,9 @@ EventIQ is **free for promoters**. The competition (myfightcard.com and the like
 - Paste the matchmaking sheet (`lib/sheet.ts`), or drop the posters and crop both corners.
 - Two review-and-fix passes over the whole codebase (38 commits; the findings are in the ledger).
 
-Six video templates exist in the renderer (`components/sequence/templates.ts`); only `tape` and `faceoff` are published. `walkout`, `social`, `countdown`, `card` and `doors` render from the command line and are not offered to promoters.
+**Confirmed clips and photo quality, November 2026** — a clip for every fighter who sends their details in, in one of three looks the promoter picks per show, queued and played on the fighter's page; cutouts that lift dark photos, drop other people and rebuild a lost torso, judged and passed over when poor; an opt-in AI-tidied photo the fighter approves, behind `AI_PHOTO_REPAIR`.
+
+Nine video templates exist in the renderer (`components/sequence/templates.ts`); `tape` and `faceoff` are queued for every bout and the three `confirmed-*` looks for every confirmed fighter. `walkout`, `social`, `countdown`, `card` and `doors` render from the command line and are not offered to promoters.
 
 ## Next
 
@@ -41,7 +43,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 
 8. **Real sending** (M). WhatsApp Business API instead of deep links, with scheduled reminders to fighters who have not opened. Needs a Meta business account.
 9. **Push through the PWA** (M). "Your fighter is up in two bouts." No app store.
-10. **More published templates** (S each). `walkout` needs a `corner` column on `render_jobs` before it can be published; `countdown` and `doors` need a show-level job row. The plan is written at the foot of `components/sequence/templates.ts`.
+10. **More published templates** (S each). `walkout` can use the `fighter_id` the confirmed clip put on `render_jobs`, and needs only who gets one and somewhere to play it; `countdown` and `doors` need a show-level job row. The plan is written at the foot of `components/sequence/templates.ts`.
 11. **A promoter's own domain** (M). Their programme on their name; EventIQ discreet, which is already the rule in `lib/masthead.ts`.
 
 ### Known debts, from the reviews
@@ -49,7 +51,7 @@ Ordered by value per unit of effort. S is hours, M is days, L is a week or more.
 Judged too risky for a review commit; each is one small job.
 
 - `loadCard`'s `inArray` over fighter ids hits D1's 100-parameter limit at about 50 bouts (`lib/db/queries.ts`). Real cards are 15. Chunk it before anyone runs a tournament.
-- A newly published template is never queued for bouts that already exist: migration `0015` backfilled only `tape` jobs, so no card had a face-off until `render.yml` was dispatched by hand per slug on 12 October 2026. Any future template needs a backfill that enqueues it for every published bout, or the hourly `--stale` run should treat a missing job row for a published template as stale.
+- ~~A newly published template is never queued for bouts that already exist.~~ Settled with the confirmed clip: `--stale` treats a missing job row as never made (`targetsOf`/`wantsRendering`, tested), so a new kind of video reaches every published show on the next hourly run with no backfill. Migration `0015` predates that; it is why no card had a face-off until `render.yml` was dispatched by hand on 12 October 2026.
 - `loadShowcase` gates itself in `lib/db/queries.ts` rather than beside the other gates in `lib/visibility.ts`. Move it.
 - `scripts/r2-orphans.mjs` does not know the `posters/` prefix; `uploadPoster` can leave an object no row points at.
 - `PosterCrop` is drag-only; a keyboard path is owed.

@@ -13,7 +13,7 @@ It is a working application on Cloudflare — Workers, D1, R2 — not a prototyp
 | Document | Covers |
 | --- | --- |
 | This file | How to work here: the rules, the traps, the conventions |
-| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,300 lines, and the most valuable thing in the repo. Section 14 is 47 bugs with what each one actually did |
+| [HANDOVER.md](HANDOVER.md) | **Why** everything is the way it is. Around 1,300 lines, and the most valuable thing in the repo. Section 14 is 54 bugs with what each one actually did |
 | [README.md](README.md) | How to run things |
 | [DEPLOY.md](DEPLOY.md) | Cloudflare procedure, token scopes, the PBKDF2 ceiling |
 | [ROADMAP.md](ROADMAP.md) | What is next, in order, and how each item ships |
@@ -32,7 +32,7 @@ npm run dev                        # http://localhost:3000
 The seed prints the promoter password and a few invite links. Sign in at `/promoter/login` as `cage-county`. `next dev` gets real local D1 and R2, so the questionnaire saves, photographs upload and interactions are counted without deploying anything.
 
 ```bash
-npm test           # 1146 tests in 55 files (904 pure, 242 against D1), ~3 min
+npm test           # 1355 tests in 66 files, pure and against D1, ~4 min
 npm run test:db    # just the database-backed half of them
 npm run lint
 npm run typecheck
@@ -55,7 +55,7 @@ Each of these looks like an improvement from the outside and is a regression. Ne
 
 **Do not raise `PBKDF2_ITERATIONS` above 100,000.** OWASP wants 600,000 and the deployed Workers runtime throws above 100,000. Node and the local `wrangler dev` both accept any count, so no local test can see this. It has already caused a production 500 twice (bugs 16, 17). Verification reads the count out of the stored hash, so a wrong constant does not break the current login — it breaks the next hash minted. If you change it, re-seed.
 
-**`isDebut()` requires an explicit `0-0-0`.** A missing record is not a debut. The naive version would announce an eight-fight veteran as a debutant in front of a room that knows better. The database enforces the same thing: record columns are all-or-nothing. **Silence is not evidence** — the same mistake in different clothes produced bug 9, where invite status was derived from a completeness score that included fields the *promoter* had typed, so twenty-one fighters who never opened their link all read as "opened, unfinished".
+**`isDebut()` requires an explicit `0-0-0`.** A missing record is not a debut. The naive version would announce an eight-fight veteran as a debutant in front of a room that knows better. The database enforces the same thing: record columns are all-or-nothing. **Silence is not evidence** — the same mistake in different clothes produced bug 9, where invite status was derived from a completeness score that included fields the *promoter* had typed, so twenty-one fighters who never opened their link all read as "opened, unfinished". The confirmed clip lives under the same rule: it is made only for a fighter whose own submission is on the invite (`hasConfirmed` in `lib/renders.ts`), and its queue row is keyed by fighter rather than corner so a clip can never play on somebody swapped into that corner.
 
 **Decide what an upload is from its bytes.** `lib/image-type.ts` reads magic numbers; `file.type` is a string the caller writes and is never read. An `image/svg+xml` upload satisfied every check the old code had, and an SVG is a document that can carry `<script>` which then runs at our own origin with our cookies in scope (bug 21, HANDOVER section 6b). The browser's JPEG re-encode in the questionnaire is not a control — the server action behind it is reachable directly.
 

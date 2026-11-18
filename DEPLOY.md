@@ -339,6 +339,34 @@ and the sitemap lists `/` alone. Nothing else is affected — a promoter's own
 programme is at `/e/<slug>` either way.
 [HANDOVER section 6e](HANDOVER.md#6e-the-shop-window-runs-on-a-named-show).
 
+### Turning on the tidied photo (`AI_PHOTO_REPAIR`)
+
+Off in the repository for both Workers, on purpose: it sends a fighter's
+photograph to a model, so it is switched on per environment by somebody deciding
+to. The owner has decided it is on, with the fighter's approval on every copy.
+It needs two things in [wrangler.jsonc](wrangler.jsonc), and the action answers
+"not available here" if either is missing:
+
+**Staging** — inside `env.staging`, beside its `vars`:
+
+```jsonc
+"ai": { "binding": "AI" },
+"vars": { ..., "AI_PHOTO_REPAIR": "on", ... }
+```
+
+**Production** — at the top level, the same two lines: `"ai": { "binding": "AI" }`
+and `"AI_PHOTO_REPAIR": "on"` in the top-level `vars`. **The top-level `ai`
+binding is also what `next dev` reads**, and with it present the dev server's
+Miniflare re-created its bindings part way through a session and every D1 and R2
+call answered "poisoned stub" (the comment above the commented-out binding says
+so). Until that is solved, add it for the production deploy and leave it out of
+what developers run, or deploy production from a branch that carries it.
+
+Then deploy (`node scripts/deploy.mjs --env staging`, or `npm run deploy`). No
+secret and no migration is involved; turning it off again is `"off"` and a
+deploy, and approved copies stay on the card until the fighter discards them.
+Try it on staging first: nobody has yet run it against the real model.
+
 ## 5. Seed the first promoter
 
 The database is empty. Seeding it puts the Cage County 12 demo card in, along
@@ -905,12 +933,20 @@ npm run render -- --slug cage-county-12 --stale --publish --remote
 where the programme reads it from. `--stale` takes the bouts that are queued,
 out of date, or worth another attempt.
 
-**A bout is two videos.** The tale of the tape, which the programme plays, and
-the promo, which it offers on the card and on both fighters' pages. They are two
-rows, two keys and two jobs, so one failing leaves the other alone. A run with no
-`--template` does both; `--template <id>` does exactly that one, and an id the
-programme has nowhere to put — `walkout`, `social` — is a sample to a file that
-`--publish` refuses.
+**A bout is two videos, and a clip per confirmed fighter.** The tale of the
+tape, which the programme plays, and the promo, which it offers on the card and on
+both fighters' pages — and, for each fighter who has sent their details in on a
+published show, their confirmed clip, in the look the promoter picked for the
+show. They are separate rows, keys and jobs, so one failing leaves the others
+alone. A run with no `--template` does all of them; `--template <id>` does
+exactly that one (`--template confirmed` for the clips), and an id the programme
+has nowhere to put — `walkout`, `social`, a named look like `confirmed-poster` —
+is a sample to a file that `--publish` refuses.
+
+**Expect a confirmed clip for every confirmed fighter on the first hourly run
+after deploying migration `0019`.** Nothing is backfilled: a clip with no job row
+reads as never made and `--stale` takes it. About 27 seconds a clip on a warm
+laptop. A promoter changing the look re-makes that show's clips, and only those.
 
 Timings, on a warm laptop against a local dev server, with the cutouts already
 made: **53 seconds** for a tape's 480 frames and **39 seconds** for a promo's
