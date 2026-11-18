@@ -933,7 +933,7 @@ function targetOf(fighter: typeof schema.fighters.$inferSelect): ImportTarget {
  * It used to be "has an invite on it", and an invite outlives the bout: taking a
  * bout off revokes the link and keeps the row, so a promoter could go on
  * renaming, and importing a record over, a fighter the running order no longer
- * names â€” and since fighters are a global table, whoever that row is now on the
+ * names — and since fighters are a global table, whoever that row is now on the
  * card of. The running order is the card, so it is what is asked.
  */
 function isOnCard(card: OwnedCard, fighterId: string): boolean {

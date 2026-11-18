@@ -83,7 +83,7 @@ export default async function FighterFormPage({ params }: PageProps<"/f/[token]"
 
   return (
     <Questionnaire
-      // The promoter's whole book stays â€” it is the sponsor picker â€” but the
+      // The promoter's whole book stays — it is the sponsor picker — but the
       // row ids and timestamps of a loaded card stay on the server.
       card={{ event: card.event, fighters: card.fighters, sponsors: card.sponsors }}
       bout={bout}

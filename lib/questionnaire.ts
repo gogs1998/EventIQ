@@ -95,7 +95,7 @@ export function num(value: string): number | undefined {
  *
  * Wins and losses both have to be there. A fighter who has typed "4" in the
  * wins box and not yet reached the next one has not said they are 4-0, and
- * filling the blank with a nought put that on the card â€” and a half-typed form
+ * filling the blank with a nought put that on the card — and a half-typed form
  * with nothing in either box but the draws read as 0-0-something, which is a
  * debutant to `isDebut`. Draws are the one box an amateur commonly leaves empty
  * because the answer is none, so a blank there is a nought once the other two

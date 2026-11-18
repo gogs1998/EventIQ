@@ -31,7 +31,7 @@ import { withinLoginLimit } from "@/lib/rate-limit";
  * read as atomic and was not: both tabs read the row as unspent before either
  * batch ran, and both set a password. The cost of this order is that a write
  * that fails after the claim leaves the link spent, and the answer to that is
- * the same as to a link that has run out â€” the operator mints another.
+ * the same as to a link that has run out — the operator mints another.
  */
 export async function setPasswordFromReset(
   _state: ActionResult | null,

@@ -526,7 +526,7 @@ export async function newInviteValues(
  * opens nothing, and the caller gets the same answer as for a made-up one.
  *
  * The match is on the digest and only the digest, so nothing compares a
- * presented token against a stored copy of itself â€” and the match is the unique
+ * presented token against a stored copy of itself — and the match is the unique
  * index on `token_digest` rather than a scan. The plaintext column used to be in
  * an `or` beside it for rows `scripts/migrate-invites.mjs` had not reached yet,
  * which made every lookup on every autosave a full scan of the table; the

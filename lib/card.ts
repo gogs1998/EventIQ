@@ -181,8 +181,8 @@ export function showSponsors(card: Card): Sponsor[] {
  * `loadCard` resolves sponsors from the promoter's whole book, which is the
  * right shape for the card editor and the wrong one for a public page: the
  * programme hands the card to client components, so every sponsor the promoter
- * has ever entered â€” including ones being pitched and not yet placed, and the
- * names of their clients â€” went out in the page's payload. This keeps the
+ * has ever entered — including ones being pitched and not yet placed, and the
+ * names of their clients — went out in the page's payload. This keeps the
  * sponsors the card actually places (on the show, on a bout, beside a fighter)
  * and nothing else, and it is a plain `Card`, so the row ids and timestamps a
  * `LoadedCard` carries for the server's own use stay on the server.

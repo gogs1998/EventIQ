@@ -53,7 +53,7 @@ export function inviteStatus(invite: Invite | undefined): InviteStatus {
   if (withdrawnByFighter(invite)) return "withdrawn";
   // What the fighter did outranks what the promoter recorded. A link handed
   // over in person, or copied before the send controls existed, has no
-  // `sentAt` â€” and a fighter who has opened it, or finished, has plainly
+  // `sentAt` — and a fighter who has opened it, or finished, has plainly
   // received it, so reading "not sent" off them told the promoter to send a
   // link to somebody who had already used it.
   if (invite.submittedAt) return "submitted";
