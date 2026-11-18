@@ -1790,6 +1790,9 @@ describe("the tidied photo copy", () => {
     expect(TIDY.preview.toLowerCase()).toContain("nothing is published");
     expect(TIDY.onCard.toLowerCase()).toContain("tidied");
     expect(TIDY.approved.toLowerCase()).toContain("labelled");
+    // The preview is a comparison, and says the original survives a "no".
+    expect(TIDY.before.toLowerCase()).toContain("the photo you sent");
+    expect(TIDY.preview.toLowerCase()).toContain("kept either way");
   });
 
   it("names the model, so nobody consents to something they could not have guessed", () => {

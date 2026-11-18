@@ -1184,14 +1184,31 @@ export function Questionnaire({
                         </>
                       ) : null}
                     </div>
+                    {/* Before and after, side by side, so the fighter is judging
+                        the copy against their own photo rather than against a
+                        memory of it. Nothing changes until they tap approve. */}
                     {tidyState === "ready" && tidyPreview ? (
-                      <div className="mt-3 flex gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={tidyPreview}
-                          alt={TIDY.label}
-                          className="h-36 w-24 shrink-0 object-cover object-top"
-                        />
+                      <div className="mt-3 grid gap-2">
+                        <div className="flex gap-3">
+                          <figure className="grid gap-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={draft.photo}
+                              alt={TIDY.before}
+                              className="h-36 w-24 shrink-0 object-cover object-top"
+                            />
+                            <figcaption className="label text-ash-dim">{TIDY.before}</figcaption>
+                          </figure>
+                          <figure className="grid gap-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={tidyPreview}
+                              alt={TIDY.after}
+                              className="h-36 w-24 shrink-0 object-cover object-top"
+                            />
+                            <figcaption className="label text-ash-dim">{TIDY.after}</figcaption>
+                          </figure>
+                        </div>
                         <p className="text-ash-dim text-[0.7rem] leading-relaxed">{TIDY.preview}</p>
                       </div>
                     ) : null}

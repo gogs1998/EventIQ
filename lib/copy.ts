@@ -1896,7 +1896,12 @@ export const TIDY = {
   make: "Make a tidied copy",
   making: "Tidying it…",
   again: "Try again",
-  preview: "Nothing is published until you approve it. Check it still looks like you.",
+  preview:
+    "Nothing is published until you approve it. Check it still looks like you. The photo you " +
+    "sent is kept either way.",
+  /** Captions on the side-by-side preview. */
+  before: "The photo you sent",
+  after: "Tidied copy",
   approve: "Use the tidied copy",
   discard: "Discard it",
   approved:
