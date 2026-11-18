@@ -236,6 +236,37 @@ describe("a head with no body under it", () => {
     expect(torsoHalfWidth(-1)).toBe(0);
     expect(torsoHalfWidth(10)).toBe(1.6);
   });
+
+  it("has no corner where the neck meets the slope or the slope meets the chest", () => {
+    // A corner is a jump in the gradient. Sampled finely, the gradient either
+    // side of each join should agree, which the straight-pieces version did not.
+    const gradient = (t) => (torsoHalfWidth(t + 1e-4) - torsoHalfWidth(t - 1e-4)) / 2e-4;
+    for (const join of [0.02, 0.5]) {
+      expect(Math.abs(gradient(join - 0.0005) - gradient(join + 0.0005))).toBeLessThan(0.05);
+    }
+  });
+
+  it("feathers the sloping shoulder as deep as the straight side of the chest", () => {
+    // A big head, so a shoulder slope spans enough pixels to measure. The soft
+    // rim is counted down a column through the slope and along a row through
+    // the chest; feathered by columns alone, the slope's rim was a row deep.
+    const width = 400;
+    const height = 600;
+    const mask = canvas(width, height);
+    ellipse(mask, 200, 110, 60, 80);
+    rect(mask, 185, 180, 215, 205);
+    const { alpha, rebuilt, head } = rebuildTorso(mask.alpha, width, height);
+    expect(rebuilt).toBe(true);
+    const soft = (values) => values.filter((a) => a > 10 && a < 245).length;
+    // Down a column part way out along the shoulder slope.
+    const x = Math.round(head.centre + head.headWidth * 0.8);
+    const column = Array.from({ length: height }, (_, y) => alpha[y * width + x]);
+    // Across a row well down the chest, where the side is nearly upright.
+    const y = height - 20;
+    const row = Array.from(alpha.subarray(y * width, y * width + Math.round(head.centre)));
+    expect(soft(column)).toBeGreaterThanOrEqual(3);
+    expect(soft(column)).toBeGreaterThanOrEqual(soft(row) * 0.5);
+  });
 });
 
 describe("a body the model kept faintly", () => {

@@ -381,15 +381,28 @@ export function headOnly(alpha, width, height) {
  * than the chin, so the shoulders come out almost at once: a short neck, a
  * slope out to about two and a half heads across, and a chest that widens a
  * little to the bottom of the frame. Proportions taken off the curated cutouts.
+ *
+ * **Smooth all the way down.** The first version was pieces joined at corners,
+ * and a corner on a shape this approximate is what gives it away: the shoulders
+ * came out as a polygon with a step where the neck met the slope. Every join now
+ * meets at the same gradient, so there is no kink anywhere on the outline.
  */
 export function torsoHalfWidth(t, neck = 0.3) {
   if (t < -0.3) return 0;
   if (t < 0.02) return neck;
-  if (t < 0.45) {
-    const u = (t - 0.02) / 0.43;
-    return neck + (1.3 - neck) * (1 - (1 - u) * (1 - u));
+  if (t < 0.5) {
+    // Eased out of the neck over the first stretch, then a parabola that
+    // arrives flat: the round of the shoulder spread over the whole slope
+    // rather than bunched at its end, which read as a corner.
+    const u = (t - 0.02) / 0.48;
+    const k = 0.3;
+    const eased = (u < k ? (u * u) / (2 * k) : u - k / 2) / (1 - k / 2);
+    return neck + (1.3 - neck) * (1 - (1 - eased) * (1 - eased));
   }
-  return Math.min(1.6, 1.3 + 0.2 * (t - 0.45));
+  // Eased into the chest's widening rather than switched to it, so the gradient
+  // is continuous at the top of the shoulder as well.
+  const v = t - 0.5;
+  return Math.min(1.6, 1.3 + 0.2 * (v * v) / (v + 0.25));
 }
 
 /**
@@ -400,6 +413,13 @@ export function torsoHalfWidth(t, neck = 0.3) {
  * with what the model returned by taking the larger alpha, so a body the model
  * half-kept stays exactly as it was, and the edges are feathered rather than
  * cut, because a hard edge on a shape this approximate is what gives it away.
+ *
+ * The feather is measured across the edge, not along the row. Where the
+ * shoulder slopes out the outline moves several pixels sideways per row, so a
+ * feather counted in columns was a fraction of a row deep and every row ended
+ * in its own hard step — the blocky shoulder of the first real photographs.
+ * Dividing by the slope's length makes the soft edge the same depth at the
+ * neck, on the slope and down the arm.
  */
 export function rebuildTorso(alpha, width, height, head = headOnly(alpha, width, height)) {
   if (!head) return { alpha, rebuilt: false, head: null };
@@ -408,18 +428,24 @@ export function rebuildTorso(alpha, width, height, head = headOnly(alpha, width,
   // The neck is the width the model left at the bottom of the stub, within
   // reason, so the join does not step in or out.
   const neck = clamp((head.neckWidth ?? headWidth * 0.6) / headWidth / 2, 0.24, 0.42);
-  const feather = Math.max(2, headWidth * 0.04);
+  const feather = Math.max(2, headWidth * 0.05);
+  const halfAt = (y) => torsoHalfWidth((y - chin) / headWidth, neck) * headWidth;
   const start = Math.max(0, Math.floor(chin - headWidth * 0.3));
   for (let y = start; y < height; y += 1) {
     const t = (y - chin) / headWidth;
-    const half = torsoHalfWidth(t, neck) * headWidth;
+    const half = halfAt(y);
     if (!half) continue;
+    // Pixels of sideways travel per row, from the rows either side.
+    const slope = (halfAt(y + 1) - halfAt(y - 1)) / 2;
+    const across = 1 / Math.sqrt(1 + slope * slope);
     // Faded in over the stub, so the neck grows out of what the model kept
     // rather than being stuck to it.
     const fadeIn = clamp((t + 0.3) / 0.15, 0, 1);
     for (let x = 0; x < width; x += 1) {
-      const edge = clamp((half - Math.abs(x - centre)) / feather + 0.5, 0, 1);
-      const value = Math.round(255 * edge * fadeIn);
+      const edge = clamp(((half - Math.abs(x - centre)) * across) / feather + 0.5, 0, 1);
+      // Smoothstep rather than a straight ramp, so the rim has no visible line
+      // where it meets the solid inside or the empty outside.
+      const value = Math.round(255 * edge * edge * (3 - 2 * edge) * fadeIn);
       const at = y * width + x;
       if (value > out[at]) out[at] = value;
     }
