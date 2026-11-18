@@ -4,6 +4,12 @@
  *
  *   node scripts/golden-frames.mjs --base http://localhost:3105 --write
  *   node scripts/golden-frames.mjs --base http://localhost:3105
+ *   node scripts/golden-frames.mjs --base http://localhost:3105 --template confirmed-poster --bout 5
+ *
+ * Without --template it is the tale of the tape, at the six frames below, into
+ * the file it has always been in. Any other composition is checked at six
+ * frames spread across its own length, into a file named after it, so a
+ * template's signatures cannot be compared against another's.
  *
  * What this catches is the thing the unit tests structurally cannot: the
  * composition is a pure function of a frame number and every test of it is a
@@ -110,15 +116,26 @@ export function signature(png) {
   });
 }
 
-export function goldenPath(slug, bout) {
-  return path.join(GOLDEN_DIR, `${slug}-bout-${bout}.json`);
+export function goldenPath(slug, bout, template = "tape", corner = "red") {
+  const suffix = template === "tape" ? "" : `-${template}${corner === "red" ? "" : `-${corner}`}`;
+  return path.join(GOLDEN_DIR, `${slug}-bout-${bout}${suffix}.json`);
 }
 
-async function capture(slug, bout) {
+/**
+ * Which frames to check. The tape's are chosen against its scene boundaries;
+ * every other template gets six spread across its length, none of them the
+ * first or the last, which are mostly a fade.
+ */
+export function goldenFramesFor(template, duration) {
+  if (template === "tape") return GOLDEN_FRAMES;
+  return [0.12, 0.28, 0.42, 0.58, 0.76, 0.9].map((at) => Math.round(duration * at));
+}
+
+async function capture(slug, bout, template, corner) {
   const frames = {};
   await withPage(async (page) => {
-    await openBout(page, bout, slug);
-    for (const frame of GOLDEN_FRAMES) {
+    const duration = await openBout(page, bout, slug, template, corner);
+    for (const frame of goldenFramesFor(template, duration)) {
       await seek(page, frame);
       frames[frame] = await signature(await page.screenshot({ type: "png" }));
     }
@@ -130,9 +147,11 @@ async function main() {
   const slug = arg("slug", "cage-county-12");
   const bout = Number(arg("bout", 15));
   const tolerance = Number(arg("tolerance", DEFAULT_TOLERANCE));
-  const file = goldenPath(slug, bout);
+  const template = typeof arg("template") === "string" ? arg("template") : "tape";
+  const corner = arg("corner") === "blue" ? "blue" : "red";
+  const file = goldenPath(slug, bout, template, corner);
 
-  const frames = await capture(slug, bout);
+  const frames = await capture(slug, bout, template, corner);
 
   if (arg("write")) {
     await mkdir(GOLDEN_DIR, { recursive: true });
@@ -142,6 +161,7 @@ async function main() {
         {
           slug,
           bout,
+          ...(template === "tape" ? {} : { template, corner }),
           size: SIZE,
           note:
             "Grey thumbnails of six frames, compared by mean absolute difference. " +
@@ -170,7 +190,8 @@ async function main() {
   let worst = 0;
   let failed = 0;
 
-  for (const frame of GOLDEN_FRAMES) {
+  const checked = Object.keys(frames).map(Number);
+  for (const frame of checked) {
     const expected = golden.frames?.[frame];
     if (!expected) {
       console.error(`  frame ${frame}: nothing committed for it`);
@@ -188,7 +209,7 @@ async function main() {
 
   if (failed) {
     console.error(
-      `\n${failed} of ${GOLDEN_FRAMES.length} frames no longer look like the committed ones.\n` +
+      `\n${failed} of ${checked.length} frames no longer look like the committed ones.\n` +
         "If the composition was meant to change, look at one first —\n" +
         "  npm run render -- --slug " + slug + " --bout " + bout + " --still 120\n" +
         "— and then regenerate with --write.",
@@ -196,7 +217,7 @@ async function main() {
     return 1;
   }
 
-  console.log(`\nAll ${GOLDEN_FRAMES.length} frames match, worst ${worst.toFixed(2)} of ${tolerance}.`);
+  console.log(`\nAll ${checked.length} frames match, worst ${worst.toFixed(2)} of ${tolerance}.`);
   return 0;
 }
 

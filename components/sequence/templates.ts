@@ -1,5 +1,9 @@
 import type { Card } from "@/lib/card";
 import type { Bout, Corner } from "@/lib/types";
+import { CONFIRMED_FRAMES } from "./confirmed-parts";
+import { ConfirmedBroadcast } from "./ConfirmedBroadcast";
+import { ConfirmedPoster } from "./ConfirmedPoster";
+import { ConfirmedStamp } from "./ConfirmedStamp";
 import { FaceOff, FACEOFF_FRAMES } from "./FaceOff";
 import { Social, SOCIAL_FRAMES } from "./Social";
 import { TaleOfTheTape } from "./TaleOfTheTape";
@@ -24,6 +28,11 @@ import { SEQ } from "./timeline";
  * `walkout` and `social` stay local samples. A walkout is one video per corner
  * and `render_jobs` carries no corner, and nothing on the site plays either, so
  * queueing them would be rendering for nobody.
+ *
+ * The three `confirmed-*` looks are the same shape as the walkout and stay out
+ * of the queue for the same reason: one fighter's announcement that they are on
+ * the card, per corner, made from the command line with
+ * `render-tape.mjs --fighter <id> --template confirmed-<look>`.
  */
 
 export type TemplateProps = {
@@ -32,7 +41,7 @@ export type TemplateProps = {
   frame: number;
   /**
    * Which fighter a one-corner template is about. Every template takes it so the
-   * registry has one signature; only `walkout` reads it.
+   * registry has one signature; only the `perCorner` ones read it.
    */
   corner: Corner;
 };
@@ -73,6 +82,24 @@ export const TEMPLATES: Record<string, Template> = {
     frames: SOCIAL_FRAMES,
     label: "Social cut",
     perCorner: false,
+  },
+  "confirmed-stamp": {
+    component: ConfirmedStamp,
+    frames: CONFIRMED_FRAMES.stamp,
+    label: "Confirmed, stamped",
+    perCorner: true,
+  },
+  "confirmed-poster": {
+    component: ConfirmedPoster,
+    frames: CONFIRMED_FRAMES.poster,
+    label: "Confirmed, fight poster",
+    perCorner: true,
+  },
+  "confirmed-broadcast": {
+    component: ConfirmedBroadcast,
+    frames: CONFIRMED_FRAMES.broadcast,
+    label: "Confirmed, broadcast strap",
+    perCorner: true,
   },
 };
 
