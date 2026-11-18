@@ -425,12 +425,12 @@ export type MediaKey =
   | { kind: "poster"; eventId: string };
 
 /**
- * The three prefixes that hold a picture of a fighter: the photograph they
- * sent, the cutout the renderer made from it, and the poster art they opted
- * into. Each is found through the column on the fighter that stores its path,
+ * The four prefixes that hold a picture of a fighter: the photograph they
+ * sent, the cutout the renderer made from it, and the poster art and the tidied
+ * copy they opted into. Each is found through the column on the fighter that stores its path,
  * so an object nothing points at is refused rather than served.
  */
-const PORTRAIT_PREFIXES = ["fighters", "cutouts", "portraits"];
+const PORTRAIT_PREFIXES = ["fighters", "cutouts", "portraits", "tidied"];
 
 /** The shape of the key, or null where it is not one this route serves. */
 export function parseMediaKey(key: string): MediaKey | null {

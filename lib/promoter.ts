@@ -1,8 +1,9 @@
 import { londonToday } from "@/lib/calendar";
 import { boutsRunning, cornersOf, fighterOf, sponsorOf, type Card } from "@/lib/card";
 import { withdrawnByFighter } from "@/lib/consent";
-import { INVITE_CHANNEL, howLongAgo } from "@/lib/copy";
+import { INVITE_CHANNEL, howLongAgo, photoRequestMessage } from "@/lib/copy";
 import { inviteLive } from "@/lib/invite-token";
+import { photoCouldBeBetter } from "@/lib/photo-quality";
 import {
   boutBillingLabel,
   completeness,
@@ -109,6 +110,12 @@ export type ChaseRow = {
   missing: string[];
   /** Lines their opponent has answered and they have not. */
   behind: string[];
+  /**
+   * Their photograph did not cut out cleanly. Not a gap in the profile — the
+   * video uses the photograph meanwhile — but worth one message asking for a
+   * clearer one. See lib/photo-quality.ts.
+   */
+  photoCouldBeBetter: boolean;
 };
 
 export type Invites = Record<string, Invite>;
@@ -129,6 +136,7 @@ function rowFor(card: Card, invites: Invites, bout: Bout, corner: Corner): Chase
     score,
     missing,
     behind: tapeGapsBehind(fighter, opponent),
+    photoCouldBeBetter: photoCouldBeBetter(fighter),
   };
 }
 
@@ -148,10 +156,14 @@ export function allRows(card: Card, invites: Invites): ChaseRow[] {
  * Ordered by where they sit on the card rather than by how empty they are,
  * because a hole in the main event costs more than a hole in bout two, and
  * because that is the order a promoter already thinks in.
+ *
+ * A finished profile whose photograph did not cut out cleanly is on it too.
+ * Nothing is missing from their card, but a clearer photograph is one message
+ * away and that message is what this list exists to send.
  */
 export function chaseList(card: Card, invites: Invites): ChaseRow[] {
   return allRows(card, invites)
-    .filter((row) => row.score < DONE_AT)
+    .filter((row) => row.score < DONE_AT || row.photoCouldBeBetter)
     .sort((a, b) => b.bout.number - a.bout.number || a.score - b.score);
 }
 
@@ -257,10 +269,10 @@ export function sponsorInventory(card: Card): SponsorInventory {
  * than a prompt to go and find the link afterwards.
  */
 export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string): string {
-  const { fighter, opponent, bout, behind, invite } = row;
+  const { fighter, opponent, bout, behind } = row;
   // The demo form where there is no link to give: a nudge naming a page that
   // does not open is worse than one that shows what the form looks like.
-  const link = invite?.token ? `${baseUrl}/f/${invite.token}` : `${baseUrl}/f/demo`;
+  const link = inviteLinkFor(row, baseUrl);
 
   // The opponent's gym is named only where somebody has given one. A card typed
   // in an hour ago carries a placeholder there, and "out of Gym to confirm" tells
@@ -287,6 +299,28 @@ export function nudgeMessage(row: ChaseRow, event: FightEvent, baseUrl: string):
   );
 
   return lines.join("\n\n");
+}
+
+/**
+ * The message on a chase row's send button.
+ *
+ * The profile first: a fighter with half a card to fill in gets the ordinary
+ * nudge, and the photograph can wait until they are on the form anyway. Only a
+ * fighter who has finished and whose photograph would not cut out is sent the
+ * request for a clearer one.
+ */
+export function chaseMessage(row: ChaseRow, event: FightEvent, baseUrl: string): string {
+  if (row.score < DONE_AT || !row.photoCouldBeBetter) return nudgeMessage(row, event, baseUrl);
+  return photoRequestMessage({
+    firstName: firstName(row.fighter),
+    eventName: event.name,
+    link: inviteLinkFor(row, baseUrl),
+  });
+}
+
+/** The fighter's own link, or the demo form where there is no link to give. */
+function inviteLinkFor(row: ChaseRow, baseUrl: string): string {
+  return row.invite?.token ? `${baseUrl}/f/${row.invite.token}` : `${baseUrl}/f/demo`;
 }
 
 export function sponsorFor(card: Card, bout: Bout) {

@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { Stage } from "@/components/sequence/Stage";
 import { TaleOfTheTape } from "@/components/sequence/TaleOfTheTape";
 import { SCENES } from "@/components/sequence/timeline";
+import { PhotoGuide } from "@/components/PhotoGuide";
 import { SponsorLockup } from "@/components/SponsorLockup";
 import { TapeTable } from "@/components/TapeTable";
 import type { ActionResult } from "@/lib/action-result";
@@ -14,14 +15,19 @@ import {
   ACTION_ERRORS,
   CONSENT_GIVEN,
   FIGHTER_IMPORT,
+  PHOTO_GUIDE,
+  PHOTO_QUALITY,
   PREVIEW_NOTE,
   PRIVACY,
   REMOVAL,
   RETURNING_FIGHTER,
   STYLISED,
+  TIDY,
   UNDER_AGE,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
+import { photoCouldBeBetter } from "@/lib/photo-quality";
+import { cutoutUsable } from "@/lib/portrait";
 import { type ImportOutcome, SOURCE_LABEL, lookupTape } from "@/lib/fighter-import";
 import {
   STANCES,
@@ -96,7 +102,60 @@ export type QuestionnaireProps = {
     approve: (path: string) => Promise<ActionResult>;
     discard: (path: string) => Promise<ActionResult>;
   };
+  /**
+   * The opt-in tidied photograph, where a deployment offers one. Drawn only for
+   * a photograph whose cutout came out poor, or one already tidied.
+   */
+  tidy?: {
+    make: () => Promise<ActionResult<{ path: string; preview: string }>>;
+    approve: (path: string) => Promise<ActionResult>;
+    discard: (path: string) => Promise<ActionResult>;
+  };
 };
+
+/**
+ * The fighter's cutout, shown back to them, with the way to change it.
+ *
+ * A poor one is not shown at all — the video does not use it, so showing it
+ * would be showing them something that is not on their card — and the line
+ * beside it says what the software could not do rather than what they did.
+ */
+function YourCutout({ fighter, onPhoto }: { fighter: Fighter; onPhoto: (file: File) => void }) {
+  const usable = cutoutUsable(fighter);
+  const line = !fighter.cutout
+    ? PHOTO_QUALITY.pending
+    : usable
+      ? PHOTO_QUALITY.ready
+      : PHOTO_QUALITY.notClean;
+  return (
+    <div className="border-hairline mt-3 flex gap-3 border p-3">
+      {usable ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={fighter.cutout}
+          alt={PHOTO_QUALITY.yours}
+          className="bg-panel-2 h-28 w-20 shrink-0 object-contain object-bottom"
+        />
+      ) : null}
+      <div className="min-w-0">
+        <p className="label">{PHOTO_QUALITY.yours}</p>
+        <p className="text-ash mt-1 text-[0.7rem] leading-relaxed">{line}</p>
+        <label className="border-hairline hover:border-chalk/40 focus-within:outline-gold mt-2 inline-block cursor-pointer border px-3 py-1.5 text-xs transition-colors focus-within:outline-2 focus-within:outline-offset-2">
+          {PHOTO_QUALITY.replace}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onPhoto(file);
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
 
 /** Long enough to coalesce a burst of typing, short enough to survive a closed tab. */
 const AUTOSAVE_DELAY_MS = 1200;
@@ -233,6 +292,7 @@ export function Questionnaire({
   returning,
   remove,
   stylised,
+  tidy,
 }: QuestionnaireProps) {
   const eventName = card.event.name;
   const sponsors = Object.values(card.sponsors);
@@ -271,6 +331,14 @@ export function Questionnaire({
     base.stylised ? "approved" : "idle",
   );
   const [artError, setArtError] = useState<string | null>(null);
+
+  const [tidyOptIn, setTidyOptIn] = useState(false);
+  const [tidyPath, setTidyPath] = useState<string | null>(base.tidied ?? null);
+  const [tidyPreview, setTidyPreview] = useState<string | null>(null);
+  const [tidyState, setTidyState] = useState<"idle" | "making" | "ready" | "approved">(
+    base.tidied ? "approved" : "idle",
+  );
+  const [tidyError, setTidyError] = useState<string | null>(null);
 
   // The age is asked before anything else because a fighter under the minimum is
   // not asked anything else at all, and the tick is what opens the rest of it.
@@ -445,9 +513,58 @@ export function Questionnaire({
       setArtState("idle");
       setArtPath(null);
       setArtPreview(null);
+      // And a tidied copy, for the same reason.
+      setTidyState("idle");
+      setTidyPath(null);
+      setTidyPreview(null);
     } catch {
       setPhotoError(ACTION_ERRORS.photoNotStored);
     }
+  };
+
+  const makeTidy = async () => {
+    if (!tidy) return;
+    setTidyError(null);
+    if (tidyPath && tidyState === "ready") await tidy.discard(tidyPath).catch(() => {});
+    setTidyState("making");
+    try {
+      const result = await tidy.make();
+      if (!result.ok) {
+        setTidyError(result.error);
+        setTidyState("idle");
+        return;
+      }
+      setTidyPath(result.path);
+      setTidyPreview(result.preview);
+      setTidyState("ready");
+    } catch {
+      setTidyError(ACTION_ERRORS.tidyNotMade);
+      setTidyState("idle");
+    }
+  };
+
+  const approveTidy = async () => {
+    if (!tidy || !tidyPath) return;
+    setTidyError(null);
+    const result = await tidy.approve(tidyPath).catch(() => null);
+    if (!result?.ok) {
+      setTidyError(result?.error ?? ACTION_ERRORS.tidyNotMade);
+      return;
+    }
+    setTidyState("approved");
+  };
+
+  const discardTidy = async () => {
+    if (!tidy || !tidyPath) return;
+    setTidyError(null);
+    const result = await tidy.discard(tidyPath).catch(() => null);
+    if (!result?.ok) {
+      setTidyError(result?.error ?? ACTION_ERRORS.tidyNotMade);
+      return;
+    }
+    setTidyPath(null);
+    setTidyPreview(null);
+    setTidyState("idle");
   };
 
   const makeArt = async () => {
@@ -885,7 +1002,7 @@ export function Questionnaire({
               hint={
                 returning && draft.photo
                   ? RETURNING_FIGHTER.photo
-                  : "We cut the background out for you. A plain wall and decent light is all it takes."
+                  : PHOTO_GUIDE.hint
               }
             >
               <div className="flex flex-wrap items-center gap-3">
@@ -919,6 +1036,14 @@ export function Questionnaire({
               {photoError ? (
                 <p className="text-red-corner-hot mt-2 text-[0.7rem]">{photoError}</p>
               ) : null}
+              {/* What the renderer made of the photograph on the row, once it
+                  has been round. Only for the stored photograph: one chosen a
+                  moment ago has not been cut out yet, and showing the previous
+                  cutout beside it would be showing somebody's old picture. */}
+              {upload && draft.photo && draft.photo === base.photo ? (
+                <YourCutout fighter={base} onPhoto={(file) => void onPhoto(file)} />
+              ) : null}
+              <PhotoGuide />
             </Field>
 
             {/* After the photograph and never instead of it. Drawn only on
@@ -992,6 +1117,88 @@ export function Questionnaire({
                 )}
                 {artError ? (
                   <p className="text-red-corner-hot mt-2 text-[0.7rem]">{artError}</p>
+                ) : null}
+              </Field>
+            ) : null}
+
+            {/* Only for a photograph that would not cut out, or one already
+                tidied. A fighter whose photo works is never offered an edited
+                copy of it. */}
+            {tidy &&
+            draft.photo &&
+            draft.photo === base.photo &&
+            (tidyState !== "idle" || photoCouldBeBetter(base)) ? (
+              <Field group label={TIDY.label} hint={TIDY.hint}>
+                {tidyState === "approved" ? (
+                  <div>
+                    <p className="text-gold text-[0.7rem] leading-relaxed">{TIDY.approved}</p>
+                    <button
+                      type="button"
+                      onClick={() => void discardTidy()}
+                      className="border-hairline hover:border-chalk/40 text-ash mt-2 border px-3 py-1.5 text-xs transition-colors"
+                    >
+                      {TIDY.discard}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        id="tidy-consent"
+                        type="checkbox"
+                        checked={tidyOptIn}
+                        onChange={(e) => setTidyOptIn(e.target.checked)}
+                        className="accent-chalk mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="text-ash text-xs leading-relaxed">{TIDY.consent}</span>
+                    </label>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!tidyOptIn || tidyState === "making"}
+                        onClick={() => void makeTidy()}
+                        className="border-chalk/60 hover:bg-chalk hover:text-ink border px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {tidyState === "making"
+                          ? TIDY.making
+                          : tidyState === "ready"
+                            ? TIDY.again
+                            : TIDY.make}
+                      </button>
+                      {tidyState === "ready" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void approveTidy()}
+                            className="border-gold/60 text-gold hover:bg-gold hover:text-ink border px-3 py-1.5 text-xs transition-colors"
+                          >
+                            {TIDY.approve}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void discardTidy()}
+                            className="text-ash-dim hover:text-chalk text-xs transition-colors"
+                          >
+                            {TIDY.discard}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                    {tidyState === "ready" && tidyPreview ? (
+                      <div className="mt-3 flex gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={tidyPreview}
+                          alt={TIDY.label}
+                          className="h-36 w-24 shrink-0 object-cover object-top"
+                        />
+                        <p className="text-ash-dim text-[0.7rem] leading-relaxed">{TIDY.preview}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+                {tidyError ? (
+                  <p className="text-red-corner-hot mt-2 text-[0.7rem]">{tidyError}</p>
                 ) : null}
               </Field>
             ) : null}

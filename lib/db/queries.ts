@@ -31,6 +31,7 @@ import {
   sponsorMark,
   type Renders,
 } from "@/lib/renders";
+import { cutoutIssuesFrom, cutoutQualityFrom } from "@/lib/photo-quality";
 import { nextFreeSlug, sameAddress, slugify } from "@/lib/slug";
 import type { ShowListing } from "@/lib/shows";
 import type {
@@ -104,7 +105,10 @@ export function toFighter(row: FighterRow, sponsorIds: string[]): Fighter {
     stance: optional(row.stance) as Stance | undefined,
     photo: optional(row.photo),
     cutout: optional(row.cutout),
+    cutoutQuality: cutoutQualityFrom(row.cutoutQuality),
+    cutoutIssues: cutoutIssuesFrom(row.cutoutIssues),
     stylised: optional(row.stylised),
+    tidied: optional(row.tidied),
     instagram: optional(row.instagram),
     // All three or none. A partly stored record would be a bug upstream, and
     // reading it as 0 would turn a fighter with fights into a debutant.
@@ -783,6 +787,7 @@ export async function eventsShowingPortrait(db: Db, path: string) {
         eq(schema.fighters.photo, path),
         eq(schema.fighters.cutout, path),
         eq(schema.fighters.stylised, path),
+        eq(schema.fighters.tidied, path),
       ),
     );
 }
@@ -841,6 +846,7 @@ export async function inviteHoldsPortrait(
           eq(schema.fighters.photo, path),
           eq(schema.fighters.cutout, path),
           eq(schema.fighters.stylised, path),
+        eq(schema.fighters.tidied, path),
         ),
       ),
     )

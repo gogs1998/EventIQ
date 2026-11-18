@@ -164,9 +164,12 @@ export function fighterFromDraft(base: Fighter, draft: Draft): Fighter {
     instagram: draft.instagram.replace(/^@/, "") || undefined,
     photo: draft.photo,
     cutout: draft.photo === base.photo ? base.cutout : undefined,
+    cutoutQuality: draft.photo === base.photo ? base.cutoutQuality : undefined,
+    cutoutIssues: draft.photo === base.photo ? base.cutoutIssues : undefined,
     // A stylised portrait is made from one particular photograph, so it goes
     // the same way the cutout does when that photograph is replaced.
     stylised: draft.photo === base.photo ? base.stylised : undefined,
+    tidied: draft.photo === base.photo ? base.tidied : undefined,
     bio: draft.bio || undefined,
     hometown: draft.hometown || undefined,
     age: num(draft.age),

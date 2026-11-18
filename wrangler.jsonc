@@ -34,6 +34,9 @@
     // it sends a real fighter's photograph to a model, which is a decision
     // somebody makes rather than a default.
     "STYLISED_PORTRAITS": "off",
+    // Whether a fighter whose photo would not cut out is offered a tidied copy
+    // of it. Off for the same reason: it sends their photograph to a model.
+    "AI_PHOTO_REPAIR": "off",
     // Which Worker this is, for /api/health and the deploy script to say so.
     "EVENTIQ_ENV": "production"
   },
@@ -201,6 +204,7 @@
       "vars": {
         "SHOWCASE_SLUG": "cage-county-12",
         "STYLISED_PORTRAITS": "off",
+        "AI_PHOTO_REPAIR": "off",
         "EVENTIQ_ENV": "staging"
       }
     }

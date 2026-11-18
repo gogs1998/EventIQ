@@ -8,6 +8,22 @@ export type Discipline = "MMA" | "MUAY_THAI" | "BOXING" | "K1" | "GRAPPLING";
 
 export type Stance = "Orthodox" | "Southpaw" | "Switch";
 
+/**
+ * The renderer's verdict on a cutout it made (scripts/photo-quality.mjs). "ok"
+ * needed nothing, "repaired" was fixed and is used, "poor" is never shown.
+ */
+export type CutoutQuality = "ok" | "repaired" | "poor";
+
+/** Why a cutout was repaired or judged poor. The same names the renderer stores. */
+export type CutoutIssue =
+  | "multiple-people"
+  | "head-only"
+  | "tiny-subject"
+  | "very-dark"
+  | "dark"
+  | "cut-off"
+  | "faint-body";
+
 export type Sponsor = {
   id: string;
   name: string;
@@ -35,8 +51,17 @@ export type Fighter = {
   stance?: Stance;
   photo?: string;
   cutout?: string;
+  /** The renderer's verdict on the cutout. Absent where nobody judged it. See lib/photo-quality.ts. */
+  cutoutQuality?: CutoutQuality;
+  /** Why, where the verdict was anything but ok. */
+  cutoutIssues?: CutoutIssue[];
   /** Poster art made from the photograph, opted into and approved by the fighter. */
   stylised?: string;
+  /**
+   * A tidied copy of the photograph — relit and cleaned, nothing about the
+   * fighter changed — opted into and approved. `photo` is still the original.
+   */
+  tidied?: string;
   instagram?: string;
   record?: Record;
   /** Wins by method. Never more than record.w between them. */

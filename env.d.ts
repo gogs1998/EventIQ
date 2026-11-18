@@ -55,6 +55,13 @@ declare global {
      */
     STYLISED_PORTRAITS?: string;
     /**
+     * Whether a fighter whose cutout came out poor is offered a tidied copy of
+     * their photograph. Off unless this says otherwise, for the same reason as
+     * the portrait: it sends a real photograph to a model. See
+     * app/f/[token]/repair-actions.ts.
+     */
+    AI_PHOTO_REPAIR?: string;
+    /**
      * Signs the digest an invite is looked up by and encrypts the token the
      * dashboard shows. Optional in the type only because development derives one
      * from SESSION_SECRET; a production Worker without it refuses to serve an

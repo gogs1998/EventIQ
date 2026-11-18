@@ -941,6 +941,17 @@ export const ACTION_ERRORS = {
     "That portrait would not come out. The photograph you sent is still the one on your card.",
   portraitNotFound:
     "That portrait is no longer here. Make another one, or keep the photograph you sent.",
+
+  /** The tidied photograph. Every one of these says the original is untouched. */
+  tidyNotHere:
+    "Tidying a photo is not switched on here. The photo you sent is what goes on the card.",
+  tidyNotNeeded:
+    "Your photo is already being used as it is, so there is nothing to tidy. Send a different " +
+    "one any time.",
+  tidyNotMade:
+    "That tidied copy would not come out. The photo you sent is still the one on your card.",
+  tidyNotFound:
+    "That tidied copy is no longer here. Make another one, or keep the photo you sent.",
 } as const;
 
 /**
@@ -1658,3 +1669,169 @@ export const GALLERY = {
   /** No show on display, so there is nothing behind them to open. */
   unlinked: "Screenshots of the working demo, not mockups.",
 } as const;
+
+/* -------------------------------------------------------------------------
+ * The photograph a fighter sends
+ *
+ * Most of what goes wrong with a cutout is decided before the photograph is
+ * taken: a selfie with a mate in it, a dark bar, a black T-shirt against a black
+ * wall. So the questionnaire says what works, once, beside the control — and it
+ * says it as what works rather than as a list of mistakes, because the fighter
+ * reading it has not made any yet. Nothing here suggests a photograph already
+ * sent was wrong.
+ * ---------------------------------------------------------------------- */
+
+export const PHOTO_GUIDE = {
+  /** Beside the control, where nothing has carried over from a previous card. */
+  hint: "We cut the background out for you, so the photo only has to show you.",
+  /** The one line to remember. */
+  headline: "Just you, waist up, good light, plain wall.",
+  /** Under the frame that works. */
+  good: "Works well",
+  goodPoints: ["Just you in the frame", "Head to waist, facing the camera", "Light on your face"],
+  /** Under the frame that is harder. Harder for the software, not wrong of anybody. */
+  avoid: "Harder to cut out",
+  avoidPoints: ["Somebody else beside you", "A dark room", "Cropped at the chin"],
+  /** What the illustration shows, for a screen reader. */
+  alt:
+    "Two sketches. One shows a single person from the waist up in good light against a " +
+    "plain wall. The other shows two people close together in a dark room.",
+} as const;
+
+/** Every line of the photo guidance, for the tone tests. */
+export const PHOTO_GUIDE_STRINGS: readonly string[] = [
+  PHOTO_GUIDE.hint,
+  PHOTO_GUIDE.headline,
+  PHOTO_GUIDE.good,
+  ...PHOTO_GUIDE.goodPoints,
+  PHOTO_GUIDE.avoid,
+  ...PHOTO_GUIDE.avoidPoints,
+  PHOTO_GUIDE.alt,
+];
+
+/* -------------------------------------------------------------------------
+ * A photograph that did not cut out cleanly
+ *
+ * The renderer judges every cutout, and a poor one is never shown: the video
+ * uses the fighter's photograph instead (lib/portrait.ts). So nothing on the
+ * card is broken and nothing here says it is. The fighter is told what the
+ * software could not do rather than what they did, and offered the easiest way
+ * to a better result; the promoter is told the same, with a message ready to
+ * send. A photograph a fighter sent is a thing they did, not a mistake.
+ * ---------------------------------------------------------------------- */
+
+export const PHOTO_QUALITY = {
+  /** The dashboard's state beside the name. */
+  badge: "Photo could be better",
+  /** Under it, so a promoter knows the card is fine meanwhile. */
+  meanwhile: "Their video uses the photograph as sent until a clearer one comes in.",
+  /** What made the cutout hard, in the promoter's words. Never what the fighter did. */
+  issue: {
+    "multiple-people": "More than one person in the frame",
+    "head-only": "Hard to separate from the background",
+    "tiny-subject": "Small in the frame",
+    "very-dark": "Very little light to work with",
+    dark: "Low light",
+    "cut-off": "Close to the edge of the frame",
+    "faint-body": "Hard to separate from the background",
+  },
+  /** The fighter's side, beside their own photograph. */
+  yours: "How you appear in your video",
+  /** A cutout that worked, shown back to them. */
+  ready: "Cut out and ready for your video.",
+  /** A cutout the renderer would not use. The software's limit, said as such. */
+  notClean:
+    "This one would not cut out cleanly, so your video uses the photo as it is. A photo of " +
+    "just you, waist up, in good light against a plain wall usually cuts out well.",
+  /** Before the renderer has been round. */
+  pending: "Your photo is in. It gets cut out for your video before the next one is made.",
+  replace: "Use a different photo",
+} as const;
+
+/**
+ * The one-tap message for a fighter whose photograph did not cut out cleanly.
+ *
+ * Thanks them first, because they did send one, and asks for another as an
+ * offer rather than a correction. Names no pronoun, says nothing about what the
+ * photograph looked like, and carries their own link so the message is the
+ * whole job.
+ */
+export function photoRequestMessage(input: {
+  firstName: string;
+  eventName: string;
+  link: string;
+}): string {
+  return [
+    `Hi ${input.firstName} — thanks for sending your photo in for ${input.eventName}.`,
+    "Your tale of the tape video cuts you out of it, and this one is hard for the software to " +
+      "cut cleanly, so for now the video uses it as it is. If you have one that is just you, " +
+      "waist up, in good light against a plain wall, you can swap it here and the video " +
+      `picks it up: ${input.link}`,
+  ].join("\n\n");
+}
+
+/**
+ * What made a cutout hard, as one sentence for the dashboard, or nothing.
+ *
+ * Two reasons can read the same to a promoter — a lost body and a faint one are
+ * both "hard to separate" — so each sentence is said once.
+ */
+export function photoIssueLine(issues: readonly (keyof typeof PHOTO_QUALITY.issue)[] | undefined): string {
+  const lines = [...new Set((issues ?? []).map((issue) => PHOTO_QUALITY.issue[issue]))];
+  return lines.length ? `${lines.join(". ")}.` : "";
+}
+
+/** Every fixed line of the photo-quality copy, for the tone tests. */
+export const PHOTO_QUALITY_STRINGS: readonly string[] = [
+  PHOTO_QUALITY.badge,
+  PHOTO_QUALITY.meanwhile,
+  ...Object.values(PHOTO_QUALITY.issue),
+  PHOTO_QUALITY.yours,
+  PHOTO_QUALITY.ready,
+  PHOTO_QUALITY.notClean,
+  PHOTO_QUALITY.pending,
+  PHOTO_QUALITY.replace,
+  photoRequestMessage({ firstName: "Sam", eventName: "Cage County 12", link: "https://eventiq.win/f/x" }),
+];
+
+/**
+ * The tidied photograph, offered only where a photo would not cut out cleanly.
+ *
+ * Optional, previewed and approved, exactly like the stylised portrait, and with
+ * the same honesty rule in the other direction: that one is never called a
+ * photograph, and this one is never called untouched. It is the fighter's own
+ * photograph with the light and the background cleaned up, and every line here
+ * says so — including on the card, where it is labelled for anybody reading.
+ */
+export const TIDY = {
+  label: "Tidied photo",
+  hint:
+    "Optional. A tidied copy of your photo can be made with the light evened out and the " +
+    "background cleaned up, so it cuts out better for your video. Your face, build and skin " +
+    "tone are meant to stay exactly as they are. The photo you sent is kept, and is what " +
+    "goes on the card unless you ask for this and then approve it.",
+  consent:
+    "I would like a tidied copy of my photo made by an AI image model, and I understand it is " +
+    "an edited copy rather than the photo as I took it.",
+  make: "Make a tidied copy",
+  making: "Tidying it…",
+  again: "Try again",
+  preview: "Nothing is published until you approve it. Check it still looks like you.",
+  approve: "Use the tidied copy",
+  discard: "Discard it",
+  approved:
+    "Your card uses the tidied copy, labelled as tidied. Discard it any time to go back to the " +
+    "photo you sent.",
+  discarded: "Discarded. The photo you sent is what goes on the card.",
+  /** On the card itself, under a tidied photograph. */
+  onCard: "Photo tidied",
+} as const;
+
+/** Every line of the tidied-photo copy, for the tone tests. */
+export const TIDY_STRINGS: readonly string[] = [
+  ...Object.values(TIDY),
+  ACTION_ERRORS.tidyNotHere,
+  ACTION_ERRORS.tidyNotNeeded,
+  ACTION_ERRORS.tidyNotMade,
+  ACTION_ERRORS.tidyNotFound,
+];

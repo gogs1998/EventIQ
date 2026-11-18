@@ -15,7 +15,7 @@ import { INVITE_TTL_MS, digestToken } from "@/lib/invite-token";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { IMAGE_EXTENSION, sniffImageType } from "@/lib/image-type";
 import { logError } from "@/lib/log";
-import { cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
+import { CLEARED_WITH_PHOTO, cutoutSurvives, ownMediaKeyOf, photoToKeep } from "@/lib/portrait";
 import {
   allowedSponsorIds,
   num,
@@ -143,7 +143,7 @@ export async function saveDraft(
       // that one.
       const columns = cutoutSurvives(fighter.photo, draft.photo)
         ? columnsFrom(draft)
-        : { ...columnsFrom(draft), cutout: null, stylised: null };
+        : { ...columnsFrom(draft), ...CLEARED_WITH_PHOTO };
 
       const writes: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
         db.update(schema.fighters).set(columns).where(eq(schema.fighters.id, fighter.id)),
@@ -358,14 +358,14 @@ export async function uploadPhoto(
       // The three paths this write is about to orphan, read before it lands —
       // and only where each is one of this fighter's own pictures, because a
       // delete aimed by a stored path is aimed by whatever wrote it (bug 51).
-      const superseded = [fighter.photo, fighter.cutout, fighter.stylised]
+      const superseded = [fighter.photo, fighter.cutout, fighter.stylised, fighter.tidied]
         .map((old) => ownMediaKeyOf(old, fighter.id))
         .filter((old): old is string => old !== null && old !== key);
 
       // After the object, so a row can never point at bytes that are not there.
       await db
         .update(schema.fighters)
-        .set({ photo: path, cutout: null, stylised: null, updatedAt: Date.now() })
+        .set({ photo: path, ...CLEARED_WITH_PHOTO, updatedAt: Date.now() })
         .where(eq(schema.fighters.id, fighter.id));
 
       // And after the row, best effort, exactly as the removal control does it:

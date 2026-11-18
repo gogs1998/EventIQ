@@ -57,6 +57,13 @@ import {
   slotsAvailableNote,
   sponsorNote,
   sponsorTapNote,
+  PHOTO_GUIDE,
+  PHOTO_GUIDE_STRINGS,
+  PHOTO_QUALITY,
+  PHOTO_QUALITY_STRINGS,
+  TIDY,
+  TIDY_STRINGS,
+  photoIssueLine,
   STYLISED,
   tableCardNote,
   tapeForEveryBout,
@@ -1706,6 +1713,93 @@ describe("the sheet import copy", () => {
       expect(line).not.toMatch(/organiz|customiz|color|!/i);
       expect(line.trim()).toBe(line);
       expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+});
+
+describe("the photo guidance", () => {
+  /**
+   * Read before anything is sent, by a fighter who has done nothing wrong. It
+   * says what works and never what a fighter got wrong.
+   */
+  it("keeps the established tone", () => {
+    for (const line of PHOTO_GUIDE_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+      expect(line).not.toMatch(/fault|blame|sorry|bad|wrong|poor|mistake/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have|don'?t|never/i);
+      expect(line).not.toMatch(/organiz|customiz|color|optimiz|!/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line.trim()).toBe(line);
+    }
+  });
+
+  it("says the four things that make a cutout work, in one line", () => {
+    const line = PHOTO_GUIDE.headline.toLowerCase();
+    for (const word of ["just you", "waist", "light", "wall"]) expect(line).toContain(word);
+  });
+
+  it("frames the harder photos as harder for the software rather than wrong", () => {
+    expect(PHOTO_GUIDE.avoid.toLowerCase()).toContain("harder");
+  });
+});
+
+describe("the photo-quality copy", () => {
+  /**
+   * Read by a fighter about a photograph they sent, and by a promoter about a
+   * fighter. Both say what the software could not do, never what anybody did.
+   */
+  it("keeps the established tone and never puts it on the fighter", () => {
+    for (const line of PHOTO_QUALITY_STRINGS) {
+      expect(line).not.toMatch(/(he|she|him|her|hers|his|himself|herself)/i);
+      expect(line).not.toMatch(/fault|blame|sorry|bad|wrong|poor|mistake|blurry/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have|your photo (is|was) (too|not)/i);
+      expect(line).not.toMatch(/organiz|customiz|color|optimiz|!/i);
+      expect(line).not.toMatch(/(seconds?|minutes?|hours?)/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("tells the promoter the card is fine meanwhile", () => {
+    expect(PHOTO_QUALITY.meanwhile.toLowerCase()).toContain("uses the photograph");
+  });
+
+  it("says each reason once, and nothing where there is none", () => {
+    expect(photoIssueLine(["head-only", "faint-body"])).toBe("Hard to separate from the background.");
+    expect(photoIssueLine(["multiple-people", "dark"])).toBe("More than one person in the frame. Low light.");
+    expect(photoIssueLine(undefined)).toBe("");
+  });
+});
+
+describe("the tidied photo copy", () => {
+  /**
+   * The mirror of the stylised portrait's rule. That one is never called a
+   * photograph; this one is never called untouched, and always says the
+   * original is kept.
+   */
+  it("never presents an edited photo as the one the fighter took", () => {
+    const all = TIDY_STRINGS.join(" ").toLowerCase();
+    expect(all).toContain("optional");
+    expect(all).toContain("edited copy");
+    expect(all).not.toMatch(/\buntouched\b|\boriginal photo as taken\b|\bunedited\b/);
+    expect(TIDY.hint.toLowerCase()).toContain("the photo you sent is kept");
+    expect(TIDY.preview.toLowerCase()).toContain("nothing is published");
+    expect(TIDY.onCard.toLowerCase()).toContain("tidied");
+    expect(TIDY.approved.toLowerCase()).toContain("labelled");
+  });
+
+  it("names the model, so nobody consents to something they could not have guessed", () => {
+    expect(TIDY.consent.toLowerCase()).toContain("ai image model");
+  });
+
+  it("keeps the established tone", () => {
+    for (const line of TIDY_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b|\bbad\b|\bwrong\b|\bpoor\b|\bfix\b/i);
+      expect(line).not.toMatch(/you haven'?t|hasn'?t|you have not|failed|should have/i);
+      expect(line).not.toMatch(/organiz|customiz|color\b|optimiz|!/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line.trim()).toBe(line);
     }
   });
 });

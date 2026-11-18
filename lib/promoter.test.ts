@@ -12,6 +12,7 @@ import {
   inviteStatus,
   linkState,
   linksSent,
+  chaseMessage,
   nudgeMessage,
   sentNote,
   sponsorInventory,
@@ -120,9 +121,9 @@ describe("seedInviteFor", () => {
 describe("chaseList", () => {
   const rows = chaseList(card, invites);
 
-  it("only lists fighters who are not finished", () => {
+  it("only lists fighters who are not finished, or whose photograph would not cut out", () => {
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((row) => row.score < DONE_AT)).toBe(true);
+    expect(rows.every((row) => row.score < DONE_AT || row.photoCouldBeBetter)).toBe(true);
   });
 
   it("leads with the top of the card, because a hole there costs most", () => {
@@ -432,5 +433,56 @@ describe("linksSent", () => {
       Object.keys(invites).map((id) => [id, { fighterId: id } satisfies Invite]),
     );
     expect(linksSent(card, untouched)).toBe(0);
+  });
+});
+
+/**
+ * A finished profile whose photograph did not cut out cleanly. The card is fine
+ * — the video uses the photograph — but a clearer one is a message away.
+ */
+describe("a photograph that would not cut out", () => {
+  const finished = chaseList(card, invites).length;
+  const done = Object.values(fighters).find(
+    (fighter) => chaseList(card, invites).every((row) => row.fighter.id !== fighter.id) && fighter.cutout,
+  )!;
+  const poorly: Card = {
+    ...card,
+    fighters: {
+      ...fighters,
+      [done.id]: { ...done, cutoutQuality: "poor", cutoutIssues: ["multiple-people"] },
+    },
+  };
+
+  it("puts a finished fighter back on the chase list, once", () => {
+    const rows = chaseList(poorly, invites);
+    expect(rows).toHaveLength(finished + 1);
+    const row = rows.find((r) => r.fighter.id === done.id)!;
+    expect(row.photoCouldBeBetter).toBe(true);
+    expect(row.score).toBeGreaterThanOrEqual(DONE_AT);
+  });
+
+  it("does not move a fighter whose cutout was repaired, or who approved a portrait", () => {
+    for (const changed of [
+      { ...done, cutoutQuality: "repaired" as const },
+      { ...done, cutoutQuality: "poor" as const, stylised: "/media/portraits/x-ab12.png" },
+    ]) {
+      const rows = chaseList({ ...card, fighters: { ...fighters, [done.id]: changed } }, invites);
+      expect(rows).toHaveLength(finished);
+    }
+  });
+
+  it("sends a request for a clearer photo, with their own link and no pronoun", () => {
+    const row = chaseList(poorly, invites).find((r) => r.fighter.id === done.id)!;
+    const message = chaseMessage(row, event, "https://eventiq.win");
+    expect(message).toContain(`/f/token-${done.id}`);
+    expect(message.toLowerCase()).toContain("thanks for sending your photo");
+    expect(message).not.toMatch(/(his|her|he|she|him|hers)/i);
+    expect(message).not.toMatch(/bad|poor|wrong|blurry|ugly/i);
+  });
+
+  it("leaves the ordinary nudge for a fighter who still has a profile to finish", () => {
+    const unfinished = chaseList(card, invites)[0];
+    const row = { ...unfinished, photoCouldBeBetter: true };
+    expect(chaseMessage(row, event, "https://x")).toBe(nudgeMessage(row, event, "https://x"));
   });
 });

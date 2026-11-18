@@ -362,6 +362,12 @@ describe("parseMediaKey", () => {
       kind: "portrait",
       path: "/media/cutouts/owen-pryce-cd34.webp",
     });
+    // A tidied copy is a picture of the fighter too, found by the column that
+    // stores it like the others, so an unapproved one hangs off nothing.
+    expect(parseMediaKey("tidied/owen-pryce-ef56ab12.png")).toEqual({
+      kind: "portrait",
+      path: "/media/tidied/owen-pryce-ef56ab12.png",
+    });
   });
 
   it("reads a render as the show it is of", () => {

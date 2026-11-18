@@ -90,7 +90,7 @@ describe("wrangler.jsonc", () => {
    */
   it("declares the vars and the limiters the app reads by name", () => {
     expect(Object.keys(config.vars).sort()).toEqual(
-      ["EVENTIQ_ENV", "SHOWCASE_SLUG", "STYLISED_PORTRAITS"].sort(),
+      ["AI_PHOTO_REPAIR", "EVENTIQ_ENV", "SHOWCASE_SLUG", "STYLISED_PORTRAITS"].sort(),
     );
     expect(config.ratelimits.map((limit) => limit.name).sort()).toEqual(
       ["IMPORT_LOOKUPS", "LOGIN_ATTEMPTS", "TRACK_WRITES"].sort(),

@@ -23,7 +23,7 @@ import { currentPlatform } from "./platform";
 export type Db = ReturnType<typeof currentPlatform>["db"];
 
 export type SecretName = "SESSION_SECRET" | "RENDER_KEY" | "INVITE_KEY";
-export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS";
+export type VarName = "SHOWCASE_SLUG" | "STYLISED_PORTRAITS" | "AI_PHOTO_REPAIR";
 
 /**
  * The secrets and vars this run answers with. Set per test rather than read from
