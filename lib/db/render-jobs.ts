@@ -4,7 +4,10 @@ import type { Db } from "@/lib/db";
 import { loadCardById, type LoadedCard } from "@/lib/db/queries";
 import { logError, type LogContext } from "@/lib/log";
 import {
+  CONFIRMED_TEMPLATE,
   PUBLISHED_TEMPLATES,
+  confirmedComposition,
+  hasConfirmed,
   isPublishedTemplate,
   renderFingerprint,
   renderJobId,
@@ -52,6 +55,25 @@ export type BoutHashes = Record<number, Record<PublishedTemplate, string>>;
  * was half of what that page was spending.
  */
 export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
+  const hashes: BoutHashes = {};
+  for (const [number, inputs] of Object.entries(boutInputs(card))) {
+    // One digest per composition, from one set of inputs. The tape and the promo
+    // draw the same two people out of the same rows, so everything but the
+    // template is shared and a field added below reaches both by construction.
+    const perTemplate = {} as Record<PublishedTemplate, string>;
+    for (const template of PUBLISHED_TEMPLATES) {
+      perTemplate[template] = await renderFingerprint({ ...inputs, template });
+    }
+    hashes[Number(number)] = perTemplate;
+  }
+  return hashes;
+}
+
+/**
+ * What each bout looks like on screen, less the template: shared by every video
+ * made of it, the confirmed clips included.
+ */
+function boutInputs(card: LoadedCard): Record<number, Omit<RenderInputs, "template">> {
   const { event } = card;
 
   const lockup = (id: string | null | undefined) => {
@@ -59,7 +81,7 @@ export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
     return sponsor ? sponsorFingerprint(sponsor) : null;
   };
 
-  const hashes: BoutHashes = {};
+  const all: Record<number, Omit<RenderInputs, "template">> = {};
   for (const bout of event.bouts) {
     const red = card.fighters[bout.redId];
     const blue = card.fighters[bout.blueId];
@@ -72,7 +94,7 @@ export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
     // walkout video for a walkout that is not happening.
     if (bout.cancelled) continue;
 
-    const inputs: Omit<RenderInputs, "template"> = {
+    all[bout.number] = {
       eventName: event.name,
       eventDate: event.date,
       eventVenue: event.venue,
@@ -103,18 +125,66 @@ export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
         ...(blue.sponsorIds ?? []).map(lockup),
       ].filter((entry): entry is string => entry !== null),
     };
-
-    // One digest per composition, from one set of inputs. The tape and the promo
-    // draw the same two people out of the same rows, so everything but the
-    // template is shared and a field added above reaches both by construction.
-    const perTemplate = {} as Record<PublishedTemplate, string>;
-    for (const template of PUBLISHED_TEMPLATES) {
-      perTemplate[template] = await renderFingerprint({ ...inputs, template });
-    }
-    hashes[bout.number] = perTemplate;
   }
+  return all;
+}
 
+/** Every confirmed fighter's clip on a card: by bout, then by fighter id. */
+export type ConfirmedHashes = Record<number, Record<string, string>>;
+
+/** The parts of an invite that say whether its fighter has confirmed. */
+export type ConfirmationState = Parameters<typeof hasConfirmed>[0];
+
+/**
+ * The fingerprint of every confirmed clip the card should have.
+ *
+ * A clip exists for a fighter who has sent their details in (`hasConfirmed`),
+ * on a bout that is going ahead, on a show that is published. Published because
+ * the clip's whole job is to be posted and it carries the programme's code: a
+ * post pointing at a draft is a post pointing at a 404. Publishing asks for the
+ * whole card, which is when the clips of anybody already in are first queued.
+ *
+ * The bout's own inputs and the look the show uses, and nothing about which
+ * corner: the opponent's name is on the clip, so a change to either fighter is a
+ * change to both clips, and the row is already one per fighter.
+ */
+export async function confirmedFingerprints(
+  card: LoadedCard,
+  invites: Record<string, ConfirmationState>,
+): Promise<ConfirmedHashes> {
+  if (!card.published) return {};
+  const template = confirmedComposition(card.confirmedStyle);
+  const inputs = boutInputs(card);
+  const hashes: ConfirmedHashes = {};
+  for (const bout of card.event.bouts) {
+    const shared = inputs[bout.number];
+    if (!shared) continue;
+    for (const fighterId of [bout.redId, bout.blueId]) {
+      if (!hasConfirmed(invites[fighterId])) continue;
+      hashes[bout.number] = {
+        ...hashes[bout.number],
+        [fighterId]: await renderFingerprint({ ...shared, template }),
+      };
+    }
+  }
   return hashes;
+}
+
+/** Every invite on a show, reduced to what says whether its fighter has confirmed. */
+export async function loadConfirmations(
+  db: Db,
+  eventId: string,
+): Promise<Record<string, ConfirmationState>> {
+  const rows = await db
+    .select({
+      fighterId: schema.invites.fighterId,
+      submittedAt: schema.invites.submittedAt,
+      revokedAt: schema.invites.revokedAt,
+      withdrawnAt: schema.invites.withdrawnAt,
+    })
+    .from(schema.invites)
+    .where(eq(schema.invites.eventId, eventId));
+  return Object.fromEntries(rows.map((row) => [row.fighterId, row]));
 }
 
 /**
@@ -124,6 +194,23 @@ export async function boutFingerprints(card: LoadedCard): Promise<BoutHashes> {
 export async function loadBoutFingerprints(db: Db, eventId: string): Promise<BoutHashes> {
   const card = await loadCardById(db, eventId);
   return card ? boutFingerprints(card) : {};
+}
+
+/** Both kinds at once, for the queue: each bout's own videos and its confirmed clips. */
+async function loadQueueFingerprints(
+  db: Db,
+  eventId: string,
+): Promise<{ bouts: BoutHashes; confirmed: ConfirmedHashes }> {
+  const [card, confirmations] = await Promise.all([
+    loadCardById(db, eventId),
+    loadConfirmations(db, eventId),
+  ]);
+  if (!card) return { bouts: {}, confirmed: {} };
+  const [bouts, confirmed] = await Promise.all([
+    boutFingerprints(card),
+    confirmedFingerprints(card, confirmations),
+  ]);
+  return { bouts, confirmed };
 }
 
 /**
@@ -158,35 +245,48 @@ export async function enqueueRender(
   now: number = Date.now(),
   { force = false }: { force?: boolean } = {},
 ): Promise<number> {
-  const hashes = await loadBoutFingerprints(db, eventId);
+  const { bouts: hashes, confirmed } = await loadQueueFingerprints(db, eventId);
   const wanted = bouts === "all" ? Object.keys(hashes).map(Number) : bouts;
 
   // Every published composition of every bout asked for. A bout is two videos
   // now, and a promoter pressing "Render again" means the bout rather than one
   // of them: offering the promo on the programme and then leaving it a week
-  // behind the tape would be worse than not offering it.
+  // behind the tape would be worse than not offering it. The confirmed clips of
+  // the fighters on it come with them for the same reason.
   const rows = wanted
     .filter((boutNumber) => hashes[boutNumber])
-    .flatMap((boutNumber) =>
-      PUBLISHED_TEMPLATES.map((template) => ({
+    .flatMap((boutNumber) => [
+      ...PUBLISHED_TEMPLATES.map((template) => ({
         id: renderJobId(eventId, boutNumber, template),
         eventId,
         boutNumber,
         template,
+        fighterId: "",
         status: "queued" as const,
         inputHash: hashes[boutNumber][template],
         attempts: 0,
         requestedAt: now,
       })),
-    );
+      ...Object.entries(confirmed[boutNumber] ?? {}).map(([fighterId, inputHash]) => ({
+        id: renderJobId(eventId, boutNumber, CONFIRMED_TEMPLATE, fighterId),
+        eventId,
+        boutNumber,
+        template: CONFIRMED_TEMPLATE,
+        fighterId,
+        status: "queued" as const,
+        inputHash,
+        attempts: 0,
+        requestedAt: now,
+      })),
+    ]);
   if (!rows.length) return 0;
 
-  // D1 binds at most 100 parameters to one statement, and a row here is eight
+  // D1 binds at most 100 parameters to one statement, and a row here is nine
   // of them, so a fifteen-bout card in one insert is refused outright — which is
   // how a fighter's submission on the demo card queued nothing and said so only
   // in the log. Ten rows a statement leaves room, and the batch keeps a card's
-  // worth of requests in one transaction. A card is thirty rows now rather than
-  // fifteen, which is three statements rather than two and nothing else.
+  // worth of requests in one transaction. A card is up to sixty rows now, with a
+  // confirmed clip for every fighter, which is six statements in the one batch.
   const statements = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
     statements.push(upsert(db, rows.slice(i, i + ROWS_PER_INSERT), now, force));
@@ -222,6 +322,7 @@ function upsert(
         schema.renderJobs.eventId,
         schema.renderJobs.boutNumber,
         schema.renderJobs.template,
+        schema.renderJobs.fighterId,
       ],
       set: {
         status: "queued",
@@ -260,7 +361,7 @@ export function moveBoutJobs(db: Db, eventId: string, from: number, to: number) 
       boutNumber: to,
       // The number bound as text: D1 binds a JavaScript number as a REAL, and
       // concatenated that is `2.0`, an id nothing else would ever build.
-      id: sql`'rj_' || ${eventId} || '_' || ${String(to)} || '_' || ${schema.renderJobs.template}`,
+      id: sql`'rj_' || ${eventId} || '_' || ${String(to)} || '_' || ${schema.renderJobs.template} || CASE WHEN ${schema.renderJobs.fighterId} = '' THEN '' ELSE '_' || ${schema.renderJobs.fighterId} END`,
     })
     .where(and(eq(schema.renderJobs.eventId, eventId), eq(schema.renderJobs.boutNumber, from)));
 }
@@ -303,6 +404,24 @@ export function jobsByBout<T extends { boutNumber: number; template: string }>(
   for (const row of rows) {
     if (!isPublishedTemplate(row.template)) continue;
     jobs[row.boutNumber] = { ...jobs[row.boutNumber], [row.template]: row };
+  }
+  return jobs;
+}
+
+/**
+ * The confirmed clips' rows of one show, by bout and then by fighter.
+ *
+ * Keyed by fighter, never by corner, so a row left behind by a fighter who has
+ * since been swapped off the bout is never read as the new fighter's clip: the
+ * caller asks for whoever is on the bout now, and that row is not theirs.
+ */
+export function confirmedJobsByBout<
+  T extends { boutNumber: number; template: string; fighterId: string },
+>(rows: T[]): Record<number, Record<string, T>> {
+  const jobs: Record<number, Record<string, T>> = {};
+  for (const row of rows) {
+    if (row.template !== CONFIRMED_TEMPLATE || !row.fighterId) continue;
+    jobs[row.boutNumber] = { ...jobs[row.boutNumber], [row.fighterId]: row };
   }
   return jobs;
 }

@@ -151,6 +151,15 @@ export const events = sqliteTable(
     backdrop: text("backdrop"),
     /** Unpublished events are visible to their promoter and nobody else. */
     published: integer("published", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Which of the three looks a confirmed fighter's clip is made in:
+     * `poster`, `stamp` or `broadcast` (CONFIRMED_STYLES in lib/renders.ts).
+     * One per show, picked by the promoter, because the clips are the show's
+     * announcements and a card whose fighters each posted a different look
+     * would read as three shows. It is in the confirmed clips' fingerprint, so
+     * changing it re-makes them and touches nothing else.
+     */
+    confirmedStyle: text("confirmed_style").notNull().default("poster"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -495,7 +504,8 @@ export const renderJobs = sqliteTable(
     boutNumber: integer("bout_number").notNull(),
     /**
      * Which composition this row is about — `tape` or `faceoff`, the two in
-     * PUBLISHED_TEMPLATES in lib/renders.ts.
+     * PUBLISHED_TEMPLATES in lib/renders.ts, or `confirmed`, one fighter's
+     * announcement in whichever look the show's `confirmedStyle` names.
      *
      * A bout has more than one video now, so the row that used to be "the bout"
      * is "the bout in one composition". It is in the unique key below and in the
@@ -507,6 +517,24 @@ export const renderJobs = sqliteTable(
      * what it already was.
      */
     template: text("template").notNull().default("tape"),
+    /**
+     * Which fighter the video is about, for a composition about one person —
+     * the confirmed clip — and the empty string for a bout's own videos, which
+     * are about both.
+     *
+     * The fighter rather than the corner, because the danger with a one-person
+     * clip is putting it on the wrong person: a promoter who swaps the red
+     * corner's fighter leaves a row keyed "red" holding a video of somebody who
+     * is no longer on the bout, and the page that plays it would have no way of
+     * telling. Keyed by fighter, the swapped-out row simply matches nobody.
+     *
+     * Empty rather than null, because it is in the unique key below and SQLite
+     * treats every null as distinct from every other — a null here would let a
+     * bout hold any number of tape rows and the upsert would never conflict.
+     * Not a foreign key for the same reason. A fighter who withdraws has their
+     * rows deleted by the withdrawal itself (app/f/[token]/consent-actions.ts).
+     */
+    fighterId: text("fighter_id").notNull().default(""),
     /** queued | running | done | failed. The job, not the video. */
     status: text("status").notNull(),
     error: text("error"),
@@ -534,10 +562,11 @@ export const renderJobs = sqliteTable(
     finishedAt: integer("finished_at"),
   },
   (table) => [
-    uniqueIndex("render_jobs_event_bout_template").on(
+    uniqueIndex("render_jobs_event_bout_template_fighter").on(
       table.eventId,
       table.boutNumber,
       table.template,
+      table.fighterId,
     ),
   ],
 );

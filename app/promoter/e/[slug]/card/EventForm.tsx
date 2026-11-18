@@ -4,9 +4,19 @@ import { useState, useTransition } from "react";
 import { updateEvent } from "@/app/promoter/actions";
 import { Field, inputClass } from "@/app/promoter/e/[slug]/card/fields";
 import { ActionStatus } from "@/components/ActionStatus";
+import { CONFIRMED_SETTING } from "@/lib/copy";
+import { CONFIRMED_STYLES, type ConfirmedStyle } from "@/lib/renders";
 import type { FightEvent } from "@/lib/types";
 
-export function EventForm({ slug, event }: { slug: string; event: FightEvent }) {
+export function EventForm({
+  slug,
+  event,
+  confirmedStyle,
+}: {
+  slug: string;
+  event: FightEvent;
+  confirmedStyle: ConfirmedStyle;
+}) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +70,37 @@ export function EventForm({ slug, event }: { slug: string; event: FightEvent }) 
           defaultValue={event.sanctioning ?? ""}
         />
       </Field>
+
+      {/* A setting for the show rather than something printed on it, so it sits
+          last, after everything a spectator reads. Radios rather than a select,
+          because the description is the only way to choose between three looks
+          nobody has seen yet. */}
+      <fieldset className="border-hairline grid gap-3 border p-4">
+        <legend className="label px-1">{CONFIRMED_SETTING.legend}</legend>
+        <p className="text-ash max-w-2xl text-xs leading-relaxed">{CONFIRMED_SETTING.hint}</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {CONFIRMED_STYLES.map((style) => (
+            <label
+              key={style}
+              className="border-hairline has-[:checked]:border-chalk/60 flex cursor-pointer items-start gap-2.5 border p-3 transition-colors"
+            >
+              <input
+                type="radio"
+                name="confirmedStyle"
+                value={style}
+                defaultChecked={style === confirmedStyle}
+                className="mt-0.5 accent-current"
+              />
+              <span className="grid gap-1">
+                <span className="text-chalk text-sm">{CONFIRMED_SETTING.styles[style].label}</span>
+                <span className="text-ash text-xs leading-relaxed">
+                  {CONFIRMED_SETTING.styles[style].description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <button
         type="submit"

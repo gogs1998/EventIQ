@@ -46,6 +46,89 @@ export function isPublishedTemplate(id: string): id is PublishedTemplate {
   return (PUBLISHED_TEMPLATES as readonly string[]).includes(id);
 }
 
+// ------------------------------------------------------------ the confirmed clip
+
+/**
+ * One fighter's announcement that they are on the card, made for them to post.
+ *
+ * It is queued beside the tape and the promo but it is not one of them: those
+ * two are about a bout and every bout gets them, this is about one person and
+ * only a fighter who has confirmed gets one. So it has its own id rather than a
+ * place in PUBLISHED_TEMPLATES, which everything that walks a bout's videos
+ * reads as "one of each per bout".
+ *
+ * The id on the job row is the clip, not the look. The promoter picks one of
+ * three looks per show, and a row per look would leave the two not picked
+ * sitting in the queue as videos nobody asked for. The look is resolved when the
+ * clip is hashed and when it is captured, through `confirmedComposition`, and it
+ * is in the fingerprint — so changing it makes every confirmed clip on the show
+ * stale and nothing else, which is the whole of what re-rendering them takes.
+ */
+export const CONFIRMED_TEMPLATE = "confirmed";
+
+/**
+ * The three looks, by the name the promoter's setting stores. Each is a
+ * composition in components/sequence/templates.ts called `confirmed-<look>`,
+ * which components/sequence/templates.test.tsx holds this list to.
+ */
+export const CONFIRMED_STYLES = ["poster", "stamp", "broadcast"] as const;
+
+export type ConfirmedStyle = (typeof CONFIRMED_STYLES)[number];
+
+/** What a show gets until its promoter picks: the one that reads best on a phone. */
+export const DEFAULT_CONFIRMED_STYLE: ConfirmedStyle = "poster";
+
+/**
+ * A stored or posted value, as one of the three. Anything else is the default
+ * rather than an error, because the column has a default and a form is an
+ * endpoint anybody can post anything at.
+ */
+export function confirmedStyleOf(value: unknown): ConfirmedStyle {
+  return (CONFIRMED_STYLES as readonly unknown[]).includes(value)
+    ? (value as ConfirmedStyle)
+    : DEFAULT_CONFIRMED_STYLE;
+}
+
+/** The registry id the capture page draws for a look. */
+export function confirmedComposition(style: ConfirmedStyle): string {
+  return `confirmed-${style}`;
+}
+
+/** Every kind of row the queue makes: one of each per bout, and one per confirmed fighter. */
+export const QUEUED_TEMPLATES = [...PUBLISHED_TEMPLATES, CONFIRMED_TEMPLATE] as const;
+
+export type QueuedTemplate = (typeof QUEUED_TEMPLATES)[number];
+
+export function isQueuedTemplate(id: string): id is QueuedTemplate {
+  return (QUEUED_TEMPLATES as readonly string[]).includes(id);
+}
+
+/**
+ * Whether a fighter has confirmed their place, for the purpose of making them a
+ * clip that says so.
+ *
+ * **Their own submission, and nothing inferred.** A profile can be full because
+ * the promoter typed it or the record importer filled it, and announcing as
+ * confirmed somebody who has never opened their link would be bug 9 again, in a
+ * video with their face on it. A link the promoter has pulled or the fighter has
+ * withdrawn is not a confirmation either, whatever it said before.
+ *
+ * Here rather than in lib/confirmed.ts because the renderer asks the same
+ * question about the rows it reads, and this file is the one it can import.
+ */
+export function hasConfirmed(
+  invite:
+    | {
+        submittedAt?: number | null;
+        revokedAt?: number | null;
+        withdrawnAt?: number | null;
+      }
+    | null
+    | undefined,
+): boolean {
+  return Boolean(invite?.submittedAt) && !invite?.revokedAt && !invite?.withdrawnAt;
+}
+
 /**
  * What one bout has, keyed by template.
  *
@@ -222,6 +305,25 @@ export function renderKeyFor(
   return `renders/${slug}/bout-${boutNumber}-${template}-${hash.slice(0, 8)}.mp4`;
 }
 
+/**
+ * The same, for one fighter's confirmed clip.
+ *
+ * The fighter is in it because a bout has two of these, and the look because a
+ * promoter changing it is a new video that must not be served from a phone's
+ * cache of the old one. scripts/r2-orphans.mjs reads the series off it — the
+ * show, the bout and the fighter — so a clip re-made in another look supersedes
+ * the old one rather than living beside it forever.
+ */
+export function confirmedRenderKeyFor(
+  slug: string,
+  boutNumber: number,
+  fighterId: string,
+  style: ConfirmedStyle,
+  hash: string,
+): string {
+  return `renders/${slug}/bout-${boutNumber}-${CONFIRMED_TEMPLATE}-${style}-${fighterId}-${hash.slice(0, 8)}.mp4`;
+}
+
 // ----------------------------------------------------------------- the queue
 
 /**
@@ -237,14 +339,18 @@ export function renderKeyFor(
  * The template is in it because a bout is more than one row now. Rows written
  * before it existed were renamed by migration 0015 rather than left under a
  * second naming rule: a table with two conventions in it is a table where the
- * next reader picks the wrong one.
+ * next reader picks the wrong one. The fighter is in it, after the template, for
+ * a confirmed clip and for nothing else — migration 0019.
  */
 export function renderJobId(
   eventId: string,
   boutNumber: number,
-  template: PublishedTemplate,
+  template: QueuedTemplate,
+  fighterId: string = "",
 ): string {
-  return `rj_${eventId}_${boutNumber}_${template}`;
+  // A clip about one fighter is one row per fighter; a bout's own videos carry
+  // no fighter and keep the id they have always had.
+  return `rj_${eventId}_${boutNumber}_${template}${fighterId ? `_${fighterId}` : ""}`;
 }
 
 export type RenderStatus = "queued" | "running" | "done" | "failed";

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "@/db/schema";
 import { DONE, attempt, type ActionResult } from "@/lib/action-result";
@@ -12,6 +12,7 @@ import { inviteFor } from "@/lib/db/owned";
 import { requestRenderQuietly } from "@/lib/db/render-jobs";
 import { logError } from "@/lib/log";
 import { ownMediaKeyOf } from "@/lib/portrait";
+import { CONFIRMED_TEMPLATE } from "@/lib/renders";
 
 /**
  * Taking it back.
@@ -77,6 +78,18 @@ export async function removeMyDetails(token: string): Promise<ActionResult> {
           .update(schema.invites)
           .set({ revokedAt: now, withdrawnAt: now, consentedAt: null, consentVersion: null })
           .where(eq(schema.invites.id, invite.id)),
+        // Their confirmed clip is a video of them announcing this show, so it
+        // goes with the rest. With no row pointing at it the object is litter,
+        // which /media refuses and `npm run r2:orphans` takes.
+        db
+          .delete(schema.renderJobs)
+          .where(
+            and(
+              eq(schema.renderJobs.eventId, event.id),
+              eq(schema.renderJobs.template, CONFIRMED_TEMPLATE),
+              eq(schema.renderJobs.fighterId, fighter.id),
+            ),
+          ),
       ];
       await db.batch(writes);
 

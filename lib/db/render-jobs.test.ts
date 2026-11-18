@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { boutFingerprints } from "@/lib/db/render-jobs";
+import { boutFingerprints, confirmedFingerprints } from "@/lib/db/render-jobs";
 import type { LoadedCard } from "@/lib/db/queries";
-import { renderFingerprint } from "@/lib/renders";
+import { DEFAULT_CONFIRMED_STYLE, renderFingerprint } from "@/lib/renders";
 // The renderer itself, imported on purpose: this file exists to hold the two
 // sides to the same digest, so it has to call the renderer's own code.
 import { renderInputsFrom } from "../../scripts/render-tape.mjs";
@@ -57,6 +57,7 @@ function card(over: Partial<LoadedCard> = {}): LoadedCard {
     eventId: "ev_cage-county-12",
     promoterId: "pr_cage-county",
     published: true,
+    confirmedStyle: DEFAULT_CONFIRMED_STYLE,
     fighterUpdatedAt: {
       "callum-reeves": ROW.red_updated,
       "dre-osei": ROW.blue_updated,
@@ -147,5 +148,40 @@ describe("boutFingerprints", () => {
     const broken = card();
     delete broken.fighters["dre-osei"];
     expect(await boutFingerprints(broken)).toEqual({});
+  });
+});
+
+describe("confirmedFingerprints", () => {
+  const confirmedOnly = { "dre-osei": { submittedAt: 1 } };
+
+  it("agrees with the renderer about a confirmed clip, in the show's look", async () => {
+    const stamped = card({ confirmedStyle: "stamp" });
+    expect(await confirmedFingerprints(stamped, confirmedOnly)).toEqual({
+      15: { "dre-osei": await renderFingerprint(renderInputsFrom(ROW, [LOCKUP], "confirmed-stamp")) },
+    });
+  });
+
+  it("makes a clip only for a fighter who has confirmed, on a published show", async () => {
+    expect(await confirmedFingerprints(card(), {})).toEqual({});
+    expect(await confirmedFingerprints(card({ published: false }), confirmedOnly)).toEqual({});
+    expect(
+      await confirmedFingerprints(card(), { "dre-osei": { submittedAt: 1, withdrawnAt: 2 } }),
+    ).toEqual({});
+  });
+
+  /** The promoter's choice re-makes the clips and nothing else. */
+  it("moves with the look, and the bout's own videos do not", async () => {
+    const poster = await confirmedFingerprints(card(), confirmedOnly);
+    const broadcast = await confirmedFingerprints(card({ confirmedStyle: "broadcast" }), confirmedOnly);
+    expect(broadcast[15]["dre-osei"]).not.toBe(poster[15]["dre-osei"]);
+    expect(await boutFingerprints(card({ confirmedStyle: "broadcast" }))).toEqual(
+      await boutFingerprints(card()),
+    );
+  });
+
+  it("leaves out a bout that is off", async () => {
+    const off = card();
+    off.event.bouts[0].cancelled = true;
+    expect(await confirmedFingerprints(off, confirmedOnly)).toEqual({});
   });
 });

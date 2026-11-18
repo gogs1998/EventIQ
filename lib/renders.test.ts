@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONFIRMED_STYLES,
+  DEFAULT_CONFIRMED_STYLE,
   MAX_RENDER_ATTEMPTS,
   PUBLISHED_TEMPLATES,
+  QUEUED_TEMPLATES,
+  confirmedComposition,
+  confirmedRenderKeyFor,
+  confirmedStyleOf,
+  hasConfirmed,
+  isQueuedTemplate,
+  renderJobId,
   RENDER_INPUT_FIELDS,
   RENDER_LEASE_MS,
   type RenderInputs,
@@ -292,6 +301,49 @@ describe("PUBLISHED_TEMPLATES", () => {
     expect(isPublishedTemplate("faceoff")).toBe(true);
     expect(isPublishedTemplate("walkout")).toBe(false);
     expect(isPublishedTemplate("social")).toBe(false);
+  });
+});
+
+describe("the confirmed clip", () => {
+  it("is queued beside the bout's own videos without being one of them", () => {
+    expect([...QUEUED_TEMPLATES]).toEqual(["tape", "faceoff", "confirmed"]);
+    expect(isQueuedTemplate("confirmed")).toBe(true);
+    // The looks are compositions, not rows: nobody queues one by name.
+    expect(isQueuedTemplate("confirmed-poster")).toBe(false);
+    expect(isPublishedTemplate("confirmed")).toBe(false);
+  });
+
+  it("reads a stored or posted look, and anything else as the default", () => {
+    expect(DEFAULT_CONFIRMED_STYLE).toBe("poster");
+    for (const style of CONFIRMED_STYLES) expect(confirmedStyleOf(style)).toBe(style);
+    expect(confirmedStyleOf("Poster")).toBe("poster");
+    expect(confirmedStyleOf("walkout")).toBe("poster");
+    expect(confirmedStyleOf(null)).toBe("poster");
+    expect(confirmedComposition("stamp")).toBe("confirmed-stamp");
+  });
+
+  /**
+   * Silence is not evidence: a full profile the promoter typed is not a
+   * fighter saying they are in. A pulled or withdrawn link takes it back.
+   */
+  it("is only for a fighter who sent their own details in and has not taken them back", () => {
+    expect(hasConfirmed(undefined)).toBe(false);
+    expect(hasConfirmed({})).toBe(false);
+    expect(hasConfirmed({ submittedAt: null })).toBe(false);
+    expect(hasConfirmed({ submittedAt: 1 })).toBe(true);
+    expect(hasConfirmed({ submittedAt: 1, revokedAt: 2 })).toBe(false);
+    expect(hasConfirmed({ submittedAt: 1, withdrawnAt: 2 })).toBe(false);
+  });
+
+  it("is one row per fighter, and a bout's own rows keep the ids they had", () => {
+    expect(renderJobId("ev_1", 15, "tape")).toBe("rj_ev_1_15_tape");
+    expect(renderJobId("ev_1", 15, "confirmed", "dre-osei")).toBe("rj_ev_1_15_confirmed_dre-osei");
+  });
+
+  it("publishes under a key naming the look and the fighter, so a new look is a new URL", () => {
+    const key = confirmedRenderKeyFor("cage-county-12", 15, "dre-osei", "stamp", "abcdef0123456789");
+    expect(key).toBe("renders/cage-county-12/bout-15-confirmed-stamp-dre-osei-abcdef01.mp4");
+    expect(confirmedRenderKeyFor("cage-county-12", 15, "dre-osei", "poster", "abcdef0123456789")).not.toBe(key);
   });
 });
 

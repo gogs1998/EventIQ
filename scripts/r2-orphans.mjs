@@ -135,10 +135,17 @@ export function underManagedPrefix(key) {
  * Which bout and composition a render key is a video of, or null.
  *
  * `renders/<slug>/bout-<n>-<template>-<hash8>.mp4`, and the older shape with no
- * template, which was always the tape. Two keys in the same series are two
- * renders of the same video, and the later one superseded the earlier.
+ * template, which was always the tape; and a confirmed clip,
+ * `bout-<n>-confirmed-<look>-<fighter>-<hash8>.mp4`, filed by fighter. Two keys
+ * in the same series are two renders of the same video, and the later one
+ * superseded the earlier.
  */
 export function renderSeries(key) {
+  // A confirmed clip names its look and its fighter. The look is left out of
+  // the series, because a promoter changing it is the next render of the same
+  // fighter's clip, and the old look must be swept once its grace is up.
+  const clip = /^renders\/([^/]+)\/bout-(\d+)-confirmed-[a-z]+-([a-z0-9-]+)-[0-9a-f]{8}\.mp4$/.exec(key);
+  if (clip) return `${clip[1]}/${clip[2]}/confirmed/${clip[3]}`;
   const match = /^renders\/([^/]+)\/bout-(\d+)-(?:([a-z]+)-)?[0-9a-f]{8}\.mp4$/.exec(key);
   if (!match) return null;
   return `${match[1]}/${match[2]}/${match[3] ?? "tape"}`;

@@ -31,6 +31,7 @@ import {
   type RecordFill,
 } from "@/lib/fighter-import";
 import { withinPromoterImportLimit } from "@/lib/rate-limit";
+import { confirmedStyleOf } from "@/lib/renders";
 import { importRecord, promoterScope } from "@/lib/record-import";
 import { currentPromoter, type Promoter } from "@/lib/session";
 import { type OwnedCard } from "@/lib/visibility";
@@ -212,12 +213,19 @@ export async function updateEvent(slug: string, form: FormData): Promise<ActionR
           venue: text(form, "venue", 80) || show.venue,
           city: text(form, "city", 60) || show.city,
           sanctioning: text(form, "sanctioning", 80) || null,
+          // Kept as it is when the form did not send one, so a post from an
+          // older copy of the page cannot reset a choice it never showed.
+          confirmedStyle: form.has("confirmedStyle")
+            ? confirmedStyleOf(form.get("confirmedStyle"))
+            : card.confirmedStyle,
           updatedAt: Date.now(),
         })
         .where(eq(schema.events.id, card.eventId));
 
       // The show's name, date and venue are on screen in three of the five
-      // scenes, so every bout's video is out of date now.
+      // scenes, so every bout's video is out of date now. The look of the
+      // confirmed clips is in their fingerprint and nothing else's, so a change
+      // to it alone re-queues those and leaves every bout's own videos as they are.
       await requestRenderQuietly(db, card.eventId, "all", { event: "updateEvent", route: `/promoter/e/${slug}/card` });
 
       revalidatePath(`/promoter/e/${slug}`);

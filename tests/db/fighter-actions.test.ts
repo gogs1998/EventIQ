@@ -9,6 +9,7 @@ import { ACTION_ERRORS } from "@/lib/copy";
 import { openToken } from "@/lib/invite-token";
 import { inviteSecret } from "@/lib/db";
 import { loadInviteByToken } from "@/lib/db/queries";
+import { enqueueRender } from "@/lib/db/render-jobs";
 import { EMPTY_DRAFT, type Draft } from "@/lib/questionnaire";
 import { plantPromoters, plantShow, type PlantedShow } from "./fixtures";
 import { signInAs, testDatabase } from "./harness";
@@ -159,6 +160,29 @@ async function inviteOf(fighterId: string) {
 }
 
 describe("a fighter who took their details down, and New link", () => {
+  /**
+   * A confirmed clip is a video of that fighter announcing that show. Taking
+   * their details down takes its row with it, so nothing offers it again and
+   * the object is left for the orphan sweep.
+   */
+  it("takes their confirmed clip off the queue, and leaves their opponent's", async () => {
+    const { show, me, other } = await consentingShow();
+    const db = platform().db;
+    await db
+      .update(schema.invites)
+      .set({ submittedAt: Date.now() })
+      .where(eq(schema.invites.eventId, show.eventId));
+    await enqueueRender(db, show.eventId, "all");
+    const clipOwners = async () =>
+      (await db.select().from(schema.renderJobs).where(eq(schema.renderJobs.template, "confirmed")))
+        .map((row) => row.fighterId)
+        .sort();
+    expect(await clipOwners()).toEqual([me, other].sort());
+
+    expect((await removeMyDetails(show.tokens[me])).ok).toBe(true);
+    expect(await clipOwners()).toEqual([other]);
+  });
+
   it("records that the fighter asked, and takes the consent with the answers", async () => {
     const { show, me } = await consentingShow();
     await platform()

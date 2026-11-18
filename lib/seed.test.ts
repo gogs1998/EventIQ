@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { event, fighters, sponsors } from "@/data/event";
 import { boutFingerprints } from "@/lib/db/render-jobs";
 import { daysUntilShow } from "@/lib/promoter";
+import { DEFAULT_CONFIRMED_STYLE } from "@/lib/renders";
 import { buildSeed, seedInviteFor, showDateFor } from "@/lib/seed";
 
 const NOW = 1_700_000_000_000;
@@ -124,6 +125,7 @@ describe("the fingerprints the seed records", () => {
       eventId: `ev_${event.slug}`,
       promoterId: "pr_cage-county",
       published: true,
+      confirmedStyle: DEFAULT_CONFIRMED_STYLE,
       event: { ...event, date: showDateFor(NOW) },
       fighters,
       sponsors,

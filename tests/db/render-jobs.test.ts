@@ -1,9 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import * as schema from "@/db/schema";
+import { loadConfirmedClip } from "@/lib/db/queries";
 import {
   enqueueRender,
   loadBoutFingerprints,
+  moveBoutJobs,
   renderJobId,
   requestRenderQuietly,
 } from "@/lib/db/render-jobs";
@@ -305,5 +307,105 @@ describe("requestRenderQuietly", () => {
       await platform().d1.exec("ALTER TABLE render_jobs_away RENAME TO render_jobs;");
       logged.mockRestore();
     }
+  });
+});
+
+describe("the confirmed clip in the queue", () => {
+  /** Marks a fighter's invite as sent back, which is all confirming is. */
+  const confirm = (db: ReturnType<typeof platform>["db"], eventId: string, fighterId: string) =>
+    db
+      .update(schema.invites)
+      .set({ submittedAt: Date.now() })
+      .where(and(eq(schema.invites.eventId, eventId), eq(schema.invites.fighterId, fighterId)));
+
+  const clipsOf = async (db: ReturnType<typeof platform>["db"], eventId: string) =>
+    (await jobsOf(db, eventId)).filter((row) => row.template === "confirmed");
+
+  it("queues one clip per confirmed fighter beside the bout's own videos", async () => {
+    const { db, show } = await fullCard(2);
+    const [red] = show.fighterIds;
+    await confirm(db, show.eventId, red);
+
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(5);
+    const [clip] = await clipsOf(db, show.eventId);
+    expect(clip.fighterId).toBe(red);
+    expect(clip.boutNumber).toBe(1);
+    expect(clip.id).toBe(renderJobId(show.eventId, 1, "confirmed", red));
+    expect(clip.inputHash).toBeTruthy();
+  });
+
+  it("queues nothing for a fighter who has not sent their details, or on a draft", async () => {
+    const { db, show } = await fullCard(2);
+    expect(await enqueueRender(db, show.eventId, "all")).toBe(4);
+    expect(await clipsOf(db, show.eventId)).toEqual([]);
+
+    await confirm(db, show.eventId, show.fighterIds[0]);
+    await db.update(schema.events).set({ published: false }).where(eq(schema.events.id, show.eventId));
+    await enqueueRender(db, show.eventId, "all");
+    expect(await clipsOf(db, show.eventId)).toEqual([]);
+  });
+
+  /**
+   * The promoter changing the look re-queues the clips, because the look is in
+   * their fingerprint — and nothing else, because it is in nobody else's.
+   */
+  it("re-queues only the clips when the show's look changes", async () => {
+    const { db, show } = await fullCard(2);
+    await confirm(db, show.eventId, show.fighterIds[0]);
+    await enqueueRender(db, show.eventId, "all");
+    // As though the renderer had made every one of them.
+    await db
+      .update(schema.renderJobs)
+      .set({ status: "done", currentHash: sql`input_hash`, currentR2Key: "renders/x.mp4" })
+      .where(eq(schema.renderJobs.eventId, show.eventId));
+
+    await db
+      .update(schema.events)
+      .set({ confirmedStyle: "broadcast" })
+      .where(eq(schema.events.id, show.eventId));
+    await enqueueRender(db, show.eventId, "all");
+
+    const rows = await jobsOf(db, show.eventId);
+    expect(rows.filter((row) => row.status === "queued").map((row) => row.template)).toEqual([
+      "confirmed",
+    ]);
+  });
+
+  it("moves with its bout and keeps the fighter in its id", async () => {
+    const { db, show } = await fullCard(2);
+    const blue = show.fighterIds[3];
+    await confirm(db, show.eventId, blue);
+    await enqueueRender(db, show.eventId, "all");
+
+    await db.batch([moveBoutJobs(db, show.eventId, 2, 5)]);
+    const [clip] = await clipsOf(db, show.eventId);
+    expect(clip.boutNumber).toBe(5);
+    expect(clip.id).toBe(renderJobId(show.eventId, 5, "confirmed", blue));
+  });
+
+  /**
+   * Played on the fighter's own page only while they are confirmed: a fighter
+   * who withdraws must not have a video announcing them left playing there.
+   */
+  it("is offered on the page only while its fighter is confirmed", async () => {
+    const { db, show } = await fullCard(1);
+    const red = show.fighterIds[0];
+    await confirm(db, show.eventId, red);
+    await enqueueRender(db, show.eventId, "all");
+    await db
+      .update(schema.renderJobs)
+      .set({ currentR2Key: "renders/cage-county-12/clip.mp4" })
+      .where(eq(schema.renderJobs.template, "confirmed"));
+
+    expect(await loadConfirmedClip(db, show.eventId, 1, red)).toBe(
+      "/media/renders/cage-county-12/clip.mp4",
+    );
+    expect(await loadConfirmedClip(db, show.eventId, 1, show.fighterIds[1])).toBeUndefined();
+
+    await db
+      .update(schema.invites)
+      .set({ withdrawnAt: Date.now() })
+      .where(eq(schema.invites.fighterId, red));
+    expect(await loadConfirmedClip(db, show.eventId, 1, red)).toBeUndefined();
   });
 });

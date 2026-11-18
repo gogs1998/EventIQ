@@ -175,6 +175,24 @@ describe("what the owning promoter's actions actually do", () => {
     expect(event.venue).toBe("Town Hall");
   });
 
+  it("keeps the show's look for its confirmed clips, and keeps it when the form does not say", async () => {
+    const { db, show } = await twoPromoters();
+    await signInAs("pr_cage");
+    const style = async () =>
+      (await db.select().from(schema.events).where(eq(schema.events.id, show.eventId)))[0]
+        .confirmedStyle;
+
+    expect(await style()).toBe("poster");
+    await updateEvent(show.slug, form({ confirmedStyle: "broadcast" }));
+    expect(await style()).toBe("broadcast");
+    // A form that never showed the choice cannot reset it.
+    await updateEvent(show.slug, form({ name: "Renamed" }));
+    expect(await style()).toBe("broadcast");
+    // Anything posted that is not one of the three is the default, not stored.
+    await updateEvent(show.slug, form({ confirmedStyle: "<script>" }));
+    expect(await style()).toBe("poster");
+  });
+
   it("puts a new bout on top of the running order, with both corners and both links", async () => {
     const { db, show } = await twoPromoters();
     await signInAs("pr_cage");

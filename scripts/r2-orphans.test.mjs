@@ -175,6 +175,18 @@ describe("renderSeries", () => {
     expect(renderSeries("fighters/nadia.jpg")).toBeNull();
   });
 
+  it("files a confirmed clip by fighter, whatever look it was made in", () => {
+    expect(renderSeries("renders/cc12/bout-15-confirmed-poster-dre-osei-abcdef01.mp4")).toBe(
+      "cc12/15/confirmed/dre-osei",
+    );
+    const poster = { key: "renders/cc12/bout-15-confirmed-poster-dre-osei-aaaaaaaa.mp4", uploaded: old(40) };
+    const stamp = { key: "renders/cc12/bout-15-confirmed-stamp-dre-osei-bbbbbbbb.mp4", uploaded: old(35) };
+    const other = { key: "renders/cc12/bout-15-confirmed-stamp-callum-reeves-cccccccc.mp4", uploaded: old(30) };
+    // The new look supersedes the old one; the opponent's clip supersedes nothing.
+    expect(supersededAt(poster, [poster, stamp, other])).toBe(stamp.uploaded);
+    expect(supersededAt(stamp, [poster, stamp, other])).toBe(stamp.uploaded);
+  });
+
   it("does not file the promo with the tape of the same bout", () => {
     const tape = { key: "renders/cc12/bout-15-tape-aaaaaaaa.mp4", uploaded: old(40) };
     const promo = { key: "renders/cc12/bout-15-faceoff-bbbbbbbb.mp4", uploaded: old(35) };

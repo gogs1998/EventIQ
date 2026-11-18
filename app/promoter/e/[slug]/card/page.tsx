@@ -90,13 +90,13 @@ export default async function EditCardPage({ params }: PageProps<"/promoter/e/[s
               carries the same +/− the bout rows use. */}
           <summary className="flex cursor-pointer list-none items-baseline gap-3">
             <span className="display text-2xl">The show</span>
-            <span className="label">Name, date, venue and times</span>
+            <span className="label">Name, date, venue, times and clips</span>
             <span aria-hidden className="text-ash-dim ml-auto text-lg">
               <span className="group-open:hidden">+</span>
               <span className="hidden group-open:inline">−</span>
             </span>
           </summary>
-          <EventForm slug={event.slug} event={event} />
+          <EventForm slug={event.slug} event={event} confirmedStyle={card.confirmedStyle} />
         </details>
       </section>
 

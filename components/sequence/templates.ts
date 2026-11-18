@@ -29,10 +29,12 @@ import { SEQ } from "./timeline";
  * and `render_jobs` carries no corner, and nothing on the site plays either, so
  * queueing them would be rendering for nobody.
  *
- * The three `confirmed-*` looks are the same shape as the walkout and stay out
- * of the queue for the same reason: one fighter's announcement that they are on
- * the card, per corner, made from the command line with
- * `render-tape.mjs --fighter <id> --template confirmed-<look>`.
+ * The three `confirmed-*` looks are queued, as one job per confirmed fighter
+ * rather than per bout: `render_jobs` carries the fighter, the show carries
+ * which look its promoter picked, and the renderer captures
+ * `confirmed-<look>` in that fighter's corner (CONFIRMED_TEMPLATE in
+ * lib/renders.ts). Any one of them can still be made as a sample from the
+ * command line with `render-tape.mjs --fighter <id> --template confirmed-<look>`.
  */
 
 export type TemplateProps = {
@@ -123,9 +125,12 @@ export function templateOf(id: string | undefined): Template | undefined {
  * row and in its unique key, in `renderKeyFor`, and in what the programme and
  * the dashboard read back. What is left is the one thing only a walkout needs:
  *
- * - **A `corner` beside `template` in the unique key**, because a walkout is two
- *   videos for one bout and one row cannot hold both keys — and in the
- *   fingerprint and the published key with it. `social` needs none of that and
- *   is out of the queue only because nothing on the site plays it; giving it a
- *   place on the programme is the whole of its work.
+ * - **Nothing in the table any more.** The confirmed clip put a fighter beside
+ *   `template` in the unique key (migration 0019), which is the corner a
+ *   walkout needed. What is left is the same as the confirmed clip had: a list
+ *   of who gets one in `lib/db/render-jobs.ts` and the renderer, a key shape in
+ *   lib/renders.ts and scripts/r2-orphans.mjs, and somewhere on the site that
+ *   plays it. `social` needs none of that and is out of the queue only because
+ *   nothing on the site plays it; giving it a place on the programme is the
+ *   whole of its work.
  */

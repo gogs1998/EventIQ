@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Card } from "@/lib/card";
 import { GYM_TO_CONFIRM } from "@/lib/copy";
-import { PUBLISHED_TEMPLATES } from "@/lib/renders";
+import { CONFIRMED_STYLES, PUBLISHED_TEMPLATES, confirmedComposition } from "@/lib/renders";
 import type { Bout, Fighter } from "@/lib/types";
 import { DEFAULT_TEMPLATE, TEMPLATE_IDS, TEMPLATES, templateOf } from "./templates";
 
@@ -142,6 +142,20 @@ describe("the template registry", () => {
       // `render_jobs` carries a bout and a template and no corner, so a
       // per-corner composition has nowhere to put its second video.
       expect(TEMPLATES[id].perCorner, id).toBe(false);
+    }
+  });
+
+  /**
+   * The confirmed clip is queued by look: the show's setting names one of
+   * CONFIRMED_STYLES and the renderer captures `confirmed-<look>`. A look in that
+   * list with no composition behind it is a promoter's choice that renders as a
+   * 404 every hour.
+   */
+  it("carries a one-corner composition for every look a promoter can pick", () => {
+    for (const style of CONFIRMED_STYLES) {
+      const id = confirmedComposition(style);
+      expect(TEMPLATES[id], id).toBeDefined();
+      expect(TEMPLATES[id].perCorner, id).toBe(true);
     }
   });
 });

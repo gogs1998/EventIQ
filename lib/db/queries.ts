@@ -25,10 +25,14 @@ import {
   openToken,
 } from "@/lib/invite-token";
 import {
+  CONFIRMED_TEMPLATE,
   TAPE_TEMPLATE,
+  confirmedStyleOf,
+  hasConfirmed,
   isPublishedTemplate,
   renderUrl,
   sponsorMark,
+  type ConfirmedStyle,
   type Renders,
 } from "@/lib/renders";
 import { cutoutIssuesFrom, cutoutQualityFrom } from "@/lib/photo-quality";
@@ -224,6 +228,12 @@ export type LoadedCard = Card & {
    * already loaded rather than by loading the same rows a second time.
    */
   fighterUpdatedAt: Record<string, number>;
+  /**
+   * The look this show's confirmed clips are made in. A setting rather than
+   * something drawn, so it is here beside `published` and not on the event the
+   * programme renders.
+   */
+  confirmedStyle: ConfirmedStyle;
 };
 
 /**
@@ -343,6 +353,7 @@ async function cardWhere(db: Db, where: SQL): Promise<LoadedCard | null> {
     eventId: eventRow.id,
     promoterId: eventRow.promoterId,
     published: eventRow.published,
+    confirmedStyle: confirmedStyleOf(eventRow.confirmedStyle),
     fighterUpdatedAt,
     event: toEvent(
       eventRow,
@@ -929,6 +940,71 @@ export function rendersFrom(
     };
   }
   return renders;
+}
+
+/**
+ * Each confirmed fighter's clip, by bout and then by fighter id: the URL of the
+ * video a successful publish last wrote.
+ *
+ * Says nothing about whether the fighter is still confirmed. A clip is a video
+ * of a particular person announcing a particular show, so the caller that is
+ * about to offer one checks `hasConfirmed` against the invite as it stands — a
+ * fighter who has withdrawn since must not have it played on their page.
+ */
+export function confirmedClipsFrom(
+  rows: readonly {
+    boutNumber: number;
+    template: string;
+    fighterId: string;
+    currentR2Key: string | null;
+  }[],
+): Record<number, Record<string, string>> {
+  const clips: Record<number, Record<string, string>> = {};
+  for (const row of rows) {
+    if (row.template !== CONFIRMED_TEMPLATE || !row.fighterId || !row.currentR2Key) continue;
+    clips[row.boutNumber] = { ...clips[row.boutNumber], [row.fighterId]: renderUrl(row.currentR2Key) };
+  }
+  return clips;
+}
+
+/**
+ * One fighter's confirmed clip on one show, or nothing: for their own page,
+ * which wants this and not the card's thirty other rows.
+ *
+ * Nothing unless they are confirmed now, for the reason `confirmedClipsFrom`
+ * gives — the check is in here so the page cannot be written without it.
+ */
+export async function loadConfirmedClip(
+  db: Db,
+  eventId: string,
+  boutNumber: number,
+  fighterId: string,
+): Promise<string | undefined> {
+  const [[job], [invite]] = await db.batch([
+    db
+      .select({ currentR2Key: schema.renderJobs.currentR2Key })
+      .from(schema.renderJobs)
+      .where(
+        and(
+          eq(schema.renderJobs.eventId, eventId),
+          eq(schema.renderJobs.boutNumber, boutNumber),
+          eq(schema.renderJobs.template, CONFIRMED_TEMPLATE),
+          eq(schema.renderJobs.fighterId, fighterId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({
+        submittedAt: schema.invites.submittedAt,
+        revokedAt: schema.invites.revokedAt,
+        withdrawnAt: schema.invites.withdrawnAt,
+      })
+      .from(schema.invites)
+      .where(and(eq(schema.invites.eventId, eventId), eq(schema.invites.fighterId, fighterId)))
+      .limit(1),
+  ]);
+  if (!job?.currentR2Key || !hasConfirmed(invite)) return undefined;
+  return renderUrl(job.currentR2Key);
 }
 
 export async function loadRenders(db: Db, eventId: string): Promise<Renders> {

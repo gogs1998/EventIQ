@@ -2,6 +2,7 @@ import { INVITE_OVERRIDES } from "@/data/promoter";
 import { newId } from "@/lib/auth";
 import type { LoadedCard } from "@/lib/db/queries";
 import { demoRenderPath } from "@/lib/clips";
+import { DEFAULT_CONFIRMED_STYLE } from "@/lib/renders";
 import { boutFingerprints, renderJobId } from "@/lib/db/render-jobs";
 import { newInviteToken } from "@/lib/invite-token";
 import { completeness } from "@/lib/tape";
@@ -387,6 +388,7 @@ export async function buildSeed({
     eventId,
     promoterId,
     published: true,
+    confirmedStyle: DEFAULT_CONFIRMED_STYLE,
     event: { ...event, date: showDate },
     fighters,
     sponsors,

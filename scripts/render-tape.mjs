@@ -13,10 +13,13 @@
  *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish --env staging
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template faceoff
  *   node scripts/render-tape.mjs --slug cage-county-12 --bout 15 --template walkout --corner blue
+ *   node scripts/render-tape.mjs --slug cage-county-12 --stale --publish --template confirmed
  *   node scripts/render-tape.mjs --fighter amelia-kerr --template confirmed-poster
  *
- * The last is a sample to a file: --publish takes the tape and the promo, and
- * refuses anything the programme has nowhere to put.
+ * `confirmed` is each confirmed fighter's announcement, in the look the show's
+ * promoter picked; a run without --template makes it alongside the tape and the
+ * promo. The last line is a sample to a file in one named look: --publish takes
+ * what the queue makes, and refuses anything the programme has nowhere to put.
  *
  * Before rendering anything it makes the cutouts that do not exist yet, because
  * a fighter's photograph arrives through a Worker and background removal cannot
@@ -65,10 +68,16 @@ import { localBin } from "./local-bin.mjs";
 // possible at all.
 import { RENDER_KEY_HEADER } from "../lib/auth.ts";
 import {
+  CONFIRMED_TEMPLATE,
   MAX_RENDER_ATTEMPTS,
   PUBLISHED_TEMPLATES,
+  QUEUED_TEMPLATES,
   RENDER_LEASE_MS,
-  isPublishedTemplate,
+  confirmedComposition,
+  confirmedRenderKeyFor,
+  confirmedStyleOf,
+  hasConfirmed,
+  isQueuedTemplate,
   renderFingerprint,
   renderJobId,
   renderKeyFor,
@@ -130,8 +139,9 @@ const publish = Boolean(arg("publish"));
  * lib/renders.ts with the fingerprint, which this file already imports.
  *
  * **Naming a template means only that template.** Leaving it off means every
- * published one, which is what a run without a template is now for: a bout has
- * two videos and asking for "bout 15" means the bout rather than half of it.
+ * one the queue makes, which is what a run without a template is now for: a
+ * bout has two videos and a clip per confirmed fighter, and asking for "bout 15"
+ * means the bout rather than part of it.
  */
 const explicitTemplate = typeof arg("template") === "string" ? arg("template") : null;
 const template = str(arg("template", "tape"), "tape");
@@ -143,7 +153,7 @@ const template = str(arg("template", "tape"), "tape");
  * walkout is one video per corner and the job row carries no corner, so a
  * published walkout would replace the bout's promo and read as current.
  */
-const wantedTemplates = explicitTemplate ? [explicitTemplate] : [...PUBLISHED_TEMPLATES];
+const wantedTemplates = explicitTemplate ? [explicitTemplate] : [...QUEUED_TEMPLATES];
 let corner = str(arg("corner", "red"), "red") === "blue" ? "blue" : "red";
 
 /** A flag given with no value comes back as `true`. Treat that as unset. */
@@ -297,6 +307,7 @@ async function boutsOf(eventSlug) {
             b.womens, b.rounds, b.round_minutes, b.sponsor_id, b.red_id, b.blue_id,
             e.name AS event_name, e.date AS event_date, e.venue AS event_venue,
             e.city AS event_city, e.backdrop AS event_backdrop,
+            e.published AS event_published, e.confirmed_style AS confirmed_style,
             p.name AS promoter_name, p.mark AS promoter_mark,
             r.updated_at AS red_updated, u.updated_at AS blue_updated,
             r.photo AS red_photo, r.cutout AS red_cutout,
@@ -346,19 +357,20 @@ async function boutsOf(eventSlug) {
     ]);
   }
 
-  // Every queue row for the show, by bout and template. A separate query rather
-  // than a join, because a bout has a row per composition and joining them onto
-  // the bout would return the card once per video.
+  // Every queue row for the show, by bout, template and fighter. A separate query
+  // rather than a join, because a bout has a row per composition and joining them
+  // onto the bout would return the card once per video.
   const jobs = new Map();
   for (const job of await d1(
-    `SELECT j.bout_number AS bout_number, j.template AS template, j.status AS status,
-            j.current_hash AS current_hash, j.current_r2_key AS current_r2_key,
-            j.attempts AS attempts, j.lease_until AS lease_until, j.error AS error
+    `SELECT j.bout_number AS bout_number, j.template AS template, j.fighter_id AS fighter_id,
+            j.status AS status, j.current_hash AS current_hash,
+            j.current_r2_key AS current_r2_key, j.attempts AS attempts,
+            j.lease_until AS lease_until, j.error AS error
        FROM render_jobs j
        JOIN events e ON e.id = j.event_id
       WHERE e.slug = ${lit(eventSlug)}`,
   )) {
-    jobs.set(`${job.bout_number}:${job.template}`, {
+    jobs.set(`${job.bout_number}:${job.template}:${job.fighter_id ?? ""}`, {
       status: job.status,
       attempts: job.attempts ?? 0,
       leaseUntil: job.lease_until ?? null,
@@ -367,6 +379,22 @@ async function boutsOf(eventSlug) {
       error: job.error ?? null,
     });
   }
+
+  // Who has confirmed, by the same rule the app uses (`hasConfirmed`), so the
+  // dashboard's list of clips and this run's cannot disagree about a fighter.
+  const confirmed = new Set(
+    (
+      await d1(
+        `SELECT i.fighter_id AS fighter_id, i.submitted_at AS submittedAt,
+                i.revoked_at AS revokedAt, i.withdrawn_at AS withdrawnAt
+           FROM invites i
+           JOIN events e ON e.id = i.event_id
+          WHERE e.slug = ${lit(eventSlug)}`,
+      )
+    )
+      .filter((invite) => hasConfirmed(invite))
+      .map((invite) => invite.fighter_id),
+  );
 
   return Promise.all(
     rows.map(async (row) => {
@@ -385,7 +413,30 @@ async function boutsOf(eventSlug) {
       const boutJobs = {};
       for (const id of PUBLISHED_TEMPLATES) {
         hashes[id] = await renderFingerprint(renderInputsFrom(row, sponsors, id));
-        boutJobs[id] = jobs.get(`${row.number}:${id}`) ?? null;
+        boutJobs[id] = jobs.get(`${row.number}:${id}:`) ?? null;
+      }
+
+      // One clip per confirmed fighter, on a published show only — the same
+      // rule as `confirmedFingerprints` in lib/db/render-jobs.ts. The look is
+      // the show's, and it is the template the fingerprint is taken over.
+      const style = confirmedStyleOf(row.confirmed_style);
+      const composition = confirmedComposition(style);
+      const clips = [];
+      if (row.event_published) {
+        for (const [fighterId, corner] of [
+          [row.red_id, "red"],
+          [row.blue_id, "blue"],
+        ]) {
+          if (!confirmed.has(fighterId)) continue;
+          clips.push({
+            fighterId,
+            corner,
+            style,
+            composition,
+            hash: await renderFingerprint(renderInputsFrom(row, sponsors, composition)),
+            job: jobs.get(`${row.number}:${CONFIRMED_TEMPLATE}:${fighterId}`) ?? null,
+          });
+        }
       }
 
       return {
@@ -396,6 +447,7 @@ async function boutsOf(eventSlug) {
           needsCutout({ photo: row.blue_photo, cutout: row.blue_cutout }),
         hashes,
         jobs: boutJobs,
+        clips,
       };
     }),
   );
@@ -412,29 +464,71 @@ async function boutsOf(eventSlug) {
  * A template nothing publishes gets a target with no hash, which is all a dry
  * run to a file needs — the claim and the publish are the two things that want
  * one, and both are refused for those templates before this is reached.
+ *
+ * `confirmed` is a target per confirmed fighter rather than per bout, carrying
+ * the fighter, their corner and the composition the show's look resolves to.
+ * Every other template is about both corners and carries no fighter.
+ *
+ * **No row is the same as a stale row.** A target whose job is missing has
+ * nothing rendered, so `rendered` is null and never equals the hash, and
+ * `--stale` takes it. That is what makes a newly queued kind of video reach
+ * every show already published without a backfill: the face-off was published
+ * with one (migration 0015 queued only the tape) and no card had a promo until
+ * somebody dispatched each show by hand. lib/renders.test.ts holds this.
  */
 export function targetsOf(bouts, templates, now = Date.now()) {
   const targets = [];
+  const target = (bout, fields, job) => ({
+    number: bout.number,
+    fighterIds: bout.fighterIds,
+    pendingCutout: bout.pendingCutout,
+    fighterId: "",
+    corner: "red",
+    ...fields,
+    job,
+    // A finished render made before fingerprinting existed has no hash, so
+    // it counts as stale. Re-rendering something that was already right is
+    // far cheaper than showing a video of a record that has since changed.
+    rendered: job?.currentHash ?? null,
+    playable: Boolean(job?.currentR2Key),
+    held: job?.leaseUntil != null && job.leaseUntil > now,
+  });
   for (const bout of bouts) {
     for (const template of templates) {
-      const job = bout.jobs?.[template] ?? null;
-      targets.push({
-        number: bout.number,
-        template,
-        fighterIds: bout.fighterIds,
-        pendingCutout: bout.pendingCutout,
-        hash: bout.hashes?.[template] ?? null,
-        job,
-        // A finished render made before fingerprinting existed has no hash, so
-        // it counts as stale. Re-rendering something that was already right is
-        // far cheaper than showing a video of a record that has since changed.
-        rendered: job?.currentHash ?? null,
-        playable: Boolean(job?.currentR2Key),
-        held: job?.leaseUntil != null && job.leaseUntil > now,
-      });
+      if (template === CONFIRMED_TEMPLATE) {
+        for (const clip of bout.clips ?? []) {
+          targets.push(
+            target(
+              bout,
+              {
+                template,
+                composition: clip.composition,
+                style: clip.style,
+                fighterId: clip.fighterId,
+                corner: clip.corner,
+                hash: clip.hash,
+              },
+              clip.job,
+            ),
+          );
+        }
+        continue;
+      }
+      targets.push(
+        target(
+          bout,
+          { template, composition: template, hash: bout.hashes?.[template] ?? null },
+          bout.jobs?.[template] ?? null,
+        ),
+      );
     }
   }
   return targets;
+}
+
+/** How a target is named in a log line: the bout, the template and, for a clip, whose. */
+export function targetLabel(target) {
+  return `bout ${target.number} ${target.template}${target.fighterId ? ` ${target.fighterId}` : ""}`;
 }
 
 async function eventIdOf(eventSlug) {
@@ -468,7 +562,7 @@ async function eventIdOf(eventSlug) {
  * five seeded renders were exactly that, and every hourly run left them where
  * they were while reporting them as held by somebody else.
  */
-export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
+export function claimSql(eventId, boutNumber, template, hash, { now, force, fighterId = "" }) {
   const wanted = force
     ? "1 = 1"
     : `(render_jobs.status = 'queued'
@@ -478,12 +572,13 @@ export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
                 AND render_jobs.current_hash IS NOT ${lit(hash)}))`;
 
   return `INSERT INTO render_jobs
-            (id, event_id, bout_number, template, status, input_hash, error, attempts,
-             lease_until, requested_at)
+            (id, event_id, bout_number, template, fighter_id, status, input_hash, error,
+             attempts, lease_until, requested_at)
           VALUES
-            (${lit(renderJobId(eventId, boutNumber, template))}, ${lit(eventId)}, ${boutNumber},
-             ${lit(template)}, 'running', ${lit(hash)}, NULL, 1, ${now + RENDER_LEASE_MS}, ${now})
-          ON CONFLICT (event_id, bout_number, template) DO UPDATE SET
+            (${lit(renderJobId(eventId, boutNumber, template, fighterId))}, ${lit(eventId)},
+             ${boutNumber}, ${lit(template)}, ${lit(fighterId)}, 'running', ${lit(hash)}, NULL, 1,
+             ${now + RENDER_LEASE_MS}, ${now})
+          ON CONFLICT (event_id, bout_number, template, fighter_id) DO UPDATE SET
             status = 'running',
             input_hash = excluded.input_hash,
             error = NULL,
@@ -494,8 +589,10 @@ export function claimSql(eventId, boutNumber, template, hash, { now, force }) {
           RETURNING id`;
 }
 
-async function claim(eventId, boutNumber, template, hash, { force }) {
-  const won = await d1(claimSql(eventId, boutNumber, template, hash, { now: Date.now(), force }));
+async function claim(eventId, boutNumber, template, hash, { force, fighterId = "" }) {
+  const won = await d1(
+    claimSql(eventId, boutNumber, template, hash, { now: Date.now(), force, fighterId }),
+  );
   return won.length > 0;
 }
 
@@ -506,12 +603,12 @@ async function claim(eventId, boutNumber, template, hash, { force }) {
  * programme plays, and a render that has just failed must not take a working
  * video off a card people are reading at a venue.
  */
-async function finishJob(eventId, boutNumber, template, fields) {
+async function finishJob(eventId, boutNumber, template, fields, fighterId = "") {
   const sets = Object.entries(fields).map(([name, value]) => `${name} = ${value}`);
   await d1(
     `UPDATE render_jobs SET ${sets.join(", ")}, lease_until = NULL, finished_at = ${Date.now()}
       WHERE event_id = ${lit(eventId)} AND bout_number = ${boutNumber}
-        AND template = ${lit(template)}`,
+        AND template = ${lit(template)} AND fighter_id = ${lit(fighterId)}`,
   );
 }
 
@@ -734,10 +831,10 @@ export async function seek(page, frame) {
  * remember the order they were made in. The corner only where it is not the
  * default, because it means nothing for the three templates that draw both.
  */
-function outputName(bout, templateId = template) {
+function outputName(bout, templateId = template, fighterId = "") {
   // A clip asked for by fighter is named after them, because that is who it is
   // going to and the bout number means nothing to them.
-  if (namedFighter) return `${slug}-${namedFighter}-${templateId}`;
+  if (fighterId || namedFighter) return `${slug}-${fighterId || namedFighter}-${templateId}`;
   return `${slug}-bout-${bout}-${templateId}${corner === "red" ? "" : `-${corner}`}`;
 }
 
@@ -755,9 +852,9 @@ async function renderStill(bout, frame) {
   console.log(file);
 }
 
-async function renderBout(bout, templateId = template) {
+async function renderBout(bout, templateId = template, cornerId = corner, fighterId = "") {
   await mkdir(outDir, { recursive: true });
-  const out = path.join(outDir, `${outputName(bout, templateId)}.mp4`);
+  const out = path.join(outDir, `${outputName(bout, templateId, fighterId)}.mp4`);
 
   const ffmpeg = spawn("ffmpeg", [
     "-y",
@@ -801,7 +898,7 @@ async function renderBout(bout, templateId = template) {
   const started = Date.now();
   try {
     await withPage(async (page) => {
-      const duration = await openBout(page, bout, slug, templateId);
+      const duration = await openBout(page, bout, slug, templateId, cornerId);
       process.stdout.write(`bout ${bout} ${templateId}: ${duration} frames `);
 
       for (let frame = 0; frame < duration; frame += 1) {
@@ -845,22 +942,32 @@ async function renderBout(bout, templateId = template) {
  * renders once they have been superseded for RENDER_GRACE_DAYS, which is the
  * one place this bucket is tidied.
  */
-async function publishBout(eventId, bout, templateId, file, hash) {
-  const key = renderKeyFor(slug, bout, templateId, hash);
+async function publishBout(eventId, target, file) {
+  const { number: bout, template: templateId, hash, fighterId } = target;
+  const key =
+    templateId === CONFIRMED_TEMPLATE
+      ? confirmedRenderKeyFor(slug, bout, fighterId, target.style, hash)
+      : renderKeyFor(slug, bout, templateId, hash);
   await run("npx", [
     "wrangler", "r2", "object", "put", `${BUCKET}/${key}`,
     "--file", file,
     "--content-type", "video/mp4",
     scope,
   ]);
-  await finishJob(eventId, bout, templateId, {
-    status: lit("done"),
-    current_r2_key: lit(key),
-    current_hash: lit(hash),
-    input_hash: lit(hash),
-    attempts: 0,
-    error: "NULL",
-  });
+  await finishJob(
+    eventId,
+    bout,
+    templateId,
+    {
+      status: lit("done"),
+      current_r2_key: lit(key),
+      current_hash: lit(hash),
+      input_hash: lit(hash),
+      attempts: 0,
+      error: "NULL",
+    },
+    fighterId,
+  );
   console.log(`  published ${key}`);
 }
 
@@ -887,13 +994,13 @@ export async function runTargets(
 ) {
   let failures = 0;
   for (const target of targets) {
-    const { number, template: id } = target;
+    const label = targetLabel(target);
     let held = false;
     try {
       if (publish) {
         held = await claim(target);
         if (!held) {
-          log(`bout ${number} ${id}: left to another runner (${stateOf(target)})`);
+          log(`${label}: left to another runner (${stateOf(target)})`);
           continue;
         }
       }
@@ -905,10 +1012,10 @@ export async function runTargets(
       // must not take the tale of the tape with it. The exit code carries the
       // failure, which is what a cron and a workflow actually read.
       failures += 1;
-      warn(`bout ${number} ${id}: ${error.message}`);
+      warn(`${label}: ${error.message}`);
       if (publish && held) {
         await fail(target, error).catch((recording) =>
-          warn(`bout ${number} ${id}: could not record the failure: ${recording.message}`),
+          warn(`${label}: could not record the failure: ${recording.message}`),
         );
       }
     }
@@ -936,7 +1043,7 @@ function stateOf(target) {
  * again is a reasonable thing to want, and a run that skipped it would leave the
  * dashboard saying "queued" until somebody typed a bout number.
  */
-function wantsRendering(target) {
+export function wantsRendering(target) {
   if (target.held) return false;
   if (target.job?.status === "queued") return true;
   if (
@@ -970,7 +1077,7 @@ export function isParked(target) {
 export function parkedReport(targets, { actions = false } = {}) {
   return targets.map((target) => {
     const line =
-      `bout ${target.number} ${target.template}: parked after ${target.job.attempts} failed ` +
+      `${targetLabel(target)}: parked after ${target.job.attempts} failed ` +
       `attempts and not retried. "Render again" on the dashboard puts it back in the queue.` +
       (target.job.error ? ` Last error: ${target.job.error.split("\n")[0]}` : "");
     return actions ? `::warning title=Bout ${target.number} ${target.template} is parked::${line}` : line;
@@ -1043,12 +1150,12 @@ async function main() {
    * publishing one would replace the bout's promo and read as current
    * afterwards. Refusing here is cheaper than finding out from a venue.
    */
-  const unpublishable = wantedTemplates.filter((id) => !isPublishedTemplate(id));
+  const unpublishable = wantedTemplates.filter((id) => !isQueuedTemplate(id));
   if (publish && unpublishable.length) {
     throw new Error(
-      `--template ${unpublishable[0]} cannot be published: render_jobs carries a bout and a ` +
-        "template, but no corner, so a walkout would replace the bout's promo and read as " +
-        "current. Drop --publish to render a sample to a file.",
+      `--template ${unpublishable[0]} cannot be published: the programme has nowhere to put it. ` +
+        "The queue makes the tape, the promo and `confirmed` — each confirmed fighter's clip, " +
+        "in the look the show's promoter picked. Drop --publish to render a sample to a file.",
     );
   }
 
@@ -1068,10 +1175,10 @@ async function main() {
     // Both compositions of every bout, whatever --template says: a list is what
     // somebody reads to find out what the card is missing, and one showing half
     // of each bout would answer a question nobody asked.
-    for (const target of targetsOf(all, PUBLISHED_TEMPLATES)) {
+    for (const target of targetsOf(all, QUEUED_TEMPLATES)) {
       console.log(
-        `  bout ${String(target.number).padStart(2)}  ${target.template.padEnd(7)}  ` +
-          `${stateOf(target)}` +
+        `  bout ${String(target.number).padStart(2)}  ${target.template.padEnd(9)}  ` +
+          `${target.fighterId ? `${target.fighterId} (${target.style})  ` : ""}${stateOf(target)}` +
           `${target.pendingCutout ? "  (cutout to make)" : ""}` +
           `${target.job?.error ? `\n      ${target.job.error}` : ""}`,
       );
@@ -1118,7 +1225,10 @@ async function main() {
   if (boutArg && boutArg !== true) {
     const named = all.filter((b) => b.number === Number(boutArg));
     if (!named.length) throw new Error(`Bout ${boutArg} is not on "${slug}"`);
-    wanted = targetsOf(named, wantedTemplates);
+    // A fighter named on the command line means their clip, not their opponent's.
+    wanted = targetsOf(named, wantedTemplates).filter(
+      (target) => !fighterArg || !target.fighterId || target.fighterId === fighterArg,
+    );
     force = true;
   } else if (arg("stale")) {
     const targets = targetsOf(all, wantedTemplates);
@@ -1156,19 +1266,37 @@ async function main() {
 
   const failures = await runTargets(wanted, {
     publish,
-    claim: (target) => claim(eventId, target.number, target.template, target.hash, { force }),
-    render: (target) => renderBout(target.number, target.template),
-    publishOne: (target, file) =>
-      publishBout(eventId, target.number, target.template, file, target.hash),
-    fail: (target, error) =>
-      finishJob(eventId, target.number, target.template, {
-        status: lit("failed"),
-        // Long enough to say what happened, short enough for a table cell.
-        error: lit(error.message.slice(0, 500)),
-        // The claim counted this attempt. A failure that was the site's or the
-        // key's rather than the bout's gives it back.
-        ...(error.preCapture ? { attempts: "MAX(attempts - 1, 0)" } : {}),
+    claim: (target) =>
+      claim(eventId, target.number, target.template, target.hash, {
+        force,
+        fighterId: target.fighterId,
       }),
+    // The composition is the template for a bout's own videos and the show's
+    // chosen look for a confirmed clip; the corner is the clip's fighter's, or
+    // --corner for a sample, which a target about both corners ignores.
+    render: (target) =>
+      renderBout(
+        target.number,
+        target.composition ?? target.template,
+        target.fighterId ? target.corner : corner,
+        target.fighterId,
+      ),
+    publishOne: (target, file) => publishBout(eventId, target, file),
+    fail: (target, error) =>
+      finishJob(
+        eventId,
+        target.number,
+        target.template,
+        {
+          status: lit("failed"),
+          // Long enough to say what happened, short enough for a table cell.
+          error: lit(error.message.slice(0, 500)),
+          // The claim counted this attempt. A failure that was the site's or the
+          // key's rather than the bout's gives it back.
+          ...(error.preCapture ? { attempts: "MAX(attempts - 1, 0)" } : {}),
+        },
+        target.fighterId,
+      ),
   });
 
   // A parked bout is a failure of this run as well as of its last one: the card

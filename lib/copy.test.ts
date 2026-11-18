@@ -9,7 +9,11 @@ import {
   boutsOffLabel,
   chaseHeading,
   chaseNote,
+  confirmedReadyMessage,
   countdown,
+  CONFIRMED_CLIP,
+  CONFIRMED_SETTING,
+  CONFIRMED_STRINGS,
   CONSENT_COPY_STRINGS,
   EMPTY_CARD_EDITOR,
   EMPTY_DASHBOARD,
@@ -1801,5 +1805,44 @@ describe("the tidied photo copy", () => {
       expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
       expect(line.trim()).toBe(line);
     }
+  });
+});
+
+describe("the confirmed clip copy", () => {
+  /**
+   * The setting is on a promoter's form and the message goes to a fighter, so
+   * both are in the product's own register: plain, and claiming nothing.
+   */
+  it("keeps the established tone", () => {
+    for (const line of CONFIRMED_STRINGS) {
+      expect(line).not.toMatch(/\b(he|she|him|her|hers|his|himself|herself)\b/i);
+      expect(line).not.toMatch(/\bfault\b|\bblame\b|\bsorry\b|\bfailed\b|\bmissed\b|\bstill (has|have) not\b/i);
+      expect(line).not.toMatch(/organiz|customiz|\bcolor\b|optimiz|!/i);
+      expect(line).not.toMatch(/(amazing|incredible|epic|stunning|beast|smash|war\b)/i);
+      expect(line).not.toMatch(/\b(views?|reach|followers?|viral|engagement)\b/i);
+      expect(line).not.toMatch(/\b(seconds?|minutes?|hours?)\b/i);
+      expect(line.trim()).toBe(line);
+      expect(line).not.toMatch(/undefined|NaN|TODO/);
+    }
+  });
+
+  it("names a look for each of the three styles, and says what changing it does", () => {
+    expect(Object.keys(CONFIRMED_SETTING.styles).sort()).toEqual(["broadcast", "poster", "stamp"]);
+    expect(CONFIRMED_SETTING.hint.toLowerCase()).toContain("stays up until");
+  });
+
+  it("hands over pages rather than a file the next render replaces", () => {
+    const message = confirmedReadyMessage({
+      firstName: "Chloe",
+      eventName: "Cage County 12",
+      pageUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+      programmeUrl: "https://eventiq.win/e/cage-county-12",
+    });
+    expect(message).toContain("/e/cage-county-12/f/chloe-baines");
+    expect(message).not.toContain(".mp4");
+    expect(message).not.toContain("/media/");
+    expect(CONFIRMED_CLIP.title("Chloe Baines", "Cage County 12")).toBe(
+      "Chloe Baines is on the card for Cage County 12",
+    );
   });
 });

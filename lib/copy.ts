@@ -721,6 +721,86 @@ export function videoReadyMessage(input: {
 }
 
 /* -------------------------------------------------------------------------
+ * The confirmed clip
+ *
+ * One fighter's announcement that they are on the card, made once they have
+ * sent their details in, in whichever of three looks the promoter picked for
+ * the show. Everything the video panel and the share copy above live under
+ * applies here too: nothing claims a result, nothing is breathless, and no
+ * gendered pronoun — a promoter forwards these to fighters on a mixed card.
+ *
+ * The setting is on the promoter's own form, so it is in the product's plain
+ * register: what each look is, in a line, and what changing it does.
+ * ---------------------------------------------------------------------- */
+
+export const CONFIRMED_SETTING = {
+  legend: "Announcement clips",
+  hint:
+    "Each fighter who sends their details in gets a short video saying they are on the card, " +
+    "made for them to post. Pick the look for this show. Changing it remakes the clips already " +
+    "made; each one stays up until its replacement is ready.",
+  styles: {
+    poster: {
+      label: "Fight poster",
+      description: "The surname set large behind the fighter, with a gold sash across it.",
+    },
+    stamp: {
+      label: "Stamped",
+      description: "A Confirmed stamp lands on the picture, followed by the show details.",
+    },
+    broadcast: {
+      label: "Broadcast",
+      description: "A name strap under a slow camera push, in the style of a television graphic.",
+    },
+  },
+} as const;
+
+export const CONFIRMED_CLIP = {
+  /** Above the clip on a fighter's own page, and its row on the videos panel. */
+  label: "On the card",
+  /** Under it on the panel, so a promoter knows who it is for. */
+  note:
+    "A short clip for each fighter who has sent their details in, saying they are on the " +
+    "card, in the look chosen for this show. It can be sent with the same control as the promo.",
+  /** What the sharing sheet calls it. */
+  title: (name: string, show: string) => `${name} is on the card for ${show}`,
+} as const;
+
+/**
+ * The message a promoter sends a fighter when their confirmed clip is ready and
+ * their bout's promo is not. Where both exist, `videoReadyMessage` is the one
+ * sent: the page it links to plays both.
+ */
+export function confirmedReadyMessage(input: {
+  firstName: string;
+  eventName: string;
+  pageUrl: string;
+  programmeUrl: string;
+}): string {
+  return [
+    `Hi ${input.firstName} — thanks for sending your details for ${input.eventName}. There is a short video saying you are on the card.`,
+    `It is on your page, ready to download and post wherever you like: ${input.pageUrl}`,
+    `The full programme: ${input.programmeUrl}`,
+  ].join("\n\n");
+}
+
+/** Every line of the confirmed-clip copy, for the tone tests. */
+export const CONFIRMED_STRINGS: readonly string[] = [
+  CONFIRMED_SETTING.legend,
+  CONFIRMED_SETTING.hint,
+  ...Object.values(CONFIRMED_SETTING.styles).flatMap((style) => [style.label, style.description]),
+  CONFIRMED_CLIP.label,
+  CONFIRMED_CLIP.note,
+  CONFIRMED_CLIP.title("Chloe Baines", "Cage County 12"),
+  confirmedReadyMessage({
+    firstName: "Chloe",
+    eventName: "Cage County 12",
+    pageUrl: "https://eventiq.win/e/cage-county-12/f/chloe-baines",
+    programmeUrl: "https://eventiq.win/e/cage-county-12",
+  }),
+];
+
+/* -------------------------------------------------------------------------
  * What is said when something goes wrong
  *
  * Here for the same two reasons as the zero-bout strings above: a sentence a

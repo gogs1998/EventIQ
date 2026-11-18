@@ -9,6 +9,9 @@ import {
   renderInputsFrom,
   runTargets,
   sameOrigin,
+  targetLabel,
+  targetsOf,
+  wantsRendering,
 } from "./render-tape.mjs";
 
 /**
@@ -201,7 +204,23 @@ describe("claimSql", () => {
 
   it("addresses the row the app addresses", () => {
     expect(sql()).toContain("'rj_ev_1_15_tape'");
-    expect(sql()).toContain("ON CONFLICT (event_id, bout_number, template)");
+    expect(sql()).toContain("ON CONFLICT (event_id, bout_number, template, fighter_id)");
+  });
+
+  /**
+   * A confirmed clip is one row per fighter, and the claim has to take that
+   * fighter's row: claiming the bout's would put one fighter's announcement on
+   * the other's page.
+   */
+  it("claims one fighter's confirmed clip rather than the bout's", () => {
+    const clip = claimSql("ev_1", 15, "confirmed", "abcdef0123456789", {
+      now: 1000,
+      force: false,
+      fighterId: "callum-reeves",
+    });
+    expect(clip).toContain("'rj_ev_1_15_confirmed_callum-reeves'");
+    expect(clip).toContain("'callum-reeves', 'running'");
+    expect(sql()).toContain("'', 'running'");
   });
 
   /**
@@ -359,5 +378,66 @@ describe("fighterPlacementSql", () => {
 
   it("quotes the id rather than trusting it", () => {
     expect(fighterPlacementSql("o'rourke")).toContain("'o''rourke'");
+  });
+});
+
+describe("targetsOf", () => {
+  const bout = {
+    number: 15,
+    fighterIds: ["callum-reeves", "dre-osei"],
+    pendingCutout: false,
+    hashes: { tape: "t".repeat(16), faceoff: "f".repeat(16) },
+    jobs: { tape: null, faceoff: null },
+    clips: [
+      {
+        fighterId: "dre-osei",
+        corner: "blue",
+        style: "stamp",
+        composition: "confirmed-stamp",
+        hash: "c".repeat(16),
+        job: null,
+      },
+    ],
+  };
+
+  it("makes one target per confirmed fighter, in the show's look and their own corner", () => {
+    const [clip] = targetsOf([bout], ["confirmed"]);
+    expect(clip).toMatchObject({
+      template: "confirmed",
+      composition: "confirmed-stamp",
+      fighterId: "dre-osei",
+      corner: "blue",
+    });
+    expect(targetLabel(clip)).toBe("bout 15 confirmed dre-osei");
+    expect(targetsOf([{ ...bout, clips: [] }], ["confirmed"])).toEqual([]);
+  });
+
+  it("leaves a bout's own videos about both corners", () => {
+    const [tape] = targetsOf([bout], ["tape"]);
+    expect(tape).toMatchObject({ template: "tape", composition: "tape", fighterId: "" });
+    expect(targetLabel(tape)).toBe("bout 15 tape");
+  });
+
+  /**
+   * The roadmap's debt: a newly published template was never queued for the
+   * bouts that already existed. With no row, nothing has been rendered, so the
+   * target reads as never made and --stale takes it — no backfill needed.
+   */
+  it("treats a clip with no job row as never made", () => {
+    const [clip] = targetsOf([bout], ["confirmed"]);
+    expect(clip.job).toBeNull();
+    expect(clip.rendered).toBeNull();
+    expect(wantsRendering(clip)).toBe(true);
+    expect(clip.playable).toBe(false);
+    // And once it is made in this look, it is left alone until something moves.
+    const made = { status: "done", attempts: 0, leaseUntil: null, currentR2Key: "k", currentHash: clip.hash, error: null };
+    const [current] = targetsOf([{ ...bout, clips: [{ ...bout.clips[0], job: made }] }], ["confirmed"]);
+    expect(wantsRendering(current)).toBe(false);
+    // A new look is a new hash: the promoter's choice re-makes it, quietly.
+    const [restyled] = targetsOf(
+      [{ ...bout, clips: [{ ...bout.clips[0], hash: "d".repeat(16), job: made }] }],
+      ["confirmed"],
+    );
+    expect(wantsRendering(restyled)).toBe(true);
   });
 });
