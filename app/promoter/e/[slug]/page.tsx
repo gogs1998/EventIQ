@@ -12,7 +12,12 @@ import { SponsorLockup } from "@/components/SponsorLockup";
 import { boutsTopDown, cornersOf } from "@/lib/card";
 import { getDb } from "@/lib/db";
 import { loadDashboardRows, rendersFrom, type AnalyticsTotals } from "@/lib/db/queries";
-import { boutFingerprints, jobsByBout } from "@/lib/db/render-jobs";
+import {
+  boutFingerprints,
+  confirmedFingerprints,
+  confirmedJobsByBout,
+  jobsByBout,
+} from "@/lib/db/render-jobs";
 import {
   EMPTY_DASHBOARD,
   INVITE_SHARE,
@@ -29,6 +34,8 @@ import {
   slotsAvailableNote,
   sponsorTapNote,
   videoReadyMessage,
+  CONFIRMED_CLIP,
+  confirmedReadyMessage,
 } from "@/lib/copy";
 import { cx } from "@/lib/cx";
 import {
@@ -48,7 +55,9 @@ import {
 } from "@/lib/promoter";
 import {
   PUBLISHED_TEMPLATES,
+  hasConfirmed,
   renderState,
+  renderUrl,
   type PublishedTemplate,
   type RenderState,
 } from "@/lib/renders";
@@ -382,10 +391,13 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
       loadDashboardRows(db, card.eventId, promoter.id, event.date),
       boutFingerprints(card),
     ]);
+  // After the invites, because who has confirmed is read off them.
+  const clipFingerprints = await confirmedFingerprints(card, invites);
 
   // The jobs say what the renderer has been doing; the fingerprints say what the
   // card looks like now. A video is only current where the two agree.
   const jobs = jobsByBout(jobRows);
+  const clipJobs = confirmedJobsByBout(jobRows);
   const renders = rendersFrom(jobRows);
   const progress = eventProgress(card, invites);
   const chase = chaseList(card, invites);
@@ -619,6 +631,7 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
         </div>
         <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{RENDER_SECTION.body}</p>
         <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{VIDEO_SHARE.note}</p>
+        <p className="text-ash mb-2 max-w-2xl text-xs leading-relaxed">{CONFIRMED_CLIP.note}</p>
         {/* Said once at the top rather than only a bout at a time, so a column
             of "not made yet" reads as a new card rather than as a stalled queue. */}
         {rendered === 0 ? (
@@ -656,23 +669,57 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
             // Only where there is something to hand over. A control offering a
             // video that does not exist is worse than no control.
             const promo = boutRenders.faceoff;
-            const corners = promo
-              ? Object.values(cornersOf(card, bout)).map((fighter) => ({
+            // Each confirmed fighter's own clip, keyed by who is on the bout now
+            // so a row left by somebody swapped off it is never offered as theirs.
+            // A bout that is off makes nothing new and offers nothing.
+            const clips = bout.cancelled
+              ? []
+              : Object.values(cornersOf(card, bout))
+                  .filter((fighter) => hasConfirmed(invites[fighter.id]))
+                  .map((fighter) => {
+                    const job = clipJobs[bout.number]?.[fighter.id] ?? null;
+                    return {
+                      fighter,
+                      job,
+                      state: renderState(
+                        job,
+                        clipFingerprints[bout.number]?.[fighter.id] ?? "",
+                      ) as PanelState,
+                      mp4: job?.currentR2Key ? renderUrl(job.currentR2Key) : undefined,
+                    };
+                  });
+            const clipOf = (id: string) => clips.find((clip) => clip.fighter.id === id)?.mp4;
+            // Whoever has something to be sent: the bout's promo, which is both of
+            // them, or their own clip. One control and one message per fighter,
+            // because both videos play on the same page the message links to.
+            const corners = Object.values(cornersOf(card, bout))
+              .filter((fighter) => !bout.cancelled && (promo || clipOf(fighter.id)))
+              .map((fighter) => {
+                // Their own page rather than the file: it is the one that is
+                // about them, it plays whichever render is current when the
+                // message is opened, and it carries the download.
+                const pageUrl = `${SITE_URL}/e/${event.slug}/f/${fighter.id}`;
+                const programmeUrl = `${SITE_URL}/e/${event.slug}`;
+                return {
                   id: fighter.id,
                   label: firstName(fighter),
                   sentAt: invites[fighter.id]?.videoSentAt,
-                  message: videoReadyMessage({
-                    firstName: firstName(fighter),
-                    eventName: event.name,
-                    boutLabel: boutBillingLabel(bout),
-                    // Their own page rather than the file: it is the one that is
-                    // about them, it plays whichever render is current when the
-                    // message is opened, and it carries the download.
-                    pageUrl: `${SITE_URL}/e/${event.slug}/f/${fighter.id}`,
-                    programmeUrl: `${SITE_URL}/e/${event.slug}`,
-                  }),
-                }))
-              : [];
+                  message: promo
+                    ? videoReadyMessage({
+                        firstName: firstName(fighter),
+                        eventName: event.name,
+                        boutLabel: boutBillingLabel(bout),
+                        pageUrl,
+                        programmeUrl,
+                      })
+                    : confirmedReadyMessage({
+                        firstName: firstName(fighter),
+                        eventName: event.name,
+                        pageUrl,
+                        programmeUrl,
+                      }),
+                };
+              });
             const inHand = states.every(
               ({ state }) => state === "queued" || state === "running" || state === "withdrawn",
             );
@@ -707,6 +754,36 @@ export default async function PromoterEventPage({ params }: PageProps<"/promoter
                             whoever runs the pipeline rather than for the
                             promoter, so it is set quietly and never as the
                             headline. */}
+                        {state === "failed" && job?.error ? (
+                          <div className="text-ash-dim w-full font-mono text-[0.6rem] break-words">
+                            {job.error}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                    {/* One row per confirmed fighter, under the bout's own two.
+                        Only those who have sent their details in: a fighter who
+                        has not is not missing a clip, there is simply nothing
+                        to announce yet. */}
+                    {clips.map(({ fighter, job, state, mp4 }) => (
+                      <div key={fighter.id} className="flex flex-wrap items-center gap-2">
+                        <span className="label text-ash-dim w-24 shrink-0">
+                          {CONFIRMED_CLIP.label} · {firstName(fighter)}
+                        </span>
+                        <Badge className={RENDER_STYLE[state]}>
+                          {renderStateCopy(state, card.published).label}
+                        </Badge>
+                        <span className="text-ash min-w-0 text-xs leading-relaxed">
+                          {renderStateCopy(state, card.published).note}
+                        </span>
+                        {mp4 ? (
+                          <Link
+                            href={mp4}
+                            className="label text-ash-dim hover:text-chalk transition-colors"
+                          >
+                            Watch
+                          </Link>
+                        ) : null}
                         {state === "failed" && job?.error ? (
                           <div className="text-ash-dim w-full font-mono text-[0.6rem] break-words">
                             {job.error}

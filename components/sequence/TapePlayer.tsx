@@ -88,10 +88,23 @@ export function PromoPlayer({
   pageUrl,
   title,
   fighterId,
+  label = VIDEO_SHARE.promo,
+  note = VIDEO_SHARE.promoNote,
+  seconds = FACEOFF_FRAMES / SEQ.fps,
 }: {
   slug: string;
   boutNumber: number;
   mp4: string;
+  /**
+   * What it is called above the frame and on the play button. The promo by
+   * default; a fighter's own page also plays their confirmed clip through this,
+   * which is the same offer — a short cut to post — about one person.
+   */
+  label?: string;
+  /** The line under it, or nothing. */
+  note?: string | null;
+  /** How long it runs, from the registry, so the play button tells the truth. */
+  seconds?: number;
   /** Where a share sends somebody: the page this player is on. */
   pageUrl: string;
   title: string;
@@ -110,7 +123,7 @@ export function PromoPlayer({
 
   return (
     <div className="grid gap-3">
-      <div className="label">{VIDEO_SHARE.promo}</div>
+      <div className="label">{label}</div>
       <Frame>
         <video
           ref={video}
@@ -122,12 +135,12 @@ export function PromoPlayer({
           style={{ aspectRatio: `${SEQ.width} / ${SEQ.height}` }}
           onEnded={() => setStarted(false)}
           onError={() => setUnplayable(true)}
-          aria-label={`${VIDEO_SHARE.promo}, ${title}`}
+          aria-label={`${label}, ${title}`}
         />
         {started ? null : (
           <PlayOverlay
-            label={VIDEO_SHARE.promo}
-            seconds={FACEOFF_FRAMES / SEQ.fps}
+            label={label}
+            seconds={seconds}
             onPlay={() => {
               setStarted(true);
               track({ slug, kind: "tape_play", boutNumber });
@@ -136,7 +149,7 @@ export function PromoPlayer({
           />
         )}
       </Frame>
-      <p className="text-ash-dim text-xs leading-relaxed">{VIDEO_SHARE.promoNote}</p>
+      {note ? <p className="text-ash-dim text-xs leading-relaxed">{note}</p> : null}
       <VideoShare
         slug={slug}
         mp4={mp4}

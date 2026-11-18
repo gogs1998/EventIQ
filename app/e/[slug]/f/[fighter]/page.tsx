@@ -7,9 +7,12 @@ import { SponsorLink } from "@/components/SponsorLink";
 import { TrackOpen } from "@/components/TrackOpen";
 import { PromoPlayer } from "@/components/sequence/TapePlayer";
 import { boutForFighter, fighterSponsors, promoTitle } from "@/lib/card";
-import { PREVIOUS_SHOWS } from "@/lib/copy";
+import { CONFIRMED_CLIP, PREVIOUS_SHOWS } from "@/lib/copy";
 import { getDb } from "@/lib/db";
-import { loadRenders } from "@/lib/db/queries";
+import { loadConfirmedClip, loadRenders } from "@/lib/db/queries";
+import type { Renders } from "@/lib/renders";
+import { CONFIRMED_FRAMES } from "@/components/sequence/confirmed-parts";
+import { SEQ } from "@/components/sequence/timeline";
 import {
   boutBillingLabel,
   boutClassLine,
@@ -64,8 +67,17 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
   // on the row, and offering it here — with a download and a share — sold a
   // walkout that is not happening to whoever the fighter sent the page to.
   const live = assignment && !assignment.bout.cancelled ? assignment : undefined;
-  const renders = live ? await loadRenders(await getDb(), card.eventId) : {};
-  const promo = live ? renders[live.bout.number]?.faceoff : undefined;
+  const db = live ? await getDb() : null;
+  // Their own confirmed clip beside it: the one video on the site that is only
+  // about them. loadConfirmedClip offers it only while they are confirmed.
+  const [renders, clip] =
+    live && db
+      ? await Promise.all([
+          loadRenders(db, card.eventId),
+          loadConfirmedClip(db, card.eventId, live.bout.number, fighter.id),
+        ])
+      : [{}, undefined];
+  const promo = live ? (renders as Renders)[live.bout.number]?.faceoff : undefined;
   const record = formatRecord(fighter);
   const { score, missing } = completeness(fighter);
   const sponsors = fighterSponsors(card, fighter);
@@ -146,6 +158,22 @@ export default async function FighterPage({ params }: PageProps<"/e/[slug]/f/[fi
               </div>
             ))}
           </dl>
+        </section>
+      ) : null}
+
+      {clip && live ? (
+        <section className="px-5 pb-6">
+          <PromoPlayer
+            slug={card.event.slug}
+            boutNumber={live.bout.number}
+            mp4={clip}
+            pageUrl={`/e/${card.event.slug}/f/${fighter.id}`}
+            fighterId={fighter.id}
+            title={CONFIRMED_CLIP.title(fighter.name, card.event.name)}
+            label={CONFIRMED_CLIP.label}
+            note={null}
+            seconds={CONFIRMED_FRAMES[card.confirmedStyle] / SEQ.fps}
+          />
         </section>
       ) : null}
 
