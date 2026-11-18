@@ -25,6 +25,16 @@ const FRAMES = CONFIRMED_FRAMES.stamp;
 const IMPACT = 46;
 const CLOSE = 158;
 
+/**
+ * Where the stamp ends up, relative to where it landed (centred at y 910).
+ *
+ * Below the chin and right of centre, because the hero keeps the face in the
+ * middle of the top half of the frame: the seal's top edge stays under y 900
+ * and its bottom edge above the close's first line at y 1150. The stamp's own
+ * test holds both, so moving the close or the seal has to keep the face clear.
+ */
+export const STAMP_SEAL = { x: 220, y: 100, scale: 0.5 } as const;
+
 export function ConfirmedStamp({
   card,
   bout,
@@ -154,8 +164,13 @@ function TopLine({ a, frame: f }: { a: Announcement; frame: number }) {
 function Stamp({ frame: f, accent }: { frame: number; accent: string }) {
   if (f < IMPACT) return null;
   const scale = interpolate(f, [IMPACT, IMPACT + 7], [2.8, 1], easeOutExpo);
-  const settle = f >= CLOSE ? interpolate(f, [CLOSE, CLOSE + 18], [1, 0.62], easeOutCubic) : 1;
-  const lift = f >= CLOSE ? interpolate(f, [CLOSE, CLOSE + 18], [0, -330], easeOutCubic) : 0;
+  // At the close it shrinks to a seal and moves down and to the side, into the
+  // gap between the chest and the show's name. It used to lift *up*, which on a
+  // fighter standing where the hero puts them parked the word over their mouth
+  // for the last two seconds — the frames a story most often freezes on.
+  const settle = f >= CLOSE ? interpolate(f, [CLOSE, CLOSE + 18], [1, STAMP_SEAL.scale], easeOutCubic) : 1;
+  const shiftX = f >= CLOSE ? interpolate(f, [CLOSE, CLOSE + 18], [0, STAMP_SEAL.x], easeOutCubic) : 0;
+  const shiftY = f >= CLOSE ? interpolate(f, [CLOSE, CLOSE + 18], [0, STAMP_SEAL.y], easeOutCubic) : 0;
   const opacity = progress(f, IMPACT, IMPACT + 3);
 
   return (
@@ -168,7 +183,7 @@ function Stamp({ frame: f, accent }: { frame: number; accent: string }) {
         display: "flex",
         justifyContent: "center",
         opacity,
-        transform: `translateY(${lift}px) rotate(-9deg) scale(${scale * settle})`,
+        transform: `translate(${shiftX}px, ${shiftY}px) rotate(-9deg) scale(${scale * settle})`,
       }}
     >
       <svg width={900} height={300} viewBox="0 0 900 300" aria-hidden="true" style={{ overflow: "visible" }}>
