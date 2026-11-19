@@ -202,12 +202,15 @@
           }
         }
       ],
+      // Workers AI for the fighter-approved tidied photo. Staging only for now:
+      // the top-level binding is also what `next dev` reads (DEPLOY.md).
+      "ai": { "binding": "AI" },
       // Repeated rather than inherited, because vars are not: without these two
       // staging's pitch page shows no card and wrangler warns about both.
       "vars": {
         "SHOWCASE_SLUG": "cage-county-12",
         "STYLISED_PORTRAITS": "off",
-        "AI_PHOTO_REPAIR": "off",
+        "AI_PHOTO_REPAIR": "on",
         "EVENTIQ_ENV": "staging"
       }
     }
