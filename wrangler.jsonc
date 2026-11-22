@@ -60,17 +60,16 @@
     }
   ],
   // Workers AI, reached only by the opt-in stylised portrait and the opt-in
-  // tidied photo, both through @cf/runwayml/stable-diffusion-v1-5-img2img. Not declared here, on purpose:
-  // with an `ai` binding in the config, the dev server's Miniflare re-created
-  // its bindings part way through a session and every D1 and R2 call after
-  // that answered "poisoned stub" until a restart — a whole browser walkthrough
-  // died of it. The action reads env.AI and answers "not available here" when
-  // it is absent, so nothing else notices. To offer stylised portraits or the
-  // tidied photo on a deployment, add the binding below alongside
-  // STYLISED_PORTRAITS=on or AI_PHOTO_REPAIR=on, and keep the dev server on a
-  // config without it. `ai` is not inherited by an environment, so staging takes
-  // its own copy inside env.staging, beside its own vars — which is also the way
-  // to turn it on there without the dev server ever seeing it.
+  // tidied photo, both through @cf/runwayml/stable-diffusion-v1-5-img2img. Not
+  // declared for production because production has not been switched on, which
+  // is a decision rather than a default. It was first left out because the dev
+  // server's D1 and R2 went to "poisoned stub" mid-session with it present; on
+  // wrangler 4.158 that no longer reproduces (DEPLOY.md, "Turning on the tidied
+  // photo"). The action reads env.AI and answers "not available here" when it is
+  // absent. To offer stylised portraits or the tidied photo in production,
+  // uncomment the binding below alongside STYLISED_PORTRAITS=on or
+  // AI_PHOTO_REPAIR=on. `ai` is not inherited by an environment, so staging takes
+  // its own copy inside env.staging, beside its own vars.
   //
   //   "ai": { "binding": "AI" },
   //
@@ -202,8 +201,7 @@
           }
         }
       ],
-      // Workers AI for the fighter-approved tidied photo. Staging only for now:
-      // the top-level binding is also what `next dev` reads (DEPLOY.md).
+      // Workers AI for the fighter-approved tidied photo. Staging only for now.
       "ai": { "binding": "AI" },
       // Repeated rather than inherited, because vars are not: without these two
       // staging's pitch page shows no card and wrangler warns about both.

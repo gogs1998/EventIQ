@@ -356,11 +356,18 @@ It needs two things in [wrangler.jsonc](wrangler.jsonc), and the action answers
 
 **Production** — at the top level, the same two lines: `"ai": { "binding": "AI" }`
 and `"AI_PHOTO_REPAIR": "on"` in the top-level `vars`. **The top-level `ai`
-binding is also what `next dev` reads**, and with it present the dev server's
-Miniflare re-created its bindings part way through a session and every D1 and R2
-call answered "poisoned stub" (the comment above the commented-out binding says
-so). Until that is solved, add it for the production deploy and leave it out of
-what developers run, or deploy production from a branch that carries it.
+binding and vars are also what `next dev` reads.** With wrangler 4.126 the dev
+server's bindings went to "poisoned stub" part way through a session with the
+binding present, which is why it was left out. On wrangler 4.158 (miniflare
+5.20261104) that did not come back: with the binding uncommented, a full
+`scripts/e2e.mjs` walkthrough against `next dev` passed, and D1 and R2 kept
+answering after edits to a page, to `wrangler.jsonc` and to `next.config.ts`
+mid-session. Bug 39 in HANDOVER section 14 describes the same symptom coming from
+workerd being killed under memory pressure, so the binding may never have been the
+cause. What a developer gets with it in is a warning that AI bindings are always
+remote, and an `env.AI` that fails without Cloudflare credentials, which the
+action reports as "could not make" rather than a 500. Put
+`AI_PHOTO_REPAIR=off` in `.dev.vars` so the local server does not offer it.
 
 Then deploy (`node scripts/deploy.mjs --env staging`, or `npm run deploy`). No
 secret and no migration is involved; turning it off again is `"off"` and a
