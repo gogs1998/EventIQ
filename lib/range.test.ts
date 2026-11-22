@@ -35,12 +35,17 @@ describe("parseRange", () => {
 
 describe("rangeHeaders", () => {
   it("says ranges are accepted on a whole answer", () => {
-    expect(rangeHeaders(null, 100)).toEqual({ "accept-ranges": "bytes", "content-length": "100" });
+    expect(rangeHeaders(null, 100)).toEqual({
+      "accept-ranges": "bytes",
+      "content-length": "100",
+      "x-eventiq-length": "100",
+    });
   });
 
   it("names the slice on a partial one", () => {
     expect(rangeHeaders({ offset: 0, length: 2 }, 100)).toMatchObject({
       "content-length": "2",
+      "x-eventiq-length": "2",
       "content-range": "bytes 0-1/100",
     });
   });

@@ -13,15 +13,25 @@
  * its own, so a FixedLengthStream returned from a route handler is lost on the
  * way out. The routes state the length; this keeps the promise.
  *
+ * The routes state it twice. Since Next.js 16.4 a route handler's
+ * Content-Length is deleted before the response leaves Next.js, so it never
+ * reaches worker.mjs (bug 55); STATED_LENGTH carries the same number past that,
+ * and is taken off again here so it never goes out.
+ *
  * Only a 200 or a 206 with a stated length is touched, and only where the
  * runtime has FixedLengthStream. Under Node the response is returned as it is.
  */
 type FixedLengthStreamConstructor = new (length: number) => TransformStream<Uint8Array, Uint8Array>;
 
+/** The length a video route states, in a header Next.js leaves alone. */
+export const STATED_LENGTH = "x-eventiq-length";
+
 export function withStatedLength(response: Response): Response {
   const Fixed = (globalThis as { FixedLengthStream?: FixedLengthStreamConstructor })
     .FixedLengthStream;
-  const stated = Number(response.headers.get("content-length"));
+  const stated = Number(
+    response.headers.get("content-length") ?? response.headers.get(STATED_LENGTH),
+  );
   if (
     !Fixed ||
     !response.body ||
@@ -31,7 +41,13 @@ export function withStatedLength(response: Response): Response {
   ) {
     return response;
   }
-  return new Response(response.body.pipeThrough(new Fixed(stated)), response);
+  const headers = new Headers(response.headers);
+  headers.delete(STATED_LENGTH);
+  return new Response(response.body.pipeThrough(new Fixed(stated)), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /** The two routes that serve video, and the only ones withStatedLength is for. */

@@ -1123,6 +1123,11 @@ One, and it is bug 27's argument one level down. Read the two together: the same
 
     What it does not do: two people *touching* are flagged, not separated, and an arm round the fighter's shoulder from somebody out of frame stays in the cutout. Repairs apply to cutouts made from now on; existing ones are not re-judged until `--refresh-cutouts`.
 
+
+### From the upgrade to Next.js 16.4
+
+55. **Upgrading Next.js took the Content-Length off every video again, and every test still passed.** Next.js 16.4 deletes `content-length`, `content-encoding` and `transfer-encoding` from a route handler's response before it leaves (`FORBIDDEN_HEADERS` in `next/dist/server/send-response.js`, there because a decoded `fetch()` body keeps a stale length). The video routes state their length in exactly that header and worker.mjs reads it back to hold the body to it (bug 47), so after the upgrade worker.mjs saw no length, did nothing, and a `Range: bytes=0-1` probe answered 206 with the right two bytes, chunked, and no length — the shape an iPhone refuses. The e2e range step passed throughout, because it checked the status, the Content-Range and the byte count and never the one header the bug was about. **Fix:** the routes state the length twice, the second time as `x-eventiq-length` (`STATED_LENGTH` in lib/fixed-length.ts), which Next.js leaves alone; `withStatedLength` takes it when Content-Length is gone and strips it on the way out. The e2e step now fails on a Workers response (one carrying `x-opennext`) without `Content-Length: 2`. `next dev` is not held to it, because nothing there puts the header back. The general lesson is the one bug 47 already taught: a header the platform owns is not a header a route can rely on, and a check has to name the thing it is protecting.
+
 ---
 
 ## 15. Environment notes

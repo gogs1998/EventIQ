@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { VIDEO_ROUTES, withStatedLength } from "@/lib/fixed-length";
+import { STATED_LENGTH, VIDEO_ROUTES, withStatedLength } from "@/lib/fixed-length";
 
 const video = (status: number, headers: Record<string, string>) =>
   new Response(
@@ -41,6 +41,19 @@ describe("withStatedLength", () => {
     expect(lengths).toEqual([2]);
     expect(held.status).toBe(206);
     expect(held.headers.get("content-range")).toBe("bytes 0-1/300000");
+    expect([...new Uint8Array(await held.arrayBuffer())]).toEqual([7, 8]);
+  });
+
+  /** Next.js 16.4 deletes a route's Content-Length before worker.mjs sees it (bug 55). */
+  it("takes the length from the route's own header when Content-Length is gone, and drops it", async () => {
+    global.FixedLengthStream = fake;
+    const held = withStatedLength(
+      video(206, { [STATED_LENGTH]: "2", "content-range": "bytes 0-1/300000" }),
+    );
+
+    expect(lengths).toEqual([2]);
+    expect(held.status).toBe(206);
+    expect(held.headers.has(STATED_LENGTH)).toBe(false);
     expect([...new Uint8Array(await held.arrayBuffer())]).toEqual([7, 8]);
   });
 

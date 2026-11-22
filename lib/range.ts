@@ -11,6 +11,8 @@
  * whole object, which RFC 9110 permits and no media player sends.
  */
 
+import { STATED_LENGTH } from "./fixed-length";
+
 /** What to read: `offset` and `length` of the object, both in bytes. */
 export type ByteRange = { offset: number; length: number };
 
@@ -42,12 +44,20 @@ export function parseRange(header: string | null, size: number): ByteRange | nul
   return { offset: start, length: end - start + 1 };
 }
 
-/** The headers a ranged answer carries on top of the route's own. */
+/**
+ * The headers a ranged answer carries on top of the route's own.
+ *
+ * The length goes in twice because Next.js deletes a route's Content-Length;
+ * worker.mjs puts it back from STATED_LENGTH (lib/fixed-length.ts, bug 55).
+ */
 export function rangeHeaders(range: ByteRange | null, size: number): Record<string, string> {
-  if (!range) return { "accept-ranges": "bytes", "content-length": String(size) };
+  if (!range) {
+    return { "accept-ranges": "bytes", "content-length": String(size), [STATED_LENGTH]: String(size) };
+  }
   return {
     "accept-ranges": "bytes",
     "content-length": String(range.length),
+    [STATED_LENGTH]: String(range.length),
     "content-range": `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`,
   };
 }

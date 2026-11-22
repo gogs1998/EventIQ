@@ -106,7 +106,14 @@ const step = async (name, fn) => {
 async function firstTwoBytes(url) {
   const res = await fetch(url, { headers: { range: "bytes=0-1" } });
   const body = new Uint8Array(await res.arrayBuffer());
-  return { status: res.status, range: res.headers.get("content-range"), type: res.headers.get("content-type"), bytes: body.byteLength };
+  return {
+    status: res.status,
+    range: res.headers.get("content-range"),
+    type: res.headers.get("content-type"),
+    length: res.headers.get("content-length"),
+    workers: res.headers.has("x-opennext"),
+    bytes: body.byteLength,
+  };
 }
 
 /** An iPhone will not play a video from a server that answers Range with a 200 (bug 47). */
@@ -114,7 +121,12 @@ function expectPartial(what, got) {
   if (got.status !== 206) throw new Error(`${what} answered a range with ${got.status}, wanted 206`);
   if (!/^bytes 0-1\/\d+$/.test(got.range ?? "")) throw new Error(`${what} Content-Range was ${got.range}`);
   if (got.bytes !== 2) throw new Error(`${what} sent ${got.bytes} bytes for a two-byte range`);
-  return got.range;
+  // Safari also wants the 206 to say how long it is. Only worker.mjs puts the
+  // length back after Next.js deletes it (bug 55), so `next dev` is not held to it.
+  if (got.workers && got.length !== "2") {
+    throw new Error(`${what} Content-Length was ${got.length}, wanted 2`);
+  }
+  return `${got.range}, Content-Length ${got.length ?? "absent (not the Workers runtime)"}`;
 }
 
 /**
