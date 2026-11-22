@@ -16,6 +16,12 @@ on:
   push:
   pull_request:
 
+# What .npmrc's onnxruntime-node-install-cuda=skip says (its CUDA download 404s),
+# as an environment variable, which onnxruntime-node's script/install.js reads
+# directly and an install script inherits whatever npm thinks of unknown keys.
+env:
+  npm_config_onnxruntime_node_install_cuda: skip
+
 jobs:
   check:
     runs-on: ubuntu-latest
