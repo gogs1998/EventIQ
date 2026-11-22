@@ -13,11 +13,14 @@
  * Workers stream type and the DOM one this app also compiles against are not the
  * same declaration and will not assign to each other. The shape below is all
  * either of them needs to satisfy.
+ *
+ * Takes `unknown` because the img2img model is no longer in workers-types'
+ * model list, so `ai.run` is typed as returning a plain record. Anything that
+ * is not a stream comes back empty, which the caller's byte sniff refuses.
  */
-export async function collect(stream: {
-  getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> };
-}): Promise<Uint8Array> {
-  const reader = stream.getReader();
+export async function collect(output: unknown): Promise<Uint8Array> {
+  if (!isByteStream(output)) return new Uint8Array(0);
+  const reader = output.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
@@ -35,6 +38,18 @@ export async function collect(stream: {
     at += chunk.length;
   }
   return bytes;
+}
+
+type ByteStream = {
+  getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> };
+};
+
+function isByteStream(value: unknown): value is ByteStream {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { getReader?: unknown }).getReader === "function"
+  );
 }
 
 /** Base64 without blowing the stack on a few hundred kilobytes at a time. */
