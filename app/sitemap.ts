@@ -50,6 +50,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries = [
     { path: "/", priority: 1 },
     { path: "/shows", priority: 0.8 },
+    // The two other products, pitched on pages of their own (lib/products.ts).
+    { path: "/awards", priority: 0.8 },
+    { path: "/seminars", priority: 0.8 },
     ...shows.map((show) => ({
       path: `/e/${show.slug}`,
       priority: show.slug === card?.event.slug ? 0.9 : 0.7,

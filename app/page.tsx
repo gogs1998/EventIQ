@@ -19,6 +19,7 @@ import {
   tapeForEveryBout,
 } from "@/lib/copy";
 import { getDb, readVar } from "@/lib/db";
+import { ALSO_FOR } from "@/lib/products";
 import { loadRenders, loadShowcase } from "@/lib/db/queries";
 import { daysUntilShow, DONE_AT, sponsorInventory } from "@/lib/promoter";
 import { formatEventDateShort } from "@/lib/tape";
@@ -514,6 +515,38 @@ export default async function PitchPage() {
           </div>
         </section>
       ) : null}
+
+      {/* ---------------------------------------------------------- also for */}
+      {/* The two other products, each on a page of its own. Static, so it
+          stays whatever the showcase card is doing. */}
+      <section className="border-hairline border-t">
+        <div className="mx-auto max-w-5xl px-5 py-14">
+          <h2 className="display text-3xl">{ALSO_FOR.heading}</h2>
+          <p className="text-ash mt-3 text-sm leading-relaxed">{ALSO_FOR.body}</p>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            {[
+              { href: "/awards", ...ALSO_FOR.awards },
+              { href: "/seminars", ...ALSO_FOR.seminars },
+            ].map((product) => (
+              <Link
+                key={product.href}
+                href={product.href}
+                className="border-hairline hover:border-chalk/40 group flex items-center justify-between gap-4 border px-5 py-4 transition-colors"
+              >
+                <div>
+                  <div className="display text-chalk group-hover:text-gold text-xl transition-colors">
+                    {product.title}
+                  </div>
+                  <div className="text-ash mt-1 text-sm">{product.body}</div>
+                </div>
+                <span aria-hidden className="text-ash-dim group-hover:text-chalk shrink-0 text-2xl transition-colors">
+                  →
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <footer className="border-hairline text-ash-dim border-t px-5 py-10 text-xs">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">

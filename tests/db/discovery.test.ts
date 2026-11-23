@@ -234,11 +234,16 @@ describe("the sitemap", () => {
   });
 
   /** An instance nobody has pointed at a showcase still has a sitemap. */
-  it("is the front page and the shows list with no showcase named", async () => {
+  it("is the front page, the shows list and the product pages with no showcase named", async () => {
     const db = platform().db;
     await plantPromoters(db, [{ id: "pr_cage", name: "Cage County Promotions" }]);
     setEnv("SHOWCASE_SLUG", undefined);
 
-    expect(await urls()).toEqual(["https://eventiq.win/", "https://eventiq.win/shows"]);
+    expect(await urls()).toEqual([
+      "https://eventiq.win/",
+      "https://eventiq.win/shows",
+      "https://eventiq.win/awards",
+      "https://eventiq.win/seminars",
+    ]);
   });
 });
