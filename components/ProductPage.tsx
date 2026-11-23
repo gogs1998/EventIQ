@@ -44,8 +44,14 @@ export function ProductPageView({ page }: { page: ProductPage }) {
             </p>
             <div className="mt-6 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-3 lg:mt-8">
               <a
+                href={page.demo.href}
+                className="bg-red-corner hover:bg-red-corner-hot display text-chalk col-span-2 px-3 py-3.5 text-center text-base transition-colors sm:px-5 sm:text-lg"
+              >
+                {page.demo.label}
+              </a>
+              <a
                 href="#how-it-works"
-                className="bg-red-corner hover:bg-red-corner-hot display text-chalk px-3 py-3.5 text-center text-base transition-colors sm:px-5 sm:text-lg"
+                className="border-chalk/25 hover:border-chalk/60 display border px-3 py-3.5 text-center text-base transition-colors sm:px-5 sm:text-lg"
               >
                 How it works
               </a>

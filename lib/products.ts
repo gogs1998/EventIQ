@@ -51,6 +51,8 @@ export type ProductPage = {
   /** The app it was built as, shown once as a subtitle. */
   builtAs: string;
   meta: { title: string; description: string; ogAlt: string };
+  /** The invented example, running for real on the product's own site. */
+  demo: { href: string; label: string };
   hero: {
     badge: string;
     headline: string;
@@ -91,6 +93,10 @@ export const ALSO_FOR = {
 } as const;
 
 export const AWARDS: ProductPage = {
+  demo: {
+    href: "https://awards.eventiq.win/e/north-coast-combat-awards-2027",
+    label: "See the live demo",
+  },
   path: "/awards",
   name: "EventIQ Awards",
   builtAs: "AwardsIQ",
@@ -275,6 +281,10 @@ export const AWARDS: ProductPage = {
 };
 
 export const SEMINARS: ProductPage = {
+  demo: {
+    href: "https://seminars.eventiq.win/s/wolf-wolski-dundee",
+    label: "See the live demo",
+  },
   path: "/seminars",
   name: "EventIQ Seminars",
   builtAs: "SeminarIQ",
