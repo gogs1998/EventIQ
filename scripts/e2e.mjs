@@ -818,6 +818,86 @@ await step("a rendered bout answers a byte range", async () => {
   return `${video} ${expectPartial(video, await firstTwoBytes(`${BASE}${video}`))}`;
 });
 
+// ------------------------------------------------------- the product pages
+
+/** The two product pages, and the five loops on them (lib/products.ts). */
+const PRODUCT_PAGES = [
+  { path: "/awards", name: "eventiq awards", clips: ["awards-nominated.mp4", "awards-winner.mp4", "awards-fight-of-the-year.mp4"] },
+  { path: "/seminars", name: "eventiq seminars", clips: ["seminars-announcement.mp4", "seminars-countdown.mp4"] },
+];
+
+await step("the product pages load, with their pictures", async () => {
+  const visitor = await browser.newPage();
+  await visitor.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true });
+  try {
+    for (const product of PRODUCT_PAGES) {
+      const res = await visitor.goto(`${BASE}${product.path}`, { waitUntil: "networkidle0" });
+      if (res?.status() !== 200) throw new Error(`${product.path} answered ${res?.status()}`);
+      const text = await textOf(visitor);
+      if (!text.includes(product.name)) throw new Error(`${product.path} does not say ${product.name}`);
+      // The examples are invented; the apps' real prospective clients must never show.
+      if (/scottish combat|crowne plaza|des clarke|vizeer|demetrious|bellahouston/.test(text)) {
+        throw new Error(`${product.path} names a real prospective client`);
+      }
+      const media = await visitor.evaluate(async () => {
+        const images = [...document.querySelectorAll("main img")];
+        for (const img of images) img.loading = "eager";
+        await Promise.all(images.map((img) => img.decode().catch(() => {})));
+        return {
+          broken: images.filter((img) => !img.complete || img.naturalWidth === 0).map((img) => img.getAttribute("src")),
+          videos: [...document.querySelectorAll("main video")].map((v) => v.getAttribute("src")),
+          unlabelled: images.filter((img) => !img.alt).length,
+        };
+      });
+      if (media.broken.length) throw new Error(`${product.path} has broken images: ${media.broken.join(", ")}`);
+      if (media.unlabelled) throw new Error(`${product.path} has ${media.unlabelled} images without alt text`);
+      const expected = product.clips.map((c) => `/clips/${c}`).sort();
+      if (JSON.stringify([...new Set(media.videos)].sort()) !== JSON.stringify(expected)) {
+        throw new Error(`${product.path} plays ${media.videos.join(", ")}, wanted ${expected.join(", ")}`);
+      }
+      await shot(visitor, `product${product.path.replace("/", "-")}`);
+    }
+    const sitemap = await (await fetch(`${BASE}/sitemap.xml`)).text();
+    for (const product of PRODUCT_PAGES) {
+      if (!sitemap.includes(`${product.path}</loc>`)) throw new Error(`the sitemap leaves out ${product.path}`);
+    }
+    return PRODUCT_PAGES.map((p) => p.path).join(" and ");
+  } finally {
+    await visitor.close();
+  }
+});
+
+await step("the product clips answer a byte range", async () => {
+  const answers = [];
+  for (const clip of PRODUCT_PAGES.flatMap((p) => p.clips)) {
+    const got = await firstTwoBytes(`${BASE}/clips/${clip}`);
+    answers.push(expectPartial(clip, got));
+    if (got.type !== "video/mp4") throw new Error(`${clip} came back as ${got.type}`);
+  }
+  return `${answers.length} clips, ${answers[0]}`;
+});
+
+await step("the homepage links to the product pages", async () => {
+  const visitor = await browser.newPage();
+  try {
+    await visitor.goto(`${BASE}/`, { waitUntil: "networkidle0" });
+    for (const product of PRODUCT_PAGES) {
+      if (!(await visitor.$(`main a[href="${product.path}"]`))) throw new Error(`no link to ${product.path} on the homepage`);
+    }
+    // A client-side navigation, so the condition is the address, not a load event.
+    await visitor.click('main a[href="/awards"]');
+    await visitor.waitForFunction((p) => location.pathname === p, { timeout: 30000 }, "/awards");
+    if (new URL(visitor.url()).pathname !== "/awards") throw new Error(`landed on ${visitor.url()}`);
+    // A client-side navigation, so the condition is the address, not a load event.
+    await visitor.click('footer a[href="/seminars"]');
+    await visitor.waitForFunction((p) => location.pathname === p, { timeout: 30000 }, "/seminars");
+    if (new URL(visitor.url()).pathname !== "/seminars") throw new Error(`landed on ${visitor.url()}`);
+    await visitor.waitForFunction(() => document.querySelector("h1")?.textContent?.includes("link"), { timeout: 30000 });
+  } finally {
+    await visitor.close();
+  }
+});
+
 await step("signing out locks the dashboard again", async () => {
   await page.goto(`${BASE}/promoter/e/${slug}`, { waitUntil: "networkidle0" });
   await readyText(page, "Sign out");
