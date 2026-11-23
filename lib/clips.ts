@@ -27,6 +27,13 @@ export const CLIPS: Readonly<Record<string, { path: string; size: number }>> = {
   "demo-bout-13.mp4": { path: "/renders/bout-13.mp4", size: 1600078 },
   "demo-bout-14.mp4": { path: "/renders/bout-14.mp4", size: 1740263 },
   "demo-bout-15.mp4": { path: "/renders/bout-15.mp4", size: 1666069 },
+  // The product pages' loops (lib/products.ts), cut to 540 wide from each app's
+  // own renderer on an invented example.
+  "awards-nominated.mp4": { path: "/products/awards/nominated.mp4", size: 393033 },
+  "awards-winner.mp4": { path: "/products/awards/winner.mp4", size: 283946 },
+  "awards-fight-of-the-year.mp4": { path: "/products/awards/fight-of-the-year.mp4", size: 303490 },
+  "seminars-announcement.mp4": { path: "/products/seminars/announcement.mp4", size: 606786 },
+  "seminars-countdown.mp4": { path: "/products/seminars/countdown.mp4", size: 358157 },
 };
 
 /**

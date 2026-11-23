@@ -69,6 +69,7 @@ An independent audit after that found three more, all fixed: **the capture page 
 | `/api/track` | Records one interaction | public, write-only |
 | `/api/import-record` | Fetches and parses one record page | public |
 | `/about-the-importer` | What the importer bot does, linked from its user agent | public |
+| `/awards`, `/seminars` | Product pages for EventIQ Awards and EventIQ Seminars (built as AwardsIQ and SeminarIQ, separate apps). Static, on invented examples only: the apps were built for real prospective clients and nothing of theirs may appear here, which `lib/products.test.ts` enforces. Clips go through `/clips` like every other video | public |
 
 ---
 
