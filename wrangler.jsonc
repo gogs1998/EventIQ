@@ -118,17 +118,19 @@
   // nothing worth having and loses the one request that went wrong. Revisit it
   // if a show ever puts real load through this, not before.
   //
-  // logs.enabled turns on the console output the app writes through lib/log.ts,
-  // and invocation_logs keeps the one line per request that says which route and
-  // what status, which is what makes a structured error joinable to the request
-  // it came from. Section 12a has how to read them.
+  // logs.enabled turns on the console output the app writes through lib/log.ts.
+  // invocation_logs is OFF: its one line per request records the whole URL, and a
+  // fighter's private link is /f/<token> where the token is the entire
+  // authorisation, so logging the path hands a reader a working link. The app's
+  // own structured logs still join an error to its route without the token.
+  // Section 12a has how to read them.
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
-      "invocation_logs": true
+      "invocation_logs": false
     }
   },
   // A second Worker, with its own database and its own bucket, for the suite
